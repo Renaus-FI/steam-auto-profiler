@@ -40,7 +40,7 @@ class RunTests(unittest.TestCase):
             "NO_GUI": "1",
             "NO_NTSYNC": "1",
             "NO_DECORATION": "1",
-            "GAMEID": "umu-2357570",
+            "GAMEID": "361420",
         })
         result = subprocess.run(
             [str(RUN), "/usr/bin/env"],
@@ -53,6 +53,24 @@ class RunTests(unittest.TestCase):
         self.assertIn("PROTON_NO_NTSYNC=1", result.stdout)
         self.assertIn("PROTON_NO_WM_DECORATION=1", result.stdout)
         self.assertIn("WINE_NO_WM_DECORATION=1", result.stdout)
+
+    def test_competitive_profile_keeps_wayland_shortcuts_and_decorations(self):
+        env = os.environ.copy()
+        env.update({
+            "NO_GUI": "1",
+            "GAMEID": "umu-2357570",
+        })
+        result = subprocess.run(
+            [str(RUN), "/usr/bin/env"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WAYLANDDRV_SHORTCUT_INHIBIT=0", result.stdout)
+        self.assertIn("PROTON_NO_WM_DECORATION=0", result.stdout)
+        self.assertIn("WINE_NO_WM_DECORATION=0", result.stdout)
 
 
 if __name__ == "__main__":

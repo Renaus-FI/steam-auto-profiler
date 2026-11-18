@@ -346,7 +346,7 @@ else
     USE_CEF_FIX="$AUTO_CEF_FIX"
     if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
         USE_SHARPEN=0
-        USE_NO_DECORATION=1
+        USE_NO_DECORATION=0
     fi
 fi
 
@@ -464,12 +464,17 @@ fi
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
     USE_MLFG=0
+    USE_NO_DECORATION=0
     export PROTON_USE_OPTISCALER=0
     # Async shader pipelines must stay disabled for anti-cheat/multiplayer titles.
     export PROTON_DXVK_SAREK=0
     export PROTON_DXVK_GPLASYNC=0
     export PROTON_DXVK_LLASYNC=0
-    export WAYLANDDRV_SHORTCUT_INHIBIT="${WAYLANDDRV_SHORTCUT_INHIBIT:-1}"
+    export WAYLANDDRV_SHORTCUT_INHIBIT=0
+    export NO_DECORATION=0
+    export NO_WM_DECORATION=0
+    export PROTON_NO_WM_DECORATION=0
+    export WINE_NO_WM_DECORATION=0
     export PROTON_DXVK_LOWLATENCY=1
     export PROTON_VKD3D_LOWLATENCY=1
 fi

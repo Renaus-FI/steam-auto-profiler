@@ -91,7 +91,7 @@ MANAGED_ENV_PREFIXES = (
 )
 
 
-def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
+def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, write_profile=True):
     """Convert a noisy Steam launch string into a managed wrapper and profile."""
     try:
         tokens = shlex_split = __import__("shlex").split(launch_options)
@@ -103,6 +103,9 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
     after = tokens[command_at + 1:] if command_at < len(tokens) else []
 
     profile = {}
+    wayland_enabled = False
+    wayland_disabled = False
+    xwayland_explicit = False
     for token in before:
         if token.lower() in ("-vulkan", "--vulkan"):
             profile["USE_VULKAN"] = "1"
@@ -111,27 +114,31 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
         key, value = token.split("=", 1)
         key = key.upper()
         if key == "XWAYLAND":
-            profile["USE_XWAYLAND"] = "1" if value in ("1", "true", "TRUE") else "0"
+            if value in ("1", "true", "TRUE"):
+                xwayland_explicit = True
+            else:
+                profile["USE_XWAYLAND"] = "0"
         elif key in ("PROTON_PREFER_SDL", "PROTON_USE_SDL"):
             profile["USE_SDL"] = "1" if value in ("1", "true", "TRUE") else "0"
         elif key == "PROTON_NO_STEAMINPUT":
             profile["USE_SDL"] = "1" if value in ("1", "true", "TRUE") else "0"
         elif key == "PROTON_MLFG_UPGRADE":
             profile["USE_MLFG"] = "1" if value in ("1", "true", "TRUE") else "0"
-        elif key == "PROTON_FSR4_RDNA3_UPGRADE":
-            if value in ("1", "true", "TRUE"):
-                profile["USE_MLFG"] = "1"
-        elif key == "PROTON_FSR4_UPGRADE":
-            if value in ("1", "true", "TRUE"):
-                profile["USE_FSR4"] = "1"
         elif key in ("PROTON_ENABLE_WAYLAND", "PROTON_USE_WAYLAND"):
             if value in ("1", "true", "TRUE"):
-                profile["USE_XWAYLAND"] = "1"
+                wayland_enabled = True
+            elif value in ("0", "false", "FALSE"):
+                wayland_disabled = True
         elif key == "PROTON_NO_NTSYNC":
             profile["PROTON_NO_NTSYNC"] = "1" if value in ("1", "true", "TRUE") else "0"
         elif key == "PROTON_ENABLE_MEDIACONV":
             if value in ("1", "true", "TRUE"):
                 profile["USE_VIDEO_FIX"] = "1"
+
+    if wayland_enabled:
+        profile.pop("USE_XWAYLAND", None)
+    elif xwayland_explicit or wayland_disabled:
+        profile["USE_XWAYLAND"] = "1"
 
     preserved_after = []
     for token in after:
@@ -155,7 +162,7 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
     if not has_command and env_only:
         replacement = ""
 
-    if profile and not dry_run:
+    if profile and write_profile and not dry_run:
         profile_dir.mkdir(parents=True, exist_ok=True)
         profile_file = profile_dir / f"{appid}.env"
         existing = {}
@@ -340,6 +347,7 @@ def main():
 
             rows = []
             for appid, name in sorted(games.items(), key=lambda item: item[1].lower()):
+                profile_file = home / ".config/steam-auto-profiler/profiles" / f"{appid}.env"
                 result = subprocess.run(
                     [str(detector), "--json", appid],
                     text=True,
@@ -357,28 +365,30 @@ def main():
                     "name": name,
                     "class": report.get("class", "standard"),
                     "compat": report.get("proton_add_config", "-") or "-",
+                    "profile": "Saved" if profile_file.is_file() else "Auto",
                     "synced": "Yes" if appid in synced_appids else "No",
                 })
 
             if rows:
-                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Synced")
+                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Profile", "Synced")
                 widths = [
                     max(len(headers[0]), *(len(row["appid"]) for row in rows)),
                     max(len(headers[1]), *(len(row["name"]) for row in rows)),
                     max(len(headers[2]), *(len(row["class"]) for row in rows)),
                     max(len(headers[3]), *(len(row["compat"]) for row in rows)),
-                    max(len(headers[4]), *(len(row["synced"]) for row in rows)),
+                    max(len(headers[4]), *(len(row["profile"]) for row in rows)),
+                    max(len(headers[5]), *(len(row["synced"]) for row in rows)),
                 ]
                 print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
                 print("-+-".join("-" * width for width in widths))
                 for row in rows:
                     values = (
                         row["appid"], row["name"], row["class"],
-                        row["compat"], row["synced"],
+                        row["compat"], row["profile"], row["synced"],
                     )
                     print(" | ".join(value.ljust(width) for value, width in zip(values, widths)))
             else:
-                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Synced")
+                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Profile", "Synced")
                 widths = tuple(max(len(header), 1) for header in headers)
                 print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
                 print("-+-".join("-" * width for width in widths))
@@ -465,7 +475,9 @@ def main():
                         continue
                     profile_dir = home / ".config/steam-auto-profiler/profiles"
                     replacement, _ = sanitize_launch_option(
-                        appid, current, profile_dir, dry_run=args.dry_run
+                        appid, current, profile_dir,
+                        dry_run=args.dry_run,
+                        write_profile=False,
                     )
                     if replacement == current:
                         continue

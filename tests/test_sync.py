@@ -93,12 +93,33 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("AppID", result.stdout)
         self.assertIn("Compat Tokens", result.stdout)
+        self.assertIn("Profile", result.stdout)
         self.assertIn("Synced", result.stdout)
+
+    def test_report_shows_saved_profile_and_overrides(self):
+        profile_dir = self.home / ".config/steam-auto-profiler/profiles"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / "730.env").write_text(
+            "USE_XWAYLAND=1\n"
+            "USE_MLFG=1\n"
+            "USE_SDL=1\n"
+            "USE_SAFEDX12=1\n"
+            "PROTON_NO_NTSYNC=1\n",
+            encoding="utf-8",
+        )
+        result = self.run_sync("--report")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Profile", result.stdout)
+        self.assertIn("Saved", result.stdout)
+        self.assertIn("mlfg", result.stdout)
+        self.assertIn("sdlinput", result.stdout)
+        self.assertIn("nontsync", result.stdout)
+        self.assertNotIn("vkd3dbindlesstb", result.stdout)
 
     def test_sanitize_dry_run_migrates_messy_flags(self):
         messy = (
-            "PROTON_FSR4_RDNA3_UPGRADE=1 PROTON_ENABLE_WAYLAND=1 "
-            "XWAYLAND=1 ENABLE_LAYER_MESA_ANTI_LAG=1 "
+            "PROTON_FSR4_RDNA3_UPGRADE=1 PROTON_ENABLE_WAYLAND=0 "
+            "ENABLE_LAYER_MESA_ANTI_LAG=1 "
             "cachy-run game-performance steam-auto-run "
             "%command% -dx12"
         )
@@ -182,6 +203,29 @@ class SyncTests(unittest.TestCase):
         self.assertIn("steam-auto-run %command%", updated)
         self.assertNotIn("cachy-run", updated)
         self.assertNotIn("PROTON_FSR4_RDNA3_UPGRADE=1", updated)
+        orphan_profile = (
+            self.home / ".config/steam-auto-profiler/profiles/999999.env"
+        )
+        self.assertFalse(orphan_profile.exists())
+
+    def test_sanitize_wayland_fsr4_installed_has_no_redundant_profile(self):
+        launch = (
+            "PROTON_ENABLE_WAYLAND=1 "
+            "PROTON_FSR4_RDNA3_UPGRADE=1 game-performance %command%"
+        )
+        loader = importlib.machinery.SourceFileLoader(
+            "steam_auto_sync_wayland", str(SYNC)
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        profile_dir = self.home / ".config/steam-auto-profiler/profiles"
+        replacement, profile = module.sanitize_launch_option(
+            "730", launch, profile_dir
+        )
+        self.assertIn("steam-auto-run %command%", replacement)
+        self.assertNotIn("USE_XWAYLAND", profile)
+        self.assertFalse((profile_dir / "730.env").exists())
 
 
 if __name__ == "__main__":

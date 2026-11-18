@@ -29,6 +29,7 @@ class RunTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": temp,
+                "XDG_CONFIG_HOME": f"{temp}/.config",
                 "NO_GUI": "1",
             })
             result = subprocess.run(

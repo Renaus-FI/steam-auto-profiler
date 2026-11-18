@@ -24,6 +24,29 @@ class RunTests(unittest.TestCase):
         self.assertIn("vm.max_map_count=", result.stdout)
         self.assertIn("/usr/share/steam/compatibilitytools.d", RUN.read_text(encoding="utf-8"))
 
+    def test_configure_without_command_exits_successfully(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env.update({
+                "HOME": temp,
+                "XDG_CONFIG_HOME": f"{temp}/.config",
+                "NO_GUI": "1",
+            })
+            result = subprocess.run(
+                [str(RUN), "--configure", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(
+                "Configuration completed for AppID 361420 "
+                f"({temp}/.config/steam-auto-profiler/profiles/361420.env).",
+                result.stdout,
+            )
+            self.assertNotIn("Error: No command to launch", result.stderr)
+
     def test_legacy_rcas_profile_alias(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)

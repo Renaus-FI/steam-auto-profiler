@@ -595,6 +595,11 @@ EOF
     fi
 fi
 
+if [[ "$CONFIGURE_ONLY" -eq 1 && "$#" -eq 0 ]]; then
+    echo "Configuration completed for AppID ${APPID} (${PROFILE_FILE})."
+    exit 0
+fi
+
 [[ "${XWAYLAND:-0}" -eq 1 ]] && USE_XWAYLAND=1
 [[ "${MLFG:-0}" -eq 1 ]] && USE_MLFG=1
 [[ "${OPTISCALER:-0}" -eq 1 ]] && USE_OPTISCALER=1

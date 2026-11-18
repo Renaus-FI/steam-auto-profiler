@@ -56,6 +56,36 @@ installed system-wide with an explicit sudoers rule. The network helper can use 
 - `steam-auto-run [--inspect|--configure|--reset] [APPID]` - orchestrate a Steam launch.
 - `steam-auto-sync [--dry-run|--remove]` - update Steam `localconfig.vdf` launch options.
 - `steam-auto-net-boost [on|off|status]` - apply or restore optional network tuning.
+- `steam-auto-detect --inspect --json [APPID]` - print a machine-readable classification report.
+
+## Proton and Steam Linux Runtime compatibility
+
+Steam Auto-Profiler exports only compatibility variables supported by the selected Proton build. It never vendors a Proton runtime or injects libraries:
+
+| Runtime | Target use | Notes |
+| --- | --- | --- |
+| Valve Official Proton 10 / 11 / Experimental | Conservative upstream baseline | Hardware-agnostic; unknown or retired Proton-specific variables are not exported |
+| `proton-cachyos-slr` | Recommended for EAC/BattlEye | Steam Linux Runtime (SteamRT3/SteamRT4) provides a stable loader and sandbox boundary for anti-cheat titles |
+| Proton-EM 11 | CachyOS/Proton-EM-specific compatibility | Supports native Wayland, FSR4/MLFG and Proton-EM controller fixes |
+| Proton-GE | Community compatibility build | Use upstream-compatible variables; anti-cheat titles still prefer a Steam Linux Runtime build |
+
+For anti-cheat titles, `proton-cachyos-slr` is preferred over native, distro-bundled builds because it uses Steam's maintained runtime ABI and is the Steam/EAC/BattlEye launch integration target. Steam Auto-Profiler never enables async DXVK branches or OptiScaler for this class.
+
+## Current Proton compatibility variables
+
+Native Wayland defaults to `DXVK_HDR=1`; set `DXVK_NO_HDR=1` to disable HDR. No `PROTON_ENABLE_HDR` or
+`PROTON_VKREFLEX` value is emitted. NVIDIA builds use `DXVK_NVAPI_VKREFLEX=1`.
+
+Frame generation is mutually guarded: `USE_MLFG=0` exports both `PROTON_MLFG_UPGRADE=0` and
+`MLFG_UPGRADE=0`. `USE_MLFG=1` on detected AMD RDNA3 exports
+`DXIL_SPIRV_CONFIG=wmma_rdna3_workaround`.
+
+`PROTON_ADD_CONFIG` is mapped into `STEAM_COMPAT_CONFIG` using these supported tokens:
+`wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`,
+`vkd3dlowlatency`, `localshadercache`, `pipewire`, `fsr4`, `mlfg`, and `vkreflex`.
+Existing user values are preserved. Native upgrade variables use `PROTON_DLSS_UPGRADE=1`,
+`PROTON_XESS_UPGRADE=1`, `PROTON_FFX3_UPGRADE=1`, and `PROTON_FFX4_UPGRADE=1`;
+the retired `PROTON_FSR3_UPGRADE` name is never used.
 
 ## Requirements
 

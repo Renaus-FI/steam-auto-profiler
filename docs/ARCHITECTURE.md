@@ -33,3 +33,36 @@ Proton and Mesa/Vulkan could resolve settings centrally:
 - Disable external sharpening when an upscaler bridge is active.
 - Use the active compositor refresh rate to calculate a safe VRR ceiling.
 - Preserve explicit user overrides while applying anti-cheat and crash-safety guardrails.
+
+## Proton compatibility matrix
+
+| Build | Steam Linux Runtime | Hardware-agnostic recommendation |
+| --- | --- | --- |
+| Valve Official Proton 10 / 11 / Experimental | SteamRT3/SteamRT4 compatible | Baseline upstream behavior; avoid CachyOS-only environment variables |
+| `proton-cachyos-slr` | Steam Linux Runtime | Recommended for EAC/BattlEye, due to the SteamRT ABI and runtime boundary |
+| Proton-EM 11 | Community CachyOS build | Full Wayland/controller, FSR4/MLFG and native DLL upgrade support |
+| Proton-GE | Community build | Preserves upstream-compatible variables; do not assume CachyOS-only flags |
+
+`proton-cachyos-slr` is strongly preferred for Easy Anti-Cheat and BattlEye titles because a
+maintained Steam Linux Runtime is less likely to conflict with guardrails and launch services
+than a native distro build. Anti-cheat classification forces OptiScaler and all async DXVK
+branches off while preserving only synchronous low-latency DXVK/VKD3D paths.
+
+## Compat-token mapping
+
+The launcher maps selected features into both `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG`.
+The shared token set is `wayland`, `sdlinput`, `nativeags`, `noopwr`,
+`vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `localshadercache`,
+`pipewire`, `fsr4`, `mlfg`, and `vkreflex`. Existing user token lists remain intact.
+
+Retired variables are never emitted. `PROTON_ENABLE_HDR` was removed and HDR is auto-detected
+by Wine Wayland; `DXVK_NO_HDR=1` remains the explicit off switch. `PROTON_VKREFLEX` was
+removed in favor of `DXVK_NVAPI_VKREFLEX=1`. `PROTON_FSR3_UPGRADE` was renamed
+`PROTON_FFX3_UPGRADE`.
+
+## Scheduler and anti-cheat safety
+
+Launches use `game-performance` first, then `powerprofilesctl launch -p performance --`.
+`gamemoderun` is used only when `ananicy-cpp.service` is inactive. If both schedulers are
+present and `ananicy-cpp` is active, the game is launched directly to avoid competing process
+niceness policies.

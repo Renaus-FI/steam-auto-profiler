@@ -35,12 +35,15 @@ Environment overrides:
   XWAYLAND=1        Force XWayland
   MLFG=1            Enable frame generation
   NETOPT=1          Enable the optional network profile
+  SDL=1             Prefer native SDL/Steam Input emulation
+  FSR4=0            Disable the native FSR4 upgrade
+  FSR_HUD=1         Enable the FSR/DLSS HUD indicator
 EOF
 }
 
 CONFIGURE_ONLY=0
 case "${1:-}" in
-    -h|--help|--help)
+    -h|--help)
         usage
         exit 0
         ;;
@@ -71,6 +74,21 @@ case "${1:-}" in
         shift 2
         ;;
 esac
+
+COMMAND_TOKEN_COUNT=0
+for launch_arg in "$@"; do
+    if [[ "$launch_arg" == *"%command%"* ]]; then
+        COMMAND_TOKEN_COUNT=$((COMMAND_TOKEN_COUNT + 1))
+    fi
+done
+if [[ "$COMMAND_TOKEN_COUNT" -gt 1 ]]; then
+    echo "Error: refusing to wrap multiple %command% tokens." >&2
+    exit 2
+fi
+if [[ "$CONFIGURE_ONLY" -eq 0 && "$#" -eq 0 ]]; then
+    echo "Error: empty launch command. Set Steam launch options to: steam-auto-run %command%" >&2
+    exit 2
+fi
 
 detect_gpu_vendor() {
     local vendor_file
@@ -119,8 +137,26 @@ detect_vrr_cap() {
     fi
 }
 
+detect_rdna3() {
+    local modalias
+    for modalias in /sys/class/drm/card*/device/uevent; do
+        [[ -r "$modalias" ]] || continue
+        if grep -qiE 'PCI_ID=1002:(744C|745E|747E|7480|740F)' "$modalias"; then
+            echo 1
+            return
+        fi
+    done
+    if command -v lspci >/dev/null 2>&1 &&
+        lspci -nn 2>/dev/null | grep -qiE '1002:(744c|745e|747e|7480|740f)'; then
+        echo 1
+        return
+    fi
+    echo 0
+}
+
 GPU_VENDOR="$(detect_gpu_vendor)"
 AUTO_VRR_CAP="$(detect_vrr_cap)"
+AUTO_RDNA3="$(detect_rdna3)"
 
 export LD_PRELOAD=""
 
@@ -142,12 +178,9 @@ USE_XWAYLAND=0
 USE_MLFG=0
 USE_OPTISCALER=0
 USE_SHARPEN=0
-USE_VIVID=0
 USE_NET_OPT=0
 USE_SDL=0
-USE_VIDEO_FIX=0
 USE_CEF_FIX=0
-USE_SAFEDX12=0
 USE_FSR_HUD=0
 USE_VULKAN=0
 
@@ -157,7 +190,6 @@ AUTO_OPTISCALER=0
 AUTO_SHARPEN=0
 AUTO_NET_OPT=0
 AUTO_CEF_FIX=0
-AUTO_NATIVE_LINUX=0
 AUTO_REASON=""
 
 if [[ -n "$DETECT_BIN" ]]; then
@@ -258,10 +290,20 @@ fi
 [[ "${NETOPT:-0}" -eq 1 ]] && USE_NET_OPT=1
 [[ "${CEF:-0}" -eq 1 ]] && USE_CEF_FIX=1
 [[ "${VULKAN:-0}" -eq 1 ]] && USE_VULKAN=1
+[[ "${SDL:-0}" -eq 1 ]] && USE_SDL=1
+[[ "${FSR_HUD:-0}" -eq 1 ]] && USE_FSR_HUD=1
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
     USE_MLFG=0
+    export PROTON_USE_OPTISCALER=0
+    # Async shader pipelines must stay disabled for anti-cheat/multiplayer titles.
+    export PROTON_DXVK_SAREK=0
+    export PROTON_DXVK_GPLASYNC=0
+    export PROTON_DXVK_LLASYNC=0
+    export WAYLANDDRV_SHORTCUT_INHIBIT="${WAYLANDDRV_SHORTCUT_INHIBIT:-1}"
+    export PROTON_DXVK_LOWLATENCY=1
+    export PROTON_VKD3D_LOWLATENCY=1
 fi
 
 if [[ "$USE_XWAYLAND" -eq 1 ]]; then
@@ -269,8 +311,39 @@ if [[ "$USE_XWAYLAND" -eq 1 ]]; then
     export SDL_VIDEODRIVER=x11
 else
     export PROTON_ENABLE_WAYLAND=1
+    export PROTON_USE_WAYLAND="${PROTON_USE_WAYLAND:-1}"
     export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
-    export DXVK_HDR="${DXVK_HDR:-1}"
+    export WINE_DISABLE_VULKAN_OPWR="${WINE_DISABLE_VULKAN_OPWR:-1}"
+    if [[ "${DXVK_NO_HDR:-0}" != "1" ]]; then
+        export DXVK_HDR="${DXVK_HDR:-1}"
+    fi
+fi
+
+if [[ "$GPU_VENDOR" == "nvidia" ]]; then
+    export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+    export DXVK_NVAPI_VKREFLEX="${DXVK_NVAPI_VKREFLEX:-1}"
+fi
+
+if [[ "$USE_SDL" -eq 1 ]]; then
+    export PROTON_PREFER_SDL=1
+    export PROTON_USE_SDL=1
+    export PROTON_NO_STEAMINPUT=1
+    export PROTON_EMULATE_STEAMINPUT="${PROTON_EMULATE_STEAMINPUT:-1}"
+fi
+
+if [[ "${NO_WM_DECORATION:-0}" -eq 1 ]]; then
+    export PROTON_NO_WM_DECORATION="${PROTON_NO_WM_DECORATION:-1}"
+    export WINE_NO_WM_DECORATION="${WINE_NO_WM_DECORATION:-1}"
+fi
+if [[ -n "${WAYLANDDRV_SSD:-}" ]]; then
+    export WAYLANDDRV_SSD="$WAYLANDDRV_SSD"
+fi
+
+if [[ "${USE_FSR_HUD:-0}" -eq 1 || "${FSR_HUD:-0}" -eq 1 ]]; then
+    export PROTON_FSR4_INDICATOR=1
+fi
+if [[ "$GPU_VENDOR" == "nvidia" && ( "${USE_FSR_HUD:-0}" -eq 1 || "${FSR_HUD:-0}" -eq 1 ) ]]; then
+    export PROTON_DLSS_INDICATOR=1
 fi
 
 if [[ "$USE_MLFG" -eq 1 ]]; then
@@ -278,10 +351,15 @@ if [[ "$USE_MLFG" -eq 1 ]]; then
     export MLFG_UPGRADE=1
     export PROTON_VKD3D_LOWLATENCY=0
     export PROTON_DXVK_LOWLATENCY=0
+    if [[ "$GPU_VENDOR" == "amd" && "$AUTO_RDNA3" -eq 1 ]]; then
+        export DXIL_SPIRV_CONFIG="${DXIL_SPIRV_CONFIG:-wmma_rdna3_workaround}"
+    fi
 else
     export PROTON_MLFG_UPGRADE=0
     export MLFG_UPGRADE=0
     export ENABLE_LAYER_MESA_ANTI_LAG="${ENABLE_LAYER_MESA_ANTI_LAG:-1}"
+    export PROTON_DXVK_LOWLATENCY="${PROTON_DXVK_LOWLATENCY:-1}"
+    export PROTON_VKD3D_LOWLATENCY="${PROTON_VKD3D_LOWLATENCY:-1}"
     export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
     if (( AUTO_VRR_CAP > 0 )); then
         export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AUTO_VRR_CAP}"
@@ -289,9 +367,24 @@ else
     fi
 fi
 
-export PROTON_FSR4_UPGRADE=1
+if [[ "${FSR4:-1}" -eq 1 ]]; then
+    export PROTON_FSR4_UPGRADE=1
+else
+    export PROTON_FSR4_UPGRADE=0
+fi
+
+if [[ "$AUTO_CLASS" == "legacy-upscaler" && "$USE_OPTISCALER" -eq 0 ]]; then
+    [[ "${AUTO_HAS_DLSS:-0}" -eq 1 ]] && export PROTON_DLSS_UPGRADE="${PROTON_DLSS_UPGRADE:-1}"
+    [[ "${AUTO_HAS_XESS:-0}" -eq 1 ]] && export PROTON_XESS_UPGRADE="${PROTON_XESS_UPGRADE:-1}"
+    [[ "${AUTO_HAS_FSR:-0}" -eq 1 ]] && export PROTON_FFX3_UPGRADE="${PROTON_FFX3_UPGRADE:-1}"
+    export PROTON_FFX4_UPGRADE="${PROTON_FFX4_UPGRADE:-1}"
+fi
+
 if [[ "$USE_OPTISCALER" -eq 1 ]]; then
     export PROTON_USE_OPTISCALER=1
+    export PROTON_OPTISCALER_STREAMLINE="${PROTON_OPTISCALER_STREAMLINE:-1}"
+    [[ -n "${PROTON_OPTISCALER_NAME:-}" ]] && export PROTON_OPTISCALER_NAME
+    [[ -n "${PROTON_OPTISCALER_CONFIG:-}" ]] && export PROTON_OPTISCALER_CONFIG
 else
     export PROTON_USE_OPTISCALER=0
 fi
@@ -302,6 +395,33 @@ else
     export ENABLE_VKBASALT=0
 fi
 
+COMPAT_TOKENS=()
+if [[ "$USE_XWAYLAND" -ne 1 ]]; then COMPAT_TOKENS+=("wayland"); fi
+if [[ "$USE_SDL" -eq 1 ]]; then COMPAT_TOKENS+=("sdlinput"); fi
+if [[ "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("noopwr"); fi
+if [[ "${PROTON_LOCAL_SHADER_CACHE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("localshadercache"); fi
+if [[ "${PROTON_USE_PIPEWIRE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("pipewire"); fi
+if [[ "${PROTON_DXVK_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("dxvklowlatency"); fi
+if [[ "${PROTON_VKD3D_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkd3dlowlatency"); fi
+if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("fsr4"); fi
+if [[ "$USE_MLFG" -eq 1 ]]; then COMPAT_TOKENS+=("mlfg"); fi
+if [[ "$GPU_VENDOR" == "nvidia" && "${DXVK_NVAPI_VKREFLEX:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkreflex"); fi
+
+# Preserve explicit user compat configuration and append profiler-managed tokens.
+if [[ -n "${PROTON_ADD_CONFIG:-}" || ${#COMPAT_TOKENS[@]} -gt 0 ]]; then
+    export PROTON_ADD_CONFIG="${PROTON_ADD_CONFIG:-}"
+    export STEAM_COMPAT_CONFIG="${STEAM_COMPAT_CONFIG:-}"
+    for compat_token in "${COMPAT_TOKENS[@]}"; do
+        if [[ ",${PROTON_ADD_CONFIG}," != *",${compat_token},"* ]]; then
+            PROTON_ADD_CONFIG="${PROTON_ADD_CONFIG:+$PROTON_ADD_CONFIG,}${compat_token}"
+        fi
+        if [[ ",${STEAM_COMPAT_CONFIG}," != *",${compat_token},"* ]]; then
+            STEAM_COMPAT_CONFIG="${STEAM_COMPAT_CONFIG:+$STEAM_COMPAT_CONFIG,}${compat_token}"
+        fi
+    done
+    export PROTON_ADD_CONFIG STEAM_COMPAT_CONFIG
+fi
+
 EXTRA_ARGS=()
 [[ "$USE_CEF_FIX" -eq 1 ]] && EXTRA_ARGS+=("--in-process-gpu")
 [[ "$USE_VULKAN" -eq 1 ]] && EXTRA_ARGS+=("-vulkan")
@@ -309,6 +429,11 @@ EXTRA_ARGS=()
 run_with_scheduler() {
     if command -v game-performance >/dev/null 2>&1; then
         game-performance "$@"
+    elif command -v powerprofilesctl >/dev/null 2>&1; then
+        powerprofilesctl launch -p performance -- "$@"
+    elif command -v systemctl >/dev/null 2>&1 &&
+         systemctl is-active --quiet ananicy-cpp.service; then
+        "$@"
     elif command -v gamemoderun >/dev/null 2>&1; then
         gamemoderun "$@"
     else

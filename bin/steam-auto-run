@@ -142,14 +142,82 @@ run_doctor() {
         else
             echo "[INFO] No MESA/NVIDIA shader cache override found in $env_conf"
         fi
+        declare -A env_keys=()
+        for env_file in "$env_conf"/*.conf; do
+            [[ -f "$env_file" ]] || continue
+            # shellcheck disable=SC2094
+            while IFS='=' read -r key _; do
+                key="${key#"${key%%[![:space:]]*}"}"
+                [[ -n "$key" && "$key" != \#* ]] || continue
+                if [[ -n "${env_keys[$key]:-}" && "${env_keys[$key]}" != "$(basename "$env_file")" ]]; then
+                    echo "[WARN] Duplicate environment variable $key in $(basename "${env_keys[$key]}") and $(basename "$env_file")"
+                else
+                    env_keys[$key]="$(basename "$env_file")"
+                fi
+            done < "$env_file"
+        done
     else
         echo "[INFO] $env_conf does not exist"
     fi
 
+    if [[ -d /etc/sysctl.d && -r /etc/sysctl.d ]]; then
+        declare -A sysctl_keys=()
+        for sysctl_file in /etc/sysctl.d/*.conf; do
+            [[ -f "$sysctl_file" && -r "$sysctl_file" ]] || continue
+            # shellcheck disable=SC2094
+            while IFS='=' read -r key _; do
+                key="${key#"${key%%[![:space:]]*}"}"
+                key="${key%"${key##*[![:space:]]}"}"
+                [[ -n "$key" && "$key" != \#* ]] || continue
+                if [[ -n "${sysctl_keys[$key]:-}" && "${sysctl_keys[$key]}" != "$(basename "$sysctl_file")" ]]; then
+                    echo "[WARN] Conflicting sysctl override $key in $(basename "${sysctl_keys[$key]}") and $(basename "$sysctl_file")"
+                else
+                    sysctl_keys[$key]="$(basename "$sysctl_file")"
+                fi
+            done < "$sysctl_file"
+        done
+    fi
+
+    local default_iface=""
+    default_iface="$(ip -o -4 route show to default 2>/dev/null | awk '{print $5; exit}')"
+    [[ -n "$default_iface" ]] || default_iface="$(ip -o -6 route show to default 2>/dev/null | awk '{print $5; exit}')"
+    if [[ -n "$default_iface" && -n "$(command -v ethtool 2>/dev/null)" ]]; then
+        local eee_output
+        eee_output="$(ethtool --show-eee "$default_iface" 2>/dev/null || true)"
+        if [[ -n "$eee_output" ]]; then
+            if grep -qiE 'EEE status:.*disabled|EEE.*disabled|enabled:[[:space:]]*N' <<<"$eee_output"; then
+                echo "[OK] EEE disabled on $default_iface"
+            elif grep -qiE 'EEE status:.*enabled|enabled:[[:space:]]*Y' <<<"$eee_output"; then
+                echo "[WARN] EEE active on $default_iface; consider disabling it"
+            else
+                echo "[INFO] EEE status for $default_iface: $(tr '\n' ' ' <<<"$eee_output")"
+            fi
+        fi
+    fi
+    if [[ -n "$default_iface" && -n "$(command -v tc 2>/dev/null)" ]]; then
+        local qdisc_output
+        qdisc_output="$(tc -s qdisc show dev "$default_iface" 2>/dev/null || true)"
+        if grep -qiE 'qdisc cake|cake .*diffserv4|cake .*bandwidth' <<<"$qdisc_output"; then
+            echo "[OK] sch_cake active on $default_iface"
+        else
+            echo "[INFO] No active sch_cake qdisc detected on $default_iface"
+        fi
+    fi
+
+    local nft_file=""
+    [[ -r /etc/nftables.d/game-qos.nft ]] && nft_file="/etc/nftables.d/game-qos.nft"
+    if [[ -n "$nft_file" ]] && grep -qi 'diffserv4' "$nft_file"; then
+        if grep -qiE 'cs4|DSCP[[:space:]]+4|classify.*4' "$nft_file"; then
+            echo "[WARN] nftables game traffic uses cs4 with diffserv4 CAKE; use cs3 for the Video tin"
+        fi
+    fi
+
     local compat_dir="${HOME}/.steam/steam/compatibilitytools.d"
     local flatpak_compat="${HOME}/.var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d"
+    local local_compat="${HOME}/.local/share/Steam/compatibilitytools.d"
     local found_proton=0
-    for proton_dir in "$compat_dir" "$flatpak_compat"; do
+    for proton_dir in "$compat_dir" "$local_compat" "$flatpak_compat" \
+        "/usr/share/steam/compatibilitytools.d" "/usr/local/share/steam/compatibilitytools.d"; do
         [[ -d "$proton_dir" ]] || continue
         for tool in "$proton_dir"/*; do
             [[ -d "$tool" ]] || continue
@@ -287,9 +355,60 @@ detect_rdna3() {
     echo 0
 }
 
+detect_rdna4() {
+    local uevent
+    for uevent in /sys/class/drm/card*/device/uevent; do
+        [[ -r "$uevent" ]] || continue
+        if grep -qiE 'PCI_ID=1002:7550' "$uevent"; then
+            echo 1
+            return
+        fi
+    done
+    if command -v lspci >/dev/null 2>&1 &&
+        lspci -nn 2>/dev/null | grep -qiE '1002:7550'; then
+        echo 1
+        return
+    fi
+    echo 0
+}
+
+detect_discrete_gpu() {
+    local card_dir vendor device vram boot_vga best_card=""
+    local best_vram=0
+    for card_dir in /sys/class/drm/card*/device; do
+        [[ -d "$card_dir" ]] || continue
+        [[ -r "$card_dir/vendor" && -r "$card_dir/device" ]] || continue
+        vendor="$(cat "$card_dir/vendor" 2>/dev/null)"
+        device="$(cat "$card_dir/device" 2>/dev/null)"
+        [[ "$vendor" == "0x1002" || "$vendor" == "0x10de" ]] || continue
+        vram=0
+        if [[ -r "$card_dir/mem_info_vram_total" ]]; then
+            vram="$(cat "$card_dir/mem_info_vram_total" 2>/dev/null || echo 0)"
+        fi
+        boot_vga=0
+        [[ -r "$card_dir/boot_vga" ]] && boot_vga="$(cat "$card_dir/boot_vga" 2>/dev/null || echo 0)"
+        if (( vram > 2147483648 )) || { [[ "$boot_vga" == "0" ]] && (( vram >= best_vram )); }; then
+            best_vram="$vram"
+            best_card="${vendor#0x}:${device#0x}!"
+        fi
+    done
+    if [[ -n "$best_card" ]]; then
+        echo "$best_card"
+    fi
+    return 0
+}
+
 GPU_VENDOR="$(detect_gpu_vendor)"
 AUTO_VRR_CAP="$(detect_vrr_cap)"
 AUTO_RDNA3="$(detect_rdna3)"
+AUTO_RDNA4="$(detect_rdna4)"
+
+if [[ -z "${MESA_VK_DEVICE_SELECT:-}" ]]; then
+    MESA_GPU_SELECT="$(detect_discrete_gpu)"
+    if [[ -n "$MESA_GPU_SELECT" ]]; then
+        export MESA_VK_DEVICE_SELECT="$MESA_GPU_SELECT"
+    fi
+fi
 
 export LD_PRELOAD=""
 
@@ -338,6 +457,9 @@ SKIP_GUI=0
 if [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" && "${FORCE_GUI:-0}" -ne 1 ]]; then
     # shellcheck disable=SC1090
     source "$PROFILE_FILE"
+    if [[ "${USE_RCAS:-0}" -eq 1 ]]; then
+        USE_SHARPEN=1
+    fi
     SKIP_GUI=1
 else
     USE_OPTISCALER="$AUTO_OPTISCALER"
@@ -460,6 +582,7 @@ fi
 [[ "${SAFEDX12:-0}" -eq 1 ]] && USE_SAFEDX12=1
 [[ "${NO_NTSYNC:-0}" -eq 1 ]] && USE_NO_NTSYNC=1
 [[ "${NO_DECORATION:-0}" -eq 1 ]] && USE_NO_DECORATION=1
+[[ "${USE_FSR4:-0}" -eq 1 ]] && FSR4=1
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
@@ -553,9 +676,19 @@ else
 fi
 
 if [[ "${FSR4:-1}" -eq 1 ]]; then
-    export PROTON_FSR4_UPGRADE=1
+    if [[ "$AUTO_RDNA4" -eq 1 ]]; then
+        export PROTON_FSR4_UPGRADE=1
+        unset PROTON_FSR4_RDNA3_UPGRADE
+    elif [[ "$AUTO_RDNA3" -eq 1 ]]; then
+        export PROTON_FSR4_UPGRADE=0
+        export PROTON_FSR4_RDNA3_UPGRADE=1
+    else
+        export PROTON_FSR4_UPGRADE=1
+        unset PROTON_FSR4_RDNA3_UPGRADE
+    fi
 else
     export PROTON_FSR4_UPGRADE=0
+    unset PROTON_FSR4_RDNA3_UPGRADE
 fi
 
 if [[ "$AUTO_CLASS" == "legacy-upscaler" && "$USE_OPTISCALER" -eq 0 ]]; then

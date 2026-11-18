@@ -14,25 +14,51 @@ detect_default_iface() {
 IFACE="$(detect_default_iface)"
 [[ -n "$IFACE" ]] || exit 0
 
+has_static_cake() {
+    if command -v systemctl >/dev/null 2>&1 &&
+       systemctl is-active --quiet cake-shaper.service 2>/dev/null; then
+        return 0
+    fi
+    if command -v tc >/dev/null 2>&1; then
+        tc qdisc show dev "$IFACE" 2>/dev/null | grep -Eiq 'cake.*(bandwidth|rate)[[:space:]]+[0-9]'
+        return
+    fi
+    return 1
+}
+
+disable_eee() {
+    if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then
+        if command -v iw >/dev/null 2>&1; then
+            iw dev "$IFACE" set power_save off 2>/dev/null || true
+        fi
+    elif command -v ethtool >/dev/null 2>&1; then
+        ethtool --set-eee "$IFACE" eee off 2>/dev/null || true
+    fi
+}
+
 case "$MODE" in
     on)
+        disable_eee
+        if has_static_cake; then
+            echo "[INFO] Preserving existing static CAKE shaper on $IFACE"
+            if [[ -x /usr/local/bin/cake-auto-rtt ]]; then
+                /usr/local/bin/cake-auto-rtt >/dev/null 2>&1 || true
+            fi
+            exit 0
+        fi
         if command -v tc >/dev/null 2>&1; then
             tc qdisc replace dev "$IFACE" root cake diffserv4 triple-isolate 2>/dev/null \
                 || tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null \
                 || true
         fi
         ip link set dev "$IFACE" txqueuelen 500 2>/dev/null || true
-        if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then
-            if command -v iw >/dev/null 2>&1; then
-                iw dev "$IFACE" set power_save off 2>/dev/null || true
-            fi
-        else
-            if command -v ethtool >/dev/null 2>&1; then
-                ethtool --set-eee "$IFACE" eee off 2>/dev/null || true
-            fi
-        fi
         ;;
     off)
+        if has_static_cake; then
+            echo "[INFO] Preserving existing static CAKE shaper on $IFACE"
+            disable_eee
+            exit 0
+        fi
         if command -v tc >/dev/null 2>&1; then
             tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null || true
         fi

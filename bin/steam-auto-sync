@@ -85,6 +85,111 @@ def find_launch_options(text):
     return app_launch, app_close, apps_close
 
 
+WRAPPERS = {"cachy-run", "game-performance", "gamemoderun", "steam-auto-run"}
+MANAGED_ENV_PREFIXES = (
+    "PROTON_", "DXVK_", "VKD3D_", "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT="
+)
+
+
+def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
+    """Convert a noisy Steam launch string into a managed wrapper and profile."""
+    try:
+        tokens = shlex_split = __import__("shlex").split(launch_options)
+    except ValueError:
+        tokens = launch_options.split()
+
+    command_at = tokens.index("%command%") if "%command%" in tokens else len(tokens)
+    before = tokens[:command_at]
+    after = tokens[command_at + 1:] if command_at < len(tokens) else []
+
+    profile = {}
+    for token in before:
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        key = key.upper()
+        if key == "XWAYLAND":
+            profile["USE_XWAYLAND"] = "1" if value in ("1", "true", "TRUE") else "0"
+        elif key in ("PROTON_PREFER_SDL", "PROTON_USE_SDL"):
+            profile["USE_SDL"] = "1" if value in ("1", "true", "TRUE") else "0"
+        elif key == "PROTON_NO_STEAMINPUT":
+            profile["USE_SDL"] = "1" if value in ("1", "true", "TRUE") else "0"
+        elif key == "PROTON_MLFG_UPGRADE":
+            profile["USE_MLFG"] = "1" if value in ("1", "true", "TRUE") else "0"
+        elif key == "PROTON_FSR4_RDNA3_UPGRADE":
+            if value in ("1", "true", "TRUE"):
+                profile["USE_MLFG"] = "1"
+        elif key == "PROTON_FSR4_UPGRADE":
+            if value in ("1", "true", "TRUE"):
+                profile["USE_FSR4"] = "1"
+
+    preserved_after = []
+    for token in after:
+        if token in WRAPPERS or token.startswith("%"):
+            continue
+        if "=" in token:
+            key = token.split("=", 1)[0].upper()
+            if any(key.startswith(prefix.rstrip("=")) for prefix in MANAGED_ENV_PREFIXES):
+                continue
+        preserved_after.append(token)
+
+    replacement = "steam-auto-run %command%"
+    if preserved_after:
+        replacement += " " + " ".join(preserved_after)
+
+    if profile and not dry_run:
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile_file = profile_dir / f"{appid}.env"
+        if not profile_file.exists():
+            profile_file.write_text(
+                "".join(f"{key}={value}\n" for key, value in sorted(profile.items())),
+                encoding="utf-8",
+            )
+    return replacement, profile
+
+
+def migrate_cachy_profiles(home, dry_run=False):
+    source = home / ".config/cachy-run/profiles"
+    target = home / ".config/steam-auto-profiler/profiles"
+    migrated = []
+    if not source.is_dir():
+        return migrated
+    target.mkdir(parents=True, exist_ok=True)
+    for source_file in sorted(source.glob("*.env")):
+        destination = target / source_file.name
+        if destination.exists():
+            continue
+        lines = []
+        preset = None
+        for raw in source_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                lines.append(raw)
+                continue
+            if "=" not in line:
+                lines.append(raw)
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key == "USE_RCAS":
+                key = "USE_SHARPEN"
+            elif key == "AUTO_PRESET":
+                preset = value.strip("'\"")
+                if preset == "shooter":
+                    value = "'competitive'"
+                    preset = "competitive"
+                elif preset == "oled-clean":
+                    value = "'oled-clean'"
+            lines.append(f"{key}={value}")
+        if preset in ("shooter", "competitive"):
+            lines.append("USE_NET_OPT=1")
+        if not dry_run:
+            destination.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        migrated.append(source_file.name)
+    return migrated
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Batch-inject or remove steam-auto-run in Steam localconfig.vdf."
@@ -93,14 +198,26 @@ def main():
     parser.add_argument("--remove", action="store_true")
     parser.add_argument("--report", "--status", dest="report", action="store_true")
     parser.add_argument("--wrapper", default="steam-auto-run")
+    parser.add_argument("--sanitize", "--clean", action="store_true")
+    parser.add_argument("--migrate-cachy-run", action="store_true")
     args = parser.parse_args()
+
+    home = Path.home()
+    if args.migrate_cachy_run:
+        profile_dir = home / ".config/steam-auto-profiler/profiles"
+        migrated = migrate_cachy_profiles(home, dry_run=args.dry_run)
+        prefix = "[DRY-RUN] " if args.dry_run else ""
+        print(f"{prefix}Migrated {len(migrated)} cachy-run profile(s):")
+        for name in migrated:
+            print(f"  + {name}")
+        if not args.sanitize:
+            return 0
 
     if not args.dry_run and not args.report:
         if subprocess.run(["pgrep", "-x", "steam"], capture_output=True).returncode == 0:
             print("Error: Close Steam completely before syncing.", file=sys.stderr)
             return 1
 
-    home = Path.home()
     candidates = [
         home / ".local/share/Steam",
         home / ".steam/steam",
@@ -254,6 +371,13 @@ def main():
                     ).strip()
                     if replacement == "%command%":
                         replacement = ""
+                elif args.sanitize:
+                    profile_dir = home / ".config/steam-auto-profiler/profiles"
+                    replacement, extracted_profile = sanitize_launch_option(
+                        appid, current, profile_dir, dry_run=args.dry_run
+                    )
+                    if replacement == current:
+                        continue
                 else:
                     if args.wrapper in current:
                         continue

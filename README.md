@@ -84,6 +84,9 @@ Use `./install.sh --with-net-boost` only if you want the optional session networ
 installed system-wide with an explicit sudoers rule. The network helper can use CAKE or
 `fq_codel`, but it is not required for normal profile inspection or launching.
 
+Use `./install.sh --compat-cachy-run` to preserve an existing `/usr/local/bin/cachy-run`
+as `.bak` and install a compatibility shim that delegates to `steam-auto-run`.
+
 ## Commands
 
 - `steam-auto-detect [--inspect] [APPID]` - classify an AppID and print the result.

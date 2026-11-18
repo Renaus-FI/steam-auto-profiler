@@ -208,6 +208,18 @@ if [[ -n "$APPID" ]]; then
         AUTO_OPTISCALER=0
         AUTO_SHARPEN=0
         AUTO_NET_OPT=1
+    elif [[ -n "$GAME_DIR" ]] && FSR4_MATCH=$(
+        find "$GAME_DIR" -maxdepth 10 \( \
+            -iname 'amd_fidelityfx_upscaler_dx12.dll' -o \
+            -iname 'amd_fidelityfx_framegeneration_dx12.dll' -o \
+            -iname 'amd_fidelityfx_loader_dx12.dll' \
+        \) -print -quit 2>/dev/null
+    ) && [[ -n "$FSR4_MATCH" ]]; then
+        AUTO_CLASS="native-fsr4"
+        AUTO_PRESET="standard"
+        AUTO_OPTISCALER=0
+        AUTO_SHARPEN=0
+        AUTO_REASON="Native FidelityFX SDK 3.1+ library detected ($(basename "$FSR4_MATCH")); using driver-level FSR upgrade"
     elif [[ -n "$GAME_DIR" ]] && FSR_MATCH=$(
         find "$GAME_DIR" -maxdepth 10 \( \
             -iname 'amd_fidelityfx_dx12.dll' -o \
@@ -276,7 +288,7 @@ if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]]; then
         COMPAT_TOKENS+=("vkreflex")
     fi
 fi
-if [[ "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
+if [[ "$AUTO_CLASS" == "native-fsr4" || "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
       "${FSR4:-0}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("fsr4")
 fi

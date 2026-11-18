@@ -443,13 +443,13 @@ PROFILE_FILE=""
 [[ -n "$APPID" ]] && PROFILE_FILE="$PROFILE_DIR/$APPID.env"
 
 USE_XWAYLAND=0
-USE_MLFG=0
+USE_MLFG="${USE_MLFG:-0}"
 USE_OPTISCALER=0
 USE_SHARPEN=0
 USE_NET_OPT=0
 USE_SDL=0
 USE_CEF_FIX=0
-USE_FSR_HUD=0
+USE_FSR_HUD="${USE_FSR_HUD:-0}"
 USE_VULKAN=0
 USE_SAFEDX12=0
 USE_KEEP_OVERLAY=0
@@ -602,6 +602,7 @@ fi
 
 [[ "${XWAYLAND:-0}" -eq 1 ]] && USE_XWAYLAND=1
 [[ "${MLFG:-0}" -eq 1 ]] && USE_MLFG=1
+[[ "${USE_MLFG:-0}" -eq 1 ]] && USE_MLFG=1
 [[ "${OPTISCALER:-0}" -eq 1 ]] && USE_OPTISCALER=1
 [[ "${SHARPEN:-0}" -eq 1 || "${RCAS:-0}" -eq 1 ]] && USE_SHARPEN=1
 [[ "${NETOPT:-0}" -eq 1 ]] && USE_NET_OPT=1
@@ -609,6 +610,7 @@ fi
 [[ "${VULKAN:-0}" -eq 1 ]] && USE_VULKAN=1
 [[ "${SDL:-0}" -eq 1 ]] && USE_SDL=1
 [[ "${FSR_HUD:-0}" -eq 1 ]] && USE_FSR_HUD=1
+[[ "${USE_FSR_HUD:-0}" -eq 1 ]] && USE_FSR_HUD=1
 [[ "${KEEP_OVERLAY:-0}" -eq 1 ]] && USE_KEEP_OVERLAY=1
 [[ "${SAFEDX12:-0}" -eq 1 ]] && USE_SAFEDX12=1
 [[ "${NO_NTSYNC:-0}" -eq 1 ]] && USE_NO_NTSYNC=1
@@ -680,6 +682,11 @@ fi
 
 if [[ "${USE_FSR_HUD:-0}" -eq 1 || "${FSR_HUD:-0}" -eq 1 ]]; then
     export PROTON_FSR4_INDICATOR=1
+    export FSR_WATERMARK=1
+fi
+if [[ "${USE_FSR_HUD:-0}" -eq 1 || "${FSR_HUD:-0}" -eq 1 ]] &&
+   [[ "${USE_MLFG:-0}" -eq 1 || "${MLFG:-0}" -eq 1 ]]; then
+    export FSR_FG_WATERMARK=1
 fi
 if [[ "$GPU_VENDOR" == "nvidia" && ( "${USE_FSR_HUD:-0}" -eq 1 || "${FSR_HUD:-0}" -eq 1 ) ]]; then
     export PROTON_DLSS_INDICATOR=1

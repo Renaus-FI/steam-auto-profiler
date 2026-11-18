@@ -7,6 +7,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${HOME}/.local/bin"
 WITH_NET_BOOST=0
+COMPAT_CACHY_RUN=0
 UNINSTALL=0
 
 for arg in "$@"; do
@@ -14,11 +15,14 @@ for arg in "$@"; do
         --with-net-boost)
             WITH_NET_BOOST=1
             ;;
+        --compat-cachy-run)
+            COMPAT_CACHY_RUN=1
+            ;;
         --uninstall)
-        UNINSTALL=1
-        ;;
+            UNINSTALL=1
+            ;;
         --help|-h)
-            echo "Usage: ./install.sh [--with-net-boost | --uninstall]"
+            echo "Usage: ./install.sh [--with-net-boost] [--compat-cachy-run] [--uninstall]"
             exit 0
             ;;
         *)
@@ -41,6 +45,12 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
         sudo rm -f /etc/sudoers.d/steam-net-boost
         echo "Removed /etc/sudoers.d/steam-net-boost"
     fi
+    for script in steam-auto-run steam-auto-detect steam-auto-sync; do
+        if [[ -e "/usr/local/bin/$script" || -L "/usr/local/bin/$script" ]]; then
+            sudo rm -f "/usr/local/bin/$script"
+            echo "Removed /usr/local/bin/$script"
+        fi
+    done
     echo "Steam Auto-Profiler uninstalled."
     exit 0
 fi
@@ -100,11 +110,37 @@ if [[ "$WITH_NET_BOOST" -eq 1 ]]; then
     USER_NAME="$(id -un)"
     TMP_SUDOERS="$(mktemp)"
     printf '%s ALL=(root) NOPASSWD: /usr/local/bin/steam-net-boost\n' "$USER_NAME" >"$TMP_SUDOERS"
+    sudo rm -f /etc/sudoers.d/cachy-net-boost /usr/local/bin/cachy-net-boost
+    for script in steam-auto-run steam-auto-detect steam-auto-sync; do
+        sudo install -m 755 "$REPO_DIR/bin/$script" "/usr/local/bin/$script"
+        echo "Installed /usr/local/bin/$script"
+    done
     sudo install -m 755 "$REPO_DIR/bin/steam-net-boost" /usr/local/bin/steam-net-boost
     sudo install -m 440 "$TMP_SUDOERS" /etc/sudoers.d/steam-net-boost
     sudo visudo -cf /etc/sudoers.d/steam-net-boost
     rm -f "$TMP_SUDOERS"
     echo "Installed optional network helper and sudoers rule"
+fi
+
+if [[ "$COMPAT_CACHY_RUN" -eq 1 ]]; then
+    if [[ -e "/usr/local/bin/cachy-run" || -L "/usr/local/bin/cachy-run" ]]; then
+        if ! grep -Fq 'steam-auto-run' /usr/local/bin/cachy-run 2>/dev/null; then
+            if [[ ! -e "/usr/local/bin/cachy-run.bak" ]]; then
+                sudo cp -p /usr/local/bin/cachy-run /usr/local/bin/cachy-run.bak
+                echo "Preserved existing cachy-run at /usr/local/bin/cachy-run.bak"
+            else
+                echo "Preserved existing cachy-run; /usr/local/bin/cachy-run.bak already exists"
+            fi
+        fi
+    fi
+    TMP_CACHY_RUN="$(mktemp)"
+    cat >"$TMP_CACHY_RUN" <<'EOF'
+#!/usr/bin/env bash
+exec steam-auto-run "$@"
+EOF
+    sudo install -m 755 "$TMP_CACHY_RUN" /usr/local/bin/cachy-run
+    rm -f "$TMP_CACHY_RUN"
+    echo "Installed /usr/local/bin/cachy-run compatibility shim"
 fi
 
 echo "Done! Test with: $TARGET_DIR/steam-auto-run --help"

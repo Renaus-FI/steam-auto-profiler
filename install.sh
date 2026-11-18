@@ -75,6 +75,21 @@ dlsDenoise = 0.25
 debandIterations = 2
 EOF
 fi
+if [[ ! -e "$VK_BASALT_PRESET_DIR/shooter.conf" ]]; then
+    cat >"$VK_BASALT_PRESET_DIR/shooter.conf" <<'EOF'
+# Safe shooter preset: low-latency competitive sharpening.
+effects = cas
+casSharpness = 0.40
+EOF
+fi
+if [[ ! -e "$VK_BASALT_PRESET_DIR/oled-clean.conf" ]]; then
+    cat >"$VK_BASALT_PRESET_DIR/oled-clean.conf" <<'EOF'
+# OLED-clean preset: restrained contrast and color cleanup.
+effects = cas:dls
+casSharpness = 0.45
+dlsSharpness = 0.25
+EOF
+fi
 
 for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost; do
     install -m 755 "$REPO_DIR/bin/$script" "$TARGET_DIR/$script"

@@ -95,6 +95,49 @@ class SyncTests(unittest.TestCase):
         self.assertIn("Compat Tokens", result.stdout)
         self.assertIn("Synced", result.stdout)
 
+    def test_sanitize_dry_run_migrates_messy_flags(self):
+        messy = (
+            "PROTON_FSR4_RDNA3_UPGRADE=1 PROTON_ENABLE_WAYLAND=1 "
+            "XWAYLAND=1 ENABLE_LAYER_MESA_ANTI_LAG=1 "
+            "cachy-run game-performance steam-auto-run "
+            "%command% -dx12"
+        )
+        self.config.write_text(
+            SAMPLE_VDF.replace("%command%", messy),
+            encoding="utf-8",
+        )
+        result = self.run_sync("--sanitize", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("730", result.stdout)
+
+        loader = importlib.machinery.SourceFileLoader("steam_auto_sync_sanitize", str(SYNC))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        replacement, profile = module.sanitize_launch_option(
+            "730", messy, self.home / ".config/steam-auto-profiler/profiles", dry_run=True
+        )
+        self.assertEqual(replacement, "steam-auto-run %command% -dx12")
+        self.assertEqual(profile["USE_XWAYLAND"], "1")
+
+    def test_migrate_cachy_run_profiles(self):
+        legacy = self.home / ".config/cachy-run/profiles"
+        legacy.mkdir(parents=True)
+        (legacy / "730.env").write_text(
+            "USE_RCAS=1\n"
+            "AUTO_PRESET='shooter'\n",
+            encoding="utf-8",
+        )
+        result = self.run_sync("--migrate-cachy-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("730.env", result.stdout)
+        migrated = self.home / ".config/steam-auto-profiler/profiles/730.env"
+        self.assertTrue(migrated.exists())
+        content = migrated.read_text(encoding="utf-8")
+        self.assertIn("USE_SHARPEN=1", content)
+        self.assertIn("AUTO_PRESET='competitive'", content)
+        self.assertIn("USE_NET_OPT=1", content)
+
 
 if __name__ == "__main__":
     unittest.main()

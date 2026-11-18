@@ -8,6 +8,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${HOME}/.local/bin"
 WITH_NET_BOOST=0
 COMPAT_CACHY_RUN=0
+WITH_AUTO_SYNC=0
 UNINSTALL=0
 
 for arg in "$@"; do
@@ -18,11 +19,14 @@ for arg in "$@"; do
         --compat-cachy-run)
             COMPAT_CACHY_RUN=1
             ;;
+        --with-auto-sync|--enable-auto-sync)
+            WITH_AUTO_SYNC=1
+            ;;
         --uninstall)
             UNINSTALL=1
             ;;
         --help|-h)
-            echo "Usage: ./install.sh [--with-net-boost] [--compat-cachy-run] [--uninstall]"
+            echo "Usage: ./install.sh [--with-net-boost] [--compat-cachy-run] [--with-auto-sync] [--uninstall]"
             exit 0
             ;;
         *)
@@ -33,6 +37,15 @@ for arg in "$@"; do
 done
 
 if [[ "$UNINSTALL" -eq 1 ]]; then
+    SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user disable --now steam-auto-profiler-sync.path 2>/dev/null || true
+    fi
+    rm -f "$SYSTEMD_USER_DIR/steam-auto-profiler-sync.path" \
+        "$SYSTEMD_USER_DIR/steam-auto-profiler-sync.service"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user daemon-reload 2>/dev/null || true
+    fi
     for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost; do
         rm -f "$TARGET_DIR/$script"
         echo "Removed $TARGET_DIR/$script"
@@ -141,6 +154,37 @@ EOF
     sudo install -m 755 "$TMP_CACHY_RUN" /usr/local/bin/cachy-run
     rm -f "$TMP_CACHY_RUN"
     echo "Installed /usr/local/bin/cachy-run compatibility shim"
+fi
+
+if [[ "$WITH_AUTO_SYNC" -eq 1 ]]; then
+    SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    mkdir -p "$SYSTEMD_USER_DIR"
+    cat >"$SYSTEMD_USER_DIR/steam-auto-profiler-sync.service" <<EOF
+[Unit]
+Description=Synchronize Steam launch options with Steam Auto-Profiler
+
+[Service]
+Type=oneshot
+ExecStart=$TARGET_DIR/steam-auto-sync --sanitize --wait-for-steam-exit --steam-exit-timeout 300
+EOF
+    cat >"$SYSTEMD_USER_DIR/steam-auto-profiler-sync.path" <<'EOF'
+[Unit]
+Description=Watch Steam app manifests for new games
+
+[Path]
+PathChanged=%h/.local/share/Steam/steamapps
+Unit=steam-auto-profiler-sync.service
+
+[Install]
+WantedBy=default.target
+EOF
+    if command -v systemctl >/dev/null 2>&1 &&
+       systemctl --user daemon-reload 2>/dev/null &&
+       systemctl --user enable --now steam-auto-profiler-sync.path 2>/dev/null; then
+        echo "Enabled systemd user auto-sync watcher"
+    else
+        echo "Installed systemd user auto-sync units (user session unavailable; enable manually)."
+    fi
 fi
 
 echo "Done! Test with: $TARGET_DIR/steam-auto-run --help"

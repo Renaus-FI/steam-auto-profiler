@@ -91,6 +91,46 @@ MANAGED_ENV_PREFIXES = (
 )
 
 
+def install_systemd_units(home):
+    """Install and enable the user watcher when a user systemd session exists."""
+    unit_dir = Path.home() / ".config/systemd/user"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    service = unit_dir / "steam-auto-profiler-sync.service"
+    path = unit_dir / "steam-auto-profiler-sync.path"
+    service.write_text(
+        "[Unit]\n"
+        "Description=Synchronize Steam launch options with Steam Auto-Profiler\n\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        f"ExecStart={Path(__file__).resolve()} --sanitize --wait-for-steam-exit "
+        "--steam-exit-timeout 300\n",
+        encoding="utf-8",
+    )
+    path.write_text(
+        "[Unit]\n"
+        "Description=Watch Steam app manifests for new games\n\n"
+        "[Path]\n"
+        "PathChanged=%h/.local/share/Steam/steamapps\n"
+        "Unit=steam-auto-profiler-sync.service\n\n"
+        "[Install]\n"
+        "WantedBy=default.target\n",
+        encoding="utf-8",
+    )
+    try:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(
+            ["systemctl", "--user", "enable", "--now", path.name],
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        print(
+            "Installed systemd user auto-sync units; "
+            "user systemd session is unavailable, so enable them manually."
+        )
+    else:
+        print("Enabled systemd user auto-sync watcher.")
+
+
 def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, write_profile=True):
     """Convert a noisy Steam launch string into a managed wrapper and profile."""
     try:
@@ -257,9 +297,25 @@ def main():
     parser.add_argument("--wrapper", default="steam-auto-run")
     parser.add_argument("--sanitize", "--clean", action="store_true")
     parser.add_argument("--migrate-cachy-run", action="store_true")
+    parser.add_argument("--install-systemd", action="store_true")
+    parser.add_argument(
+        "--wait-for-steam-exit",
+        action="store_true",
+        help="wait for Steam to exit before modifying localconfig.vdf",
+    )
+    parser.add_argument(
+        "--steam-exit-timeout",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help="maximum wait for Steam to exit (default: 300)",
+    )
     args = parser.parse_args()
 
     home = Path.home()
+    if args.install_systemd:
+        install_systemd_units(home)
+        return 0
     if args.migrate_cachy_run:
         profile_dir = home / ".config/steam-auto-profiler/profiles"
         migrated = migrate_cachy_profiles(home, dry_run=args.dry_run)
@@ -271,7 +327,22 @@ def main():
             return 0
 
     if not args.dry_run and not args.report:
-        if subprocess.run(["pgrep", "-x", "steam"], capture_output=True).returncode == 0:
+        steam_running = subprocess.run(["pgrep", "-x", "steam"], capture_output=True).returncode == 0
+        if steam_running and args.wait_for_steam_exit:
+            deadline = time.monotonic() + max(0, args.steam_exit_timeout)
+            print("Steam is running; waiting for it to exit before syncing.")
+            while steam_running and time.monotonic() < deadline:
+                time.sleep(2)
+                steam_running = subprocess.run(
+                    ["pgrep", "-x", "steam"], capture_output=True
+                ).returncode == 0
+            if steam_running:
+                print(
+                    f"Error: Steam did not exit within {args.steam_exit_timeout} seconds.",
+                    file=sys.stderr,
+                )
+                return 1
+        elif steam_running:
             print("Error: Close Steam completely before syncing.", file=sys.stderr)
             return 1
 

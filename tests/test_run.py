@@ -46,6 +46,31 @@ class RunTests(unittest.TestCase):
                 result.stdout,
             )
             self.assertNotIn("Error: No command to launch", result.stderr)
+            self.assertTrue(
+                (Path(temp) / ".config/steam-auto-profiler/profiles/361420.env").is_file()
+            )
+
+    def test_dry_run_without_command_exits_successfully(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env.update({
+                "HOME": temp,
+                "XDG_CONFIG_HOME": f"{temp}/.config",
+                "NO_GUI": "1",
+            })
+            result = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Steam Auto-Profiler dry run", result.stdout)
+            self.assertIn("AppID: 361420", result.stdout)
+            self.assertIn("Class:", result.stdout)
+            self.assertIn("PROTON_", result.stdout)
+            self.assertNotIn("empty launch command", result.stderr)
 
     def test_legacy_rcas_profile_alias(self):
         with tempfile.TemporaryDirectory() as temp:

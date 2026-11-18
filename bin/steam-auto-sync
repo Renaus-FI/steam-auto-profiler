@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Batch-inject or remove steam-auto-run in Steam localconfig.vdf."""
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+def parse_vdf(text):
+    tokens = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char.isspace():
+            i += 1
+        elif char == "/" and i + 1 < len(text) and text[i + 1] == "/":
+            newline = text.find("\n", i)
+            i = len(text) if newline == -1 else newline + 1
+        elif char in "{}":
+            tokens.append(("BRACE", char, i, i + 1))
+            i += 1
+        elif char == '"':
+            j = i + 1
+            parts = []
+            while j < len(text):
+                if text[j] == "\\" and j + 1 < len(text):
+                    parts.append(text[j + 1])
+                    j += 2
+                elif text[j] == '"':
+                    break
+                else:
+                    parts.append(text[j])
+                    j += 1
+            tokens.append(("STR", "".join(parts), i, j + 1))
+            i = j + 1
+        else:
+            j = i
+            while j < len(text) and not text[j].isspace() and text[j] not in '{}"':
+                j += 1
+            tokens.append(("STR", text[i:j], i, j))
+            i = j
+    return tokens
+
+
+def find_launch_options(text):
+    tokens = parse_vdf(text)
+    stack = []
+    pending_key = None
+    app_launch = {}
+    app_close = {}
+    apps_close = None
+
+    for kind, value, start, end in tokens:
+        if kind == "STR":
+            if pending_key is None:
+                pending_key = value
+            else:
+                if len(stack) == 6 and stack[:5] == [
+                    "userlocalconfigstore", "software", "valve", "steam", "apps"
+                ]:
+                    if pending_key.lower() == "launchoptions":
+                        app_launch[stack[5]] = (value, start, end)
+                pending_key = None
+        elif kind == "BRACE" and value == "{":
+            stack.append((pending_key or "").lower())
+            pending_key = None
+        elif kind == "BRACE" and value == "}":
+            if len(stack) == 6 and stack[:5] == [
+                "userlocalconfigstore", "software", "valve", "steam", "apps"
+            ]:
+                app_close[stack[5]] = start
+            elif len(stack) == 5 and stack == [
+                "userlocalconfigstore", "software", "valve", "steam", "apps"
+            ]:
+                apps_close = start
+            if stack:
+                stack.pop()
+            pending_key = None
+
+    return app_launch, app_close, apps_close
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Batch-inject or remove steam-auto-run in Steam localconfig.vdf."
+    )
+    parser.add_argument("-n", "--dry-run", action="store_true")
+    parser.add_argument("--remove", action="store_true")
+    parser.add_argument("--wrapper", default="steam-auto-run")
+    args = parser.parse_args()
+
+    if not args.dry_run:
+        if subprocess.run(["pgrep", "-x", "steam"], capture_output=True).returncode == 0:
+            print("Error: Close Steam completely before syncing.", file=sys.stderr)
+            return 1
+
+    home = Path.home()
+    candidates = [
+        home / ".local/share/Steam",
+        home / ".steam/steam",
+        home / ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+    ]
+
+    roots = []
+    seen = set()
+    for candidate in candidates:
+        if (candidate / "steamapps").is_dir():
+            resolved = candidate.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                roots.append(candidate)
+
+    if not roots:
+        print("No Steam installation directory found.", file=sys.stderr)
+        return 1
+
+    skip_re = re.compile(
+        r"^(Proton\b|Steam Linux Runtime|Steamworks Common Redistributables|"
+        r"Wallpaper Engine|Lossless Scaling)",
+        re.I,
+    )
+
+    for steam_root in roots:
+        libraries = [steam_root]
+        library_vdf = steam_root / "steamapps/libraryfolders.vdf"
+        if library_vdf.exists():
+            for match in re.finditer(
+                r'"path"\s+"([^"]+)"',
+                library_vdf.read_text(encoding="utf-8", errors="ignore"),
+            ):
+                path = Path(match.group(1))
+                if path not in libraries and (path / "steamapps").is_dir():
+                    libraries.append(path)
+
+        games = {}
+        for library in libraries:
+            for acf in (library / "steamapps").glob("appmanifest_*.acf"):
+                text = acf.read_text(encoding="utf-8", errors="ignore")
+                appid_match = re.search(r'"appid"\s+"(\d+)"', text)
+                name_match = re.search(r'"name"\s+"([^"]+)"', text)
+                if not appid_match:
+                    continue
+                appid = appid_match.group(1)
+                name = name_match.group(1) if name_match else appid
+                if appid == "228980" or skip_re.search(name):
+                    continue
+                games[appid] = name
+
+        for config in (steam_root / "userdata").glob("*/config/localconfig.vdf"):
+            raw = config.read_text(encoding="utf-8", errors="ignore")
+            app_launch, app_close, apps_close = find_launch_options(raw)
+            if apps_close is None:
+                continue
+
+            edits = []
+            changed = []
+            for appid, name in sorted(games.items(), key=lambda item: item[1].lower()):
+                if appid not in app_launch:
+                    pos = app_close.get(appid, apps_close)
+                    if appid in app_close:
+                        rep = (
+                            f'\t\t\t\t"LaunchOptions"\t\t"{args.wrapper} %command%"\n'
+                            "\t\t\t"
+                        )
+                    else:
+                        rep = (
+                            f'\t"{appid}"\n'
+                            "\t\t{\n"
+                            f'\t\t\t"LaunchOptions"\t\t"{args.wrapper} %command%"\n'
+                            "\t\t}\n"
+                        )
+                    edits.append((pos, pos, rep))
+                    changed.append((appid, name))
+                    continue
+
+                current, start, end = app_launch[appid]
+                if args.remove:
+                    if args.wrapper not in current:
+                        continue
+                    replacement = re.sub(
+                        rf"\b{re.escape(args.wrapper)}\s+%command%", "%command%", current
+                    ).strip()
+                    if replacement == "%command%":
+                        replacement = ""
+                else:
+                    if args.wrapper in current:
+                        continue
+                    if "%command%" in current:
+                        replacement = current.replace(
+                            "%command%", f"{args.wrapper} %command%", 1
+                        )
+                    elif current.strip():
+                        replacement = f"{args.wrapper} %command% {current.strip()}"
+                    else:
+                        replacement = f"{args.wrapper} %command%"
+
+                escaped = replacement.replace("\\", "\\\\").replace('"', '\\"')
+                edits.append((start, end, f'"{escaped}"'))
+                changed.append((appid, name))
+
+            if edits and not args.dry_run:
+                backup = config.with_name(f"localconfig.vdf.bak.{int(time.time())}")
+                shutil.copy2(config, backup)
+                output = raw
+                for start, end, replacement in sorted(edits, key=lambda edit: edit[0], reverse=True):
+                    output = output[:start] + replacement + output[end:]
+                config.write_text(output, encoding="utf-8")
+
+            prefix = "[DRY-RUN] " if args.dry_run else ""
+            action = "Removed from" if args.remove else "Updated"
+            print(f"{prefix}{action} {len(changed)} game(s) in profile {config.parent.parent.name}:")
+            for appid, name in changed:
+                print(f"  {'-' if args.remove else '+'} [{appid}] {name}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

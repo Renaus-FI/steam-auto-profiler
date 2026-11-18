@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+
+# Context-aware heuristic game classifier for Steam on Linux.
+
+set -euo pipefail
+
+INSPECT_MODE=0
+APPID=""
+
+usage() {
+    cat <<'EOF'
+Usage: steam-auto-detect [--inspect] [APPID]
+
+Options:
+  --inspect, -i  Print a human-readable diagnostic report
+  --help, -h     Show this help message
+EOF
+}
+
+while (($#)); do
+    case "$1" in
+        --inspect|-i)
+            INSPECT_MODE=1
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            APPID="$1"
+            shift
+            ;;
+    esac
+done
+
+APPID="${APPID:-${SteamAppId:-${STEAM_COMPAT_APP_ID:-}}}"
+
+AUTO_CLASS="standard"
+AUTO_PRESET="standard"
+AUTO_OPTISCALER=0
+AUTO_SHARPEN=1
+AUTO_NET_OPT=0
+AUTO_CEF_FIX=0
+AUTO_NATIVE_LINUX=0
+AUTO_REASON="No anti-cheat or modern upscaler DLLs detected; using standard low-latency profile"
+GAME_NAME="Unknown / Non-Steam"
+GAME_DIR=""
+
+find_steam_roots() {
+    local candidates=(
+        "$HOME/.local/share/Steam"
+        "$HOME/.steam/steam"
+        "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"
+    )
+    local root
+    for root in "${candidates[@]}"; do
+        if [[ -d "$root/steamapps" ]]; then
+            printf '%s\n' "$root"
+        fi
+    done
+}
+
+if [[ -n "$APPID" ]]; then
+    declare -a libs=()
+    declare -A seen_roots=()
+
+    while IFS= read -r root; do
+        [[ -n "$root" && -z "${seen_roots[$root]:-}" ]] || continue
+        seen_roots["$root"]=1
+        libs+=("$root")
+
+        local_vdf="$root/steamapps/libraryfolders.vdf"
+        if [[ -f "$local_vdf" ]]; then
+            while IFS= read -r library_path; do
+                [[ -d "$library_path/steamapps" ]] || continue
+                [[ -z "${seen_roots[$library_path]:-}" ]] || continue
+                seen_roots["$library_path"]=1
+                libs+=("$library_path")
+            done < <(
+                grep -oE '"path"[[:space:]]+"[^"]+"' "$local_vdf" \
+                    | sed -E 's/"path"[[:space:]]+"([^"]+)"/\1/'
+            )
+        fi
+    done < <(find_steam_roots)
+
+    for lib in "${libs[@]}"; do
+        acf="$lib/steamapps/appmanifest_${APPID}.acf"
+        [[ -f "$acf" ]] || continue
+
+        GAME_NAME=$(
+            grep -m1 '"name"' "$acf" \
+                | sed -E 's/.*"name"[[:space:]]+"([^"]+)".*/\1/' \
+                || printf '%s' "$APPID"
+        )
+        install_dir=$(
+            grep -m1 '"installdir"' "$acf" \
+                | sed -E 's/.*"installdir"[[:space:]]+"([^"]+)".*/\1/' \
+                || true
+        )
+        if [[ -n "$install_dir" && -d "$lib/steamapps/common/$install_dir" ]]; then
+            GAME_DIR="$lib/steamapps/common/$install_dir"
+        fi
+        break
+    done
+
+    if [[ -n "$GAME_DIR" ]] &&
+        ! find "$GAME_DIR" -maxdepth 4 -iname '*.exe' -print -quit 2>/dev/null | grep -q .; then
+        AUTO_NATIVE_LINUX=1
+    fi
+
+    IS_ANTICHEAT=0
+    case "$APPID" in
+        730|570|252490|304390|393380|553850|581320|594650|1085660|1172470|1172620|1874880|1938090|2051620|2073850|2100280|2357570|2479810|2767030|2887580)
+            IS_ANTICHEAT=1
+            AUTO_REASON="Known competitive multiplayer / anti-cheat AppID ($APPID)"
+            ;;
+    esac
+
+    if [[ "$IS_ANTICHEAT" -eq 0 && -n "$GAME_DIR" ]]; then
+        AC_MATCH=$(
+            find "$GAME_DIR" -maxdepth 10 \( \
+                -iname '*EasyAntiCheat*' -o \
+                -iname '*BattlEye*' -o \
+                -iname '*BEService*' -o \
+                -iname '*randgrid*' -o \
+                -iname '*Ricochet*.sys' -o \
+                -iname '*ACE-Base*' -o \
+                -iname '*AntiCheatExpert*' -o \
+                -iname '*nProtect*' -o \
+                -iname '*GameGuard*' -o \
+                -iname '*XIGNCODE*' -o \
+                -iname '*Wellbia*' -o \
+                -iname '*mhyprot*' -o \
+                -iname '*HoYoKProtect*' -o \
+                -iname '*EQU8*' -o \
+                -iname '*FairFight*' -o \
+                -iname '*PunkBuster*' -o \
+                -iname '*anticheat*.exe' -o \
+                -iname '*anticheat*.dll' -o \
+                -iname '*anticheat*.sys' -o \
+                -iname '*anticheat*.so' -o \
+                -type d -iname '*anticheat*' \
+            \) -print -quit 2>/dev/null || true
+        )
+        if [[ -n "$AC_MATCH" ]]; then
+            IS_ANTICHEAT=1
+            AUTO_REASON="Anti-cheat runtime detected: $(basename "$AC_MATCH")"
+        fi
+    fi
+
+    if [[ "$IS_ANTICHEAT" -eq 1 ]]; then
+        AUTO_CLASS="competitive-anticheat"
+        AUTO_PRESET="competitive"
+        AUTO_OPTISCALER=0
+        AUTO_SHARPEN=1
+        AUTO_NET_OPT=1
+    elif [[ -n "$GAME_DIR" ]] && FSR_MATCH=$(
+        find "$GAME_DIR" -maxdepth 10 \( \
+            -iname 'amd_fidelityfx_dx12.dll' -o \
+            -iname 'amd_fidelityfx_vk.dll' -o \
+            -iname 'amd_fidelityfx_loader_dx12.dll' -o \
+            -iname 'amd_fidelityfx_loader_vk.dll' -o \
+            -iname 'amd_fidelityfx_upscaler_dx12.dll' -o \
+            -iname 'amd_fidelityfx_upscaler_vk.dll' -o \
+            -iname 'amdxcffx64.dll' \
+        \) -print -quit 2>/dev/null
+    ) && [[ -n "$FSR_MATCH" ]]; then
+        AUTO_CLASS="native-fsr"
+        AUTO_PRESET="standard"
+        AUTO_OPTISCALER=0
+        AUTO_SHARPEN=0
+        AUTO_REASON="Native FSR 3.1+ library detected ($(basename "$FSR_MATCH")); using driver-level FSR upgrade"
+    elif [[ -n "$GAME_DIR" ]] && UPSCALE_MATCH=$(
+        find "$GAME_DIR" -maxdepth 10 \( \
+            -iname 'nvngx_dlss*.dll' -o \
+            -iname 'libxess.dll' -o \
+            -iname 'sl.interposer.dll' -o \
+            -iname 'ffx_fsr2_api*.dll' \
+        \) -print -quit 2>/dev/null
+    ) && [[ -n "$UPSCALE_MATCH" ]]; then
+        AUTO_CLASS="legacy-upscaler"
+        AUTO_PRESET="standard"
+        AUTO_OPTISCALER=1
+        AUTO_SHARPEN=0
+        AUTO_REASON="Legacy upscaler detected ($(basename "$UPSCALE_MATCH")); optional bridge may be used"
+    fi
+
+    if [[ -n "$GAME_DIR" ]] &&
+        find "$GAME_DIR" -maxdepth 6 \( \
+            -iname '*EADesktop*' -o -iname '*OriginThinSetup*' -o \
+            -iname '*UbisoftConnect*' -o -iname '*Uplay*' -o \
+            -iname '*Battle.net*' -o -iname '*Rockstar-Games-Launcher*' \
+        \) -print -quit 2>/dev/null | grep -q .; then
+        AUTO_CEF_FIX=1
+    fi
+fi
+
+if [[ "$INSPECT_MODE" -eq 1 ]]; then
+    cat <<EOF
+=== Steam Auto-Profiler Inspection ===
+AppID        : ${APPID:-N/A}
+Game         : $GAME_NAME
+Install Dir  : ${GAME_DIR:-Not found locally}
+Runtime      : $([[ "$AUTO_NATIVE_LINUX" -eq 1 ]] && echo "Native Linux" || echo "Proton / Windows")
+Class        : $AUTO_CLASS
+Preset       : $AUTO_PRESET
+Net QoS Hook : $AUTO_NET_OPT
+CEF Fix      : $AUTO_CEF_FIX
+Sharpen Layer: $AUTO_SHARPEN
+OptiScaler   : $AUTO_OPTISCALER (optional plugin)
+Rationale    : $AUTO_REASON
+EOF
+else
+    printf 'AUTO_CLASS=%q\n' "$AUTO_CLASS"
+    printf 'AUTO_PRESET=%q\n' "$AUTO_PRESET"
+    printf 'AUTO_OPTISCALER=%q\n' "$AUTO_OPTISCALER"
+    printf 'AUTO_SHARPEN=%q\n' "$AUTO_SHARPEN"
+    printf 'AUTO_NET_OPT=%q\n' "$AUTO_NET_OPT"
+    printf 'AUTO_CEF_FIX=%q\n' "$AUTO_CEF_FIX"
+    printf 'AUTO_NATIVE_LINUX=%q\n' "$AUTO_NATIVE_LINUX"
+    printf 'AUTO_REASON=%q\n' "$AUTO_REASON"
+fi

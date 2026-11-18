@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+
+# Context-aware pre-launch orchestrator for Steam on Linux.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DETECT_BIN=""
+for candidate in "$SCRIPT_DIR/steam-auto-detect" "$HOME/.local/bin/steam-auto-detect" "/usr/local/bin/steam-auto-detect"; do
+    if [[ -x "$candidate" ]]; then
+        DETECT_BIN="$candidate"
+        break
+    fi
+done
+
+PROFILE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles"
+mkdir -p "$PROFILE_DIR"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  steam-auto-run %command%
+  steam-auto-run [OPTIONS] [APPID]
+
+Options:
+  --help, -h        Show this help message
+  --inspect         Run the heuristic scanner
+  --configure       Force-open the optional configuration GUI
+  --reset APPID     Remove a saved profile
+
+Environment overrides:
+  FORCE_GUI=1       Re-open the GUI for a saved profile
+  NO_GUI=1          Run silently
+  VRR_CAP=<fps>     Override the calculated VRR frame cap
+  XWAYLAND=1        Force XWayland
+  MLFG=1            Enable frame generation
+  NETOPT=1          Enable the optional network profile
+EOF
+}
+
+CONFIGURE_ONLY=0
+case "${1:-}" in
+    -h|--help|--help)
+        usage
+        exit 0
+        ;;
+    --inspect|-i)
+        if [[ -n "$DETECT_BIN" ]]; then
+            exec "$DETECT_BIN" --inspect "${2:-}"
+        fi
+        echo "Error: steam-auto-detect not found." >&2
+        exit 1
+        ;;
+    --reset)
+        if [[ -z "${2:-}" ]]; then
+            echo "Usage: steam-auto-run --reset APPID" >&2
+            exit 2
+        fi
+        rm -f "$PROFILE_DIR/$2.env"
+        echo "Profile reset for AppID $2."
+        exit 0
+        ;;
+    --configure)
+        if [[ -z "${2:-}" ]]; then
+            echo "Usage: steam-auto-run --configure APPID" >&2
+            exit 2
+        fi
+        export SteamAppId="$2"
+        export FORCE_GUI=1
+        CONFIGURE_ONLY=1
+        shift 2
+        ;;
+esac
+
+detect_gpu_vendor() {
+    local vendor_file
+    for vendor_file in /sys/class/drm/card*/device/vendor; do
+        [[ -r "$vendor_file" ]] || continue
+        case "$(cat "$vendor_file" 2>/dev/null)" in
+            0x1002) echo amd; return ;;
+            0x10de) echo nvidia; return ;;
+            0x8086) echo intel; return ;;
+        esac
+    done
+    echo unknown
+}
+
+detect_vrr_cap() {
+    if [[ -n "${VRR_CAP:-}" ]]; then
+        echo "$VRR_CAP"
+        return
+    fi
+
+    local hz=""
+    if command -v kscreen-doctor >/dev/null 2>&1; then
+        hz=$(
+            kscreen-doctor -o 2>/dev/null \
+                | grep -oE '[0-9]+(\.[0-9]+)?Hz' \
+                | tr -d 'Hz' | sort -nr | head -n1 | cut -d. -f1
+        )
+    elif command -v wlr-randr >/dev/null 2>&1; then
+        hz=$(
+            wlr-randr 2>/dev/null \
+                | awk '/current/ {for(i=1;i<=NF;i++) if($i ~ /Hz/) print $(i-1)}' \
+                | sort -nr | head -n1 | cut -d. -f1
+        )
+    elif command -v xrandr >/dev/null 2>&1; then
+        hz=$(
+            xrandr --current 2>/dev/null \
+                | grep -oE '[0-9]+\.[0-9]+\*' \
+                | tr -d '*' | sort -nr | head -n1 | cut -d. -f1
+        )
+    fi
+
+    if [[ -n "$hz" ]] && (( hz > 60 )); then
+        echo $((hz * 94 / 100))
+    else
+        echo 0
+    fi
+}
+
+GPU_VENDOR="$(detect_gpu_vendor)"
+AUTO_VRR_CAP="$(detect_vrr_cap)"
+
+export LD_PRELOAD=""
+
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    export AMD_VULKAN_ICD="${AMD_VULKAN_ICD:-RADV}"
+    export RADV_PERFTEST="${RADV_PERFTEST:-sam}"
+fi
+
+export MESA_DISK_CACHE_SINGLE_FILE="${MESA_DISK_CACHE_SINGLE_FILE:-1}"
+export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-64G}"
+export PROTON_LOCAL_SHADER_CACHE="${PROTON_LOCAL_SHADER_CACHE:-1}"
+export PROTON_USE_PIPEWIRE="${PROTON_USE_PIPEWIRE:-1}"
+
+APPID="${SteamAppId:-${STEAM_COMPAT_APP_ID:-}}"
+PROFILE_FILE=""
+[[ -n "$APPID" ]] && PROFILE_FILE="$PROFILE_DIR/$APPID.env"
+
+USE_XWAYLAND=0
+USE_MLFG=0
+USE_OPTISCALER=0
+USE_SHARPEN=0
+USE_VIVID=0
+USE_NET_OPT=0
+USE_SDL=0
+USE_VIDEO_FIX=0
+USE_CEF_FIX=0
+USE_SAFEDX12=0
+USE_FSR_HUD=0
+USE_VULKAN=0
+
+AUTO_CLASS="standard"
+AUTO_PRESET="standard"
+AUTO_OPTISCALER=0
+AUTO_SHARPEN=0
+AUTO_NET_OPT=0
+AUTO_CEF_FIX=0
+AUTO_NATIVE_LINUX=0
+AUTO_REASON=""
+
+if [[ -n "$DETECT_BIN" ]]; then
+    eval "$("$DETECT_BIN" "$APPID")"
+fi
+
+SKIP_GUI=0
+if [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" && "${FORCE_GUI:-0}" -ne 1 ]]; then
+    # shellcheck disable=SC1090
+    source "$PROFILE_FILE"
+    SKIP_GUI=1
+else
+    USE_OPTISCALER="$AUTO_OPTISCALER"
+    USE_SHARPEN="$AUTO_SHARPEN"
+    USE_NET_OPT="$AUTO_NET_OPT"
+    USE_CEF_FIX="$AUTO_CEF_FIX"
+fi
+
+flag_kd() { [[ "${1:-0}" -eq 1 ]] && echo on || echo off; }
+flag_zn() { [[ "${1:-0}" -eq 1 ]] && echo TRUE || echo FALSE; }
+
+if [[ "$SKIP_GUI" -eq 0 && "${NO_GUI:-0}" -ne 1 &&
+      (-n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}") ]]; then
+    SELECTED=""
+    EXIT_CODE=1
+    DIALOG_TEXT="Detected class: [$AUTO_CLASS] - ${AUTO_REASON:-Ready}\nSelect launch options:"
+
+    if command -v kdialog >/dev/null 2>&1; then
+        SELECTED=$(
+            env -u LD_LIBRARY_PATH -u LD_PRELOAD QT_QPA_PLATFORM="wayland;xcb" \
+                kdialog --title "Steam Auto-Profiler (AppID: ${APPID:-Local})" \
+                --separate-output --checklist "$DIALOG_TEXT" \
+                xwayland "Use XWayland instead of native Wayland" "$(flag_kd "$USE_XWAYLAND")" \
+                mlfg "Enable frame generation" "$(flag_kd "$USE_MLFG")" \
+                optiscaler "Optional upscaler bridge" "$(flag_kd "$USE_OPTISCALER")" \
+                sharpen "Post-process sharpening" "$(flag_kd "$USE_SHARPEN")" \
+                netopt "Session network QoS" "$(flag_kd "$USE_NET_OPT")" \
+                cef "CEF launcher Wayland fix" "$(flag_kd "$USE_CEF_FIX")" \
+                remember "Save profile for future launches" off 2>/dev/null
+        )
+        EXIT_CODE=$?
+    elif command -v zenity >/dev/null 2>&1; then
+        SELECTED=$(
+            env -u LD_LIBRARY_PATH -u LD_PRELOAD GDK_BACKEND="wayland,x11" \
+                zenity --list --checklist --title="Steam Auto-Profiler" \
+                --text="$DIALOG_TEXT" --column="" --column="Code" --column="Setting" \
+                --hide-column=2 --separator=$'\n' \
+                "$(flag_zn "$USE_XWAYLAND")" xwayland "Use XWayland instead of native Wayland" \
+                "$(flag_zn "$USE_MLFG")" mlfg "Enable frame generation" \
+                "$(flag_zn "$USE_OPTISCALER")" optiscaler "Optional upscaler bridge" \
+                "$(flag_zn "$USE_SHARPEN")" sharpen "Post-process sharpening" \
+                "$(flag_zn "$USE_NET_OPT")" netopt "Session network QoS" \
+                "$(flag_zn "$USE_CEF_FIX")" cef "CEF launcher Wayland fix" \
+                FALSE remember "Save profile for future launches" 2>/dev/null
+        )
+        EXIT_CODE=$?
+    fi
+
+    if [[ "$EXIT_CODE" -eq 0 ]]; then
+        USE_XWAYLAND=0
+        USE_MLFG=0
+        USE_OPTISCALER=0
+        USE_SHARPEN=0
+        USE_NET_OPT=0
+        USE_CEF_FIX=0
+        SAVE_PROFILE=0
+
+        for choice in $SELECTED; do
+            case "$choice" in
+                xwayland) USE_XWAYLAND=1 ;;
+                mlfg) USE_MLFG=1 ;;
+                optiscaler) USE_OPTISCALER=1 ;;
+                sharpen) USE_SHARPEN=1 ;;
+                netopt) USE_NET_OPT=1 ;;
+                cef) USE_CEF_FIX=1 ;;
+                remember) SAVE_PROFILE=1 ;;
+            esac
+        done
+
+        if [[ "$SAVE_PROFILE" -eq 1 && -n "$PROFILE_FILE" ]]; then
+            cat >"$PROFILE_FILE" <<EOF
+USE_XWAYLAND=$USE_XWAYLAND
+USE_MLFG=$USE_MLFG
+USE_OPTISCALER=$USE_OPTISCALER
+USE_SHARPEN=$USE_SHARPEN
+USE_NET_OPT=$USE_NET_OPT
+USE_CEF_FIX=$USE_CEF_FIX
+AUTO_PRESET=$AUTO_PRESET
+EOF
+        fi
+    fi
+fi
+
+[[ "${XWAYLAND:-0}" -eq 1 ]] && USE_XWAYLAND=1
+[[ "${MLFG:-0}" -eq 1 ]] && USE_MLFG=1
+[[ "${OPTISCALER:-0}" -eq 1 ]] && USE_OPTISCALER=1
+[[ "${SHARPEN:-0}" -eq 1 || "${RCAS:-0}" -eq 1 ]] && USE_SHARPEN=1
+[[ "${NETOPT:-0}" -eq 1 ]] && USE_NET_OPT=1
+[[ "${CEF:-0}" -eq 1 ]] && USE_CEF_FIX=1
+[[ "${VULKAN:-0}" -eq 1 ]] && USE_VULKAN=1
+
+if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
+    USE_OPTISCALER=0
+    USE_MLFG=0
+fi
+
+if [[ "$USE_XWAYLAND" -eq 1 ]]; then
+    export PROTON_ENABLE_WAYLAND=0
+    export SDL_VIDEODRIVER=x11
+else
+    export PROTON_ENABLE_WAYLAND=1
+    export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
+    export DXVK_HDR="${DXVK_HDR:-1}"
+fi
+
+if [[ "$USE_MLFG" -eq 1 ]]; then
+    export PROTON_MLFG_UPGRADE=1
+    export MLFG_UPGRADE=1
+    export PROTON_VKD3D_LOWLATENCY=0
+    export PROTON_DXVK_LOWLATENCY=0
+else
+    export PROTON_MLFG_UPGRADE=0
+    export MLFG_UPGRADE=0
+    export ENABLE_LAYER_MESA_ANTI_LAG="${ENABLE_LAYER_MESA_ANTI_LAG:-1}"
+    export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
+    if (( AUTO_VRR_CAP > 0 )); then
+        export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AUTO_VRR_CAP}"
+        export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AUTO_VRR_CAP}"
+    fi
+fi
+
+export PROTON_FSR4_UPGRADE=1
+if [[ "$USE_OPTISCALER" -eq 1 ]]; then
+    export PROTON_USE_OPTISCALER=1
+else
+    export PROTON_USE_OPTISCALER=0
+fi
+
+if [[ "$USE_SHARPEN" -eq 1 && "$USE_OPTISCALER" -ne 1 ]]; then
+    export ENABLE_VKBASALT=1
+else
+    export ENABLE_VKBASALT=0
+fi
+
+EXTRA_ARGS=()
+[[ "$USE_CEF_FIX" -eq 1 ]] && EXTRA_ARGS+=("--in-process-gpu")
+[[ "$USE_VULKAN" -eq 1 ]] && EXTRA_ARGS+=("-vulkan")
+
+run_with_scheduler() {
+    if command -v game-performance >/dev/null 2>&1; then
+        game-performance "$@"
+    elif command -v gamemoderun >/dev/null 2>&1; then
+        gamemoderun "$@"
+    else
+        "$@"
+    fi
+}
+
+NET_BOOST_BIN=""
+for net_candidate in "$SCRIPT_DIR/steam-net-boost" "$HOME/.local/bin/steam-net-boost" "/usr/local/bin/steam-net-boost"; do
+    if [[ -x "$net_candidate" ]]; then
+        NET_BOOST_BIN="$net_candidate"
+        break
+    fi
+done
+
+if [[ "$USE_NET_OPT" -eq 1 && -n "$NET_BOOST_BIN" ]]; then
+    cleanup_net() { sudo -n "$NET_BOOST_BIN" off >/dev/null 2>&1 || true; }
+    trap cleanup_net EXIT INT TERM
+    sudo -n "$NET_BOOST_BIN" on >/dev/null 2>&1 || true
+fi
+
+run_with_scheduler "$@" "${EXTRA_ARGS[@]}"

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+# Session-scoped network and NIC power-save helper.
+
+set -euo pipefail
+
+MODE="${1:-status}"
+
+detect_default_iface() {
+    ip -o -4 route show to default 2>/dev/null | awk '{print $5; exit}' \
+        || ip -o -6 route show to default 2>/dev/null | awk '{print $5; exit}'
+}
+
+IFACE="$(detect_default_iface)"
+[[ -n "$IFACE" ]] || exit 0
+
+case "$MODE" in
+    on)
+        if command -v tc >/dev/null 2>&1; then
+            tc qdisc replace dev "$IFACE" root cake diffserv4 triple-isolate 2>/dev/null \
+                || tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null \
+                || true
+        fi
+        ip link set dev "$IFACE" txqueuelen 500 2>/dev/null || true
+        if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then
+            command -v iw >/dev/null 2>&1 && iw dev "$IFACE" set power_save off 2>/dev/null || true
+        else
+            command -v ethtool >/dev/null 2>&1 && ethtool --set-eee "$IFACE" eee off 2>/dev/null || true
+        fi
+        ;;
+    off)
+        if command -v tc >/dev/null 2>&1; then
+            tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null || true
+        fi
+        ip link set dev "$IFACE" txqueuelen 1000 2>/dev/null || true
+        if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then
+            command -v iw >/dev/null 2>&1 && iw dev "$IFACE" set power_save on 2>/dev/null || true
+        else
+            command -v ethtool >/dev/null 2>&1 && ethtool --set-eee "$IFACE" eee on 2>/dev/null || true
+        fi
+        ;;
+    status)
+        echo "Interface : $IFACE"
+        command -v tc >/dev/null 2>&1 && tc qdisc show dev "$IFACE" 2>/dev/null || true
+        ;;
+    *)
+        echo "Usage: steam-net-boost [on|off|status]" >&2
+        exit 2
+        ;;
+esac

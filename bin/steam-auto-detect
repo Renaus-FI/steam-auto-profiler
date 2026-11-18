@@ -206,7 +206,7 @@ if [[ -n "$APPID" ]]; then
         AUTO_CLASS="competitive-anticheat"
         AUTO_PRESET="competitive"
         AUTO_OPTISCALER=0
-        AUTO_SHARPEN=1
+        AUTO_SHARPEN=0
         AUTO_NET_OPT=1
     elif [[ -n "$GAME_DIR" ]] && FSR_MATCH=$(
         find "$GAME_DIR" -maxdepth 10 \( \

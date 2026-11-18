@@ -344,6 +344,10 @@ else
     USE_SHARPEN="$AUTO_SHARPEN"
     USE_NET_OPT="$AUTO_NET_OPT"
     USE_CEF_FIX="$AUTO_CEF_FIX"
+    if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
+        USE_SHARPEN=0
+        USE_NO_DECORATION=1
+    fi
 fi
 
 flag_kd() { [[ "${1:-0}" -eq 1 ]] && echo on || echo off; }
@@ -567,6 +571,14 @@ fi
 
 if [[ "$USE_SHARPEN" -eq 1 && "$USE_OPTISCALER" -ne 1 ]]; then
     export ENABLE_VKBASALT=1
+    VKBASALT_PRESET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/vkBasalt/presets"
+    if [[ "$AUTO_PRESET" == "competitive" && -f "$VKBASALT_PRESET_DIR/competitive.conf" ]]; then
+        export VKBASALT_CONFIG_FILE="$VKBASALT_PRESET_DIR/competitive.conf"
+    elif [[ "$AUTO_PRESET" == "vivid" && -f "$VKBASALT_PRESET_DIR/vivid.conf" ]]; then
+        export VKBASALT_CONFIG_FILE="$VKBASALT_PRESET_DIR/vivid.conf"
+    elif [[ -f "$VKBASALT_PRESET_DIR/standard.conf" ]]; then
+        export VKBASALT_CONFIG_FILE="$VKBASALT_PRESET_DIR/standard.conf"
+    fi
 else
     export ENABLE_VKBASALT=0
 fi

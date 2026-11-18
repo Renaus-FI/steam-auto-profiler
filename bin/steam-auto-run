@@ -94,8 +94,19 @@ run_doctor() {
     fi
 
     if command -v eac-status >/dev/null 2>&1; then
-        echo "[INFO] Easy Anti-Cheat readiness:"
-        eac-status 2>&1 | sed 's/^/  /'
+        if [[ "$(id -u)" -eq 0 ]]; then
+            echo "[INFO] Easy Anti-Cheat readiness:"
+            eac-status 2>&1 | sed 's/^/  /' || true
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            echo "[INFO] Easy Anti-Cheat readiness:"
+            sudo -n eac-status 2>&1 | sed 's/^/  /' || true
+        else
+            local lockdown_state
+            lockdown_state="$(head -n1 /sys/kernel/security/lockdown 2>/dev/null || echo "unknown")"
+            echo "[OK] Easy Anti-Cheat (Linux v2): eac-status is installed"
+            echo "[INFO] Kernel: $kernel; lockdown: $lockdown_state"
+            echo "[INFO] Run 'sudo eac-status' for full hardware-attestation details"
+        fi
     elif [[ "$kernel" == *-cachyos-eac* ]]; then
         echo "[INFO] CachyOS EAC kernel detected: $kernel"
         echo "[INFO] Verify Secure Boot, TPM 2.0, lockdown=integrity and IOMMU for Linux EAC v2"

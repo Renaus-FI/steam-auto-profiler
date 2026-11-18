@@ -5,6 +5,7 @@
 set -euo pipefail
 
 INSPECT_MODE=0
+JSON_MODE=0
 APPID=""
 
 usage() {
@@ -13,6 +14,7 @@ Usage: steam-auto-detect [--inspect] [APPID]
 
 Options:
   --inspect, -i  Print a human-readable diagnostic report
+  --json         Print the classification report as JSON (with --inspect)
   --help, -h     Show this help message
 EOF
 }
@@ -21,6 +23,10 @@ while (($#)); do
     case "$1" in
         --inspect|-i)
             INSPECT_MODE=1
+            shift
+            ;;
+        --json)
+            JSON_MODE=1
             shift
             ;;
         --help|-h)
@@ -48,6 +54,10 @@ AUTO_SHARPEN=1
 AUTO_NET_OPT=0
 AUTO_CEF_FIX=0
 AUTO_NATIVE_LINUX=0
+AUTO_HAS_DLSS=0
+AUTO_HAS_XESS=0
+AUTO_HAS_FSR=0
+NTFS_MOUNT=0
 AUTO_REASON="No anti-cheat or modern upscaler DLLs detected; using standard low-latency profile"
 GAME_NAME="Unknown / Non-Steam"
 GAME_DIR=""
@@ -108,6 +118,30 @@ if [[ -n "$APPID" ]]; then
         fi
         break
     done
+
+    if [[ -n "$GAME_DIR" ]]; then
+        if command -v df >/dev/null 2>&1; then
+            MOUNT_FSTYPE=$(
+                df -T -- "$GAME_DIR" 2>/dev/null \
+                    | awk 'NR == 2 {print tolower($2)}'
+            )
+            case "${MOUNT_FSTYPE:-}" in
+                ntfs|ntfs3|fuseblk) NTFS_MOUNT=1 ;;
+            esac
+        fi
+
+        if find "$GAME_DIR" -maxdepth 10 -type f -iname 'nvngx_dlss*.dll' -print -quit 2>/dev/null | grep -q .; then
+            AUTO_HAS_DLSS=1
+        fi
+        if find "$GAME_DIR" -maxdepth 10 -type f -iname 'libxess*.dll' -print -quit 2>/dev/null | grep -q .; then
+            AUTO_HAS_XESS=1
+        fi
+        if find "$GAME_DIR" -maxdepth 10 -type f \
+            \( -iname 'amdxcffx64.dll' -o -iname 'ffx_fsr2*.dll' -o -iname 'ffx_fsr3*.dll' -o -iname 'amd_fidelityfx*.dll' \) \
+            -print -quit 2>/dev/null | grep -q .; then
+            AUTO_HAS_FSR=1
+        fi
+    fi
 
     if [[ -n "$GAME_DIR" ]] &&
         ! find "$GAME_DIR" -maxdepth 4 -iname '*.exe' -print -quit 2>/dev/null | grep -q .; then
@@ -179,9 +213,10 @@ if [[ -n "$APPID" ]]; then
     elif [[ -n "$GAME_DIR" ]] && UPSCALE_MATCH=$(
         find "$GAME_DIR" -maxdepth 10 \( \
             -iname 'nvngx_dlss*.dll' -o \
-            -iname 'libxess.dll' -o \
+            -iname 'libxess*.dll' -o \
             -iname 'sl.interposer.dll' -o \
-            -iname 'ffx_fsr2_api*.dll' \
+            -iname 'ffx_fsr2*.dll' -o \
+            -iname 'ffx_fsr3*.dll' \
         \) -print -quit 2>/dev/null
     ) && [[ -n "$UPSCALE_MATCH" ]]; then
         AUTO_CLASS="legacy-upscaler"
@@ -201,12 +236,45 @@ if [[ -n "$APPID" ]]; then
     fi
 fi
 
-if [[ "$INSPECT_MODE" -eq 1 ]]; then
+if [[ "$JSON_MODE" -eq 1 ]]; then
+    python3 - "$APPID" "$GAME_NAME" "$GAME_DIR" "$AUTO_NATIVE_LINUX" \
+        "$AUTO_CLASS" "$AUTO_PRESET" "$AUTO_NET_OPT" "$AUTO_CEF_FIX" \
+        "$AUTO_SHARPEN" "$AUTO_OPTISCALER" "$AUTO_REASON" \
+        "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$NTFS_MOUNT" <<'PY'
+import json
+import sys
+
+(
+    appid, game_name, game_dir, native, game_class, preset,
+    net_opt, cef_fix, sharpen, optiscaler, reason,
+    has_dlss, has_xess, has_fsr, ntfs_mount,
+) = sys.argv[1:]
+
+print(json.dumps({
+    "app_id": appid or None,
+    "game": game_name,
+    "install_dir": game_dir or None,
+    "runtime": "native_linux" if native == "1" else "proton",
+    "class": game_class,
+    "preset": preset,
+    "net_qos_hook": net_opt == "1",
+    "cef_fix": cef_fix == "1",
+    "sharpen_layer": sharpen == "1",
+    "optiscaler": optiscaler == "1",
+    "rationale": reason,
+    "has_dlss": has_dlss == "1",
+    "has_xess": has_xess == "1",
+    "has_fsr": has_fsr == "1",
+    "ntfs_mount": ntfs_mount == "1",
+}, indent=2))
+PY
+elif [[ "$INSPECT_MODE" -eq 1 ]]; then
     cat <<EOF
 === Steam Auto-Profiler Inspection ===
 AppID        : ${APPID:-N/A}
 Game         : $GAME_NAME
 Install Dir  : ${GAME_DIR:-Not found locally}
+NTFS Mount   : $([[ "$NTFS_MOUNT" -eq 1 ]] && echo "WARNING: Proton prefix/games on NTFS are unsupported or unsafe" || echo "No")
 Runtime      : $([[ "$AUTO_NATIVE_LINUX" -eq 1 ]] && echo "Native Linux" || echo "Proton / Windows")
 Class        : $AUTO_CLASS
 Preset       : $AUTO_PRESET
@@ -214,6 +282,9 @@ Net QoS Hook : $AUTO_NET_OPT
 CEF Fix      : $AUTO_CEF_FIX
 Sharpen Layer: $AUTO_SHARPEN
 OptiScaler   : $AUTO_OPTISCALER (optional plugin)
+DLSS DLL     : $AUTO_HAS_DLSS
+XeSS DLL     : $AUTO_HAS_XESS
+FSR DLL      : $AUTO_HAS_FSR
 Rationale    : $AUTO_REASON
 EOF
 else
@@ -224,5 +295,9 @@ else
     printf 'AUTO_NET_OPT=%q\n' "$AUTO_NET_OPT"
     printf 'AUTO_CEF_FIX=%q\n' "$AUTO_CEF_FIX"
     printf 'AUTO_NATIVE_LINUX=%q\n' "$AUTO_NATIVE_LINUX"
+    printf 'AUTO_HAS_DLSS=%q\n' "$AUTO_HAS_DLSS"
+    printf 'AUTO_HAS_XESS=%q\n' "$AUTO_HAS_XESS"
+    printf 'AUTO_HAS_FSR=%q\n' "$AUTO_HAS_FSR"
+    printf 'NTFS_MOUNT=%q\n' "$NTFS_MOUNT"
     printf 'AUTO_REASON=%q\n' "$AUTO_REASON"
 fi

@@ -216,6 +216,10 @@ run_doctor() {
     local flatpak_compat="${HOME}/.var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d"
     local local_compat="${HOME}/.local/share/Steam/compatibilitytools.d"
     local found_proton=0
+    local found_slr=0
+    local found_native=0
+    local native_name=""
+    local slr_name=""
     for proton_dir in "$compat_dir" "$local_compat" "$flatpak_compat" \
         "/usr/share/steam/compatibilitytools.d" "/usr/local/share/steam/compatibilitytools.d"; do
         [[ -d "$proton_dir" ]] || continue
@@ -224,17 +228,28 @@ run_doctor() {
             local tool_name
             tool_name="$(basename "$tool")"
             case "$tool_name" in
-                *proton-cachyos-slr*|*Proton-EM*|*Proton-GE*|*Experimental*)
-                    echo "[INFO] Proton compatibility tool: $tool_name"
+                *proton-cachyos-slr*)
+                    found_slr=1
+                    slr_name="$tool_name"
                     found_proton=1
                     ;;
-                *proton-cachyos-native*)
-                    echo "[WARN] Native Proton-CachyOS detected: prefer proton-cachyos-slr under SteamRT3/SteamRT4"
+                *proton-cachyos-native*|proton-cachyos)
+                    found_native=1
+                    native_name="$tool_name"
+                    found_proton=1
+                    ;;
+                *Proton-EM*|*Proton-GE*|*Experimental*)
+                    echo "[INFO] Proton compatibility tool: $tool_name"
                     found_proton=1
                     ;;
             esac
         done
     done
+    if (( found_slr == 1 )) && [[ -n "$slr_name" ]]; then
+        echo "[OK] Proton-CachyOS SLR is installed (recommended over native build for EAC/BattlEye): $slr_name"
+    elif (( found_native == 1 )) && [[ -n "$native_name" ]]; then
+        echo "[WARN] Native Proton-CachyOS detected without proton-cachyos-slr: $native_name"
+    fi
     (( found_proton == 1 )) || echo "[INFO] No community Proton compatibility tool directory was detected"
 }
 
@@ -453,6 +468,16 @@ if [[ -n "$DETECT_BIN" ]]; then
     eval "$("$DETECT_BIN" "$APPID")"
 fi
 
+# Seed all optional profile keys from detector defaults before a profile is loaded.
+# This keeps legacy/minimal .env files from erasing heuristic behavior.
+USE_OPTISCALER="${AUTO_OPTISCALER:-0}"
+USE_SHARPEN="${AUTO_SHARPEN:-0}"
+USE_NET_OPT="${AUTO_NET_OPT:-0}"
+USE_CEF_FIX="${AUTO_CEF_FIX:-0}"
+USE_VIVID=0
+[[ "${AUTO_PRESET:-}" == "vivid" ]] && USE_VIVID=1
+export USE_OPTISCALER USE_SHARPEN USE_NET_OPT USE_CEF_FIX USE_VIVID
+
 SKIP_GUI=0
 if [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" && "${FORCE_GUI:-0}" -ne 1 ]]; then
     # shellcheck disable=SC1090
@@ -461,6 +486,7 @@ if [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" && "${FORCE_GUI:-0}" -ne 1 ]]; th
         USE_SHARPEN=1
     fi
     SKIP_GUI=1
+    [[ "${PARTIAL_PROFILE:-0}" -eq 1 ]] && SKIP_GUI=0
 else
     USE_OPTISCALER="$AUTO_OPTISCALER"
     USE_SHARPEN="$AUTO_SHARPEN"

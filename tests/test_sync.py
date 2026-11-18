@@ -128,6 +128,12 @@ class SyncTests(unittest.TestCase):
             "AUTO_PRESET='shooter'\n",
             encoding="utf-8",
         )
+        target = self.home / ".config/steam-auto-profiler/profiles"
+        target.mkdir(parents=True)
+        (target / "730.env").write_text(
+            "USE_NET_OPT=1\nUSE_NET_OPT=1\n",
+            encoding="utf-8",
+        )
         result = self.run_sync("--migrate-cachy-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("730.env", result.stdout)
@@ -137,6 +143,45 @@ class SyncTests(unittest.TestCase):
         self.assertIn("USE_SHARPEN=1", content)
         self.assertIn("AUTO_PRESET='competitive'", content)
         self.assertIn("USE_NET_OPT=1", content)
+        keys = [
+            line.split("=", 1)[0]
+            for line in content.splitlines()
+            if "=" in line
+        ]
+        self.assertEqual(len(keys), len(set(keys)))
+
+    def test_sanitize_cleans_orphan_app_launch_entries(self):
+        orphan_vdf = '''"UserLocalConfigStore"
+{
+    "software"
+    {
+        "Valve"
+        {
+            "Steam"
+            {
+                "apps"
+                {
+                    "730"
+                    {
+                        "LaunchOptions"        "%command%"
+                    }
+                    "999999"
+                    {
+                        "LaunchOptions"        "cachy-run game-performance PROTON_FSR4_RDNA3_UPGRADE=1 %command%"
+                    }
+                }
+            }
+        }
+    }
+}
+'''
+        self.config.write_text(orphan_vdf, encoding="utf-8")
+        result = self.run_sync("--sanitize")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = self.config.read_text(encoding="utf-8")
+        self.assertIn("steam-auto-run %command%", updated)
+        self.assertNotIn("cachy-run", updated)
+        self.assertNotIn("PROTON_FSR4_RDNA3_UPGRADE=1", updated)
 
 
 if __name__ == "__main__":

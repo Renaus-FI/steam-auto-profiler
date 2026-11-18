@@ -100,6 +100,32 @@ class RunTests(unittest.TestCase):
         self.assertIn("PROTON_NO_WM_DECORATION=0", result.stdout)
         self.assertIn("WINE_NO_WM_DECORATION=0", result.stdout)
 
+    def test_partial_profile_inherits_detector_defaults(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            profile_dir = home / ".config/steam-auto-profiler/profiles"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "361420.env").write_text(
+                "USE_VULKAN=1\nPARTIAL_PROFILE=1\n",
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "NO_GUI": "1",
+                "GAMEID": "361420",
+            })
+            result = subprocess.run(
+                [str(RUN), "/usr/bin/env"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("USE_SHARPEN=1", result.stdout)
+            self.assertIn("USE_NET_OPT=0", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

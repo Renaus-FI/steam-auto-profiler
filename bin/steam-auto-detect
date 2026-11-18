@@ -45,7 +45,8 @@ while (($#)); do
     esac
 done
 
-APPID="${APPID:-${SteamAppId:-${STEAM_COMPAT_APP_ID:-}}}"
+APPID="${APPID:-${SteamAppId:-${STEAM_COMPAT_APP_ID:-${GAMEID:-}}}}"
+APPID="${APPID#umu-}"
 
 AUTO_CLASS="standard"
 AUTO_PRESET="standard"
@@ -280,6 +281,12 @@ fi
 if [[ "${SDL:-0}" -eq 1 || "${USE_SDL:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("sdlinput")
 fi
+if [[ "${NO_NTSYNC:-0}" -eq 1 || "${USE_NO_NTSYNC:-0}" -eq 1 ]]; then
+    COMPAT_TOKENS+=("nontsync")
+fi
+if [[ "${NO_DECORATION:-0}" -eq 1 || "${USE_NO_DECORATION:-0}" -eq 1 ]]; then
+    COMPAT_TOKENS+=("nowmdecoration")
+fi
 COMPAT_TOKENS+=("localshadercache" "pipewire")
 AUTO_PROTON_ADD_CONFIG=$(IFS=','; echo "${COMPAT_TOKENS[*]}")
 
@@ -335,6 +342,7 @@ DLSS DLL     : $AUTO_HAS_DLSS
 XeSS DLL     : $AUTO_HAS_XESS
 FSR DLL      : $AUTO_HAS_FSR
 Compat Config: $AUTO_PROTON_ADD_CONFIG
+EAC Runtime   : $([[ "$AUTO_CLASS" == "competitive-anticheat" ]] && echo "proton-cachyos-slr / CachyOS EAC v2 recommended; $(command -v eac-status >/dev/null 2>&1 && echo 'eac-status available' || echo 'eac-status unavailable')" || echo "Not detected")
 Rationale    : $AUTO_REASON
 EOF
 else

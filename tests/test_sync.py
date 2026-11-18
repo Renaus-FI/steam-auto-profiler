@@ -88,6 +88,13 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Removed", result.stdout)
 
+    def test_report_is_read_only(self):
+        result = self.run_sync("--report")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("AppID", result.stdout)
+        self.assertIn("Compat Tokens", result.stdout)
+        self.assertIn("Synced", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

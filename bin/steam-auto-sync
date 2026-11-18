@@ -2,6 +2,7 @@
 """Batch-inject or remove steam-auto-run in Steam localconfig.vdf."""
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -90,10 +91,11 @@ def main():
     )
     parser.add_argument("-n", "--dry-run", action="store_true")
     parser.add_argument("--remove", action="store_true")
+    parser.add_argument("--report", "--status", dest="report", action="store_true")
     parser.add_argument("--wrapper", default="steam-auto-run")
     args = parser.parse_args()
 
-    if not args.dry_run:
+    if not args.dry_run and not args.report:
         if subprocess.run(["pgrep", "-x", "steam"], capture_output=True).returncode == 0:
             print("Error: Close Steam completely before syncing.", file=sys.stderr)
             return 1
@@ -149,6 +151,72 @@ def main():
                 if appid == "228980" or skip_re.search(name):
                     continue
                 games[appid] = name
+
+        if args.report:
+            detector_candidates = [
+                Path(__file__).resolve().with_name("steam-auto-detect"),
+                home / ".local/bin/steam-auto-detect",
+                Path("/usr/local/bin/steam-auto-detect"),
+            ]
+            detector = next((path for path in detector_candidates if path.is_file()), None)
+            if detector is None:
+                print("Error: steam-auto-detect not found.", file=sys.stderr)
+                return 1
+
+            synced_appids = set()
+            for config in (steam_root / "userdata").glob("*/config/localconfig.vdf"):
+                raw = config.read_text(encoding="utf-8", errors="ignore")
+                app_launch, _, _ = find_launch_options(raw)
+                for appid, (launch_options, _, _) in app_launch.items():
+                    if args.wrapper in launch_options:
+                        synced_appids.add(appid)
+
+            rows = []
+            for appid, name in sorted(games.items(), key=lambda item: item[1].lower()):
+                result = subprocess.run(
+                    [str(detector), "--json", appid],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    continue
+                try:
+                    report = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    continue
+                rows.append({
+                    "appid": appid,
+                    "name": name,
+                    "class": report.get("class", "standard"),
+                    "compat": report.get("proton_add_config", "-") or "-",
+                    "synced": "Yes" if appid in synced_appids else "No",
+                })
+
+            if rows:
+                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Synced")
+                widths = [
+                    max(len(headers[0]), *(len(row["appid"]) for row in rows)),
+                    max(len(headers[1]), *(len(row["name"]) for row in rows)),
+                    max(len(headers[2]), *(len(row["class"]) for row in rows)),
+                    max(len(headers[3]), *(len(row["compat"]) for row in rows)),
+                    max(len(headers[4]), *(len(row["synced"]) for row in rows)),
+                ]
+                print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
+                print("-+-".join("-" * width for width in widths))
+                for row in rows:
+                    values = (
+                        row["appid"], row["name"], row["class"],
+                        row["compat"], row["synced"],
+                    )
+                    print(" | ".join(value.ljust(width) for value, width in zip(values, widths)))
+            else:
+                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Synced")
+                widths = tuple(max(len(header), 1) for header in headers)
+                print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
+                print("-+-".join("-" * width for width in widths))
+                print("No installed Steam games found.")
+            return 0
 
         for config in (steam_root / "userdata").glob("*/config/localconfig.vdf"):
             raw = config.read_text(encoding="utf-8", errors="ignore")

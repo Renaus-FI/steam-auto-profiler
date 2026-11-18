@@ -54,6 +54,7 @@ class DetectTests(unittest.TestCase):
         self.create_game("1001", "Anti Cheat", files=("EasyAntiCheat/EasyAntiCheat.exe",))
         report = self.classify("1001")
         self.assertEqual(report["class"], "competitive-anticheat")
+        self.assertIn("proton_add_config", report)
 
     def test_tier2_native_fsr(self):
         self.create_game("1002", "Native FSR", files=("amdxcffx64.dll",))

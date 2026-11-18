@@ -61,6 +61,19 @@ NTFS_MOUNT=0
 AUTO_REASON="No anti-cheat or modern upscaler DLLs detected; using standard low-latency profile"
 GAME_NAME="Unknown / Non-Steam"
 GAME_DIR=""
+AUTO_PROTON_ADD_CONFIG=""
+
+detect_gpu_vendor() {
+    local vendor_file
+    for vendor_file in /sys/class/drm/card*/device/vendor; do
+        [[ -r "$vendor_file" ]] || continue
+        case "$(cat "$vendor_file" 2>/dev/null)" in
+            0x1002) echo amd; return ;;
+            0x10de) echo nvidia; return ;;
+        esac
+    done
+    echo unknown
+}
 
 find_steam_roots() {
     local candidates=(
@@ -236,19 +249,54 @@ if [[ -n "$APPID" ]]; then
     fi
 fi
 
+GPU_VENDOR="$(detect_gpu_vendor)"
+COMPAT_TOKENS=()
+if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 ]]; then
+    COMPAT_TOKENS+=("wayland")
+fi
+if [[ -n "${WINE_DISABLE_VULKAN_OPWR:-}" && "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then
+    COMPAT_TOKENS+=("noopwr")
+elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 ]]; then
+    COMPAT_TOKENS+=("noopwr")
+fi
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    COMPAT_TOKENS+=("nativeags")
+fi
+if [[ "${USE_SAFEDX12:-0}" -eq 0 ]]; then
+    COMPAT_TOKENS+=("vkd3dbindlesstb")
+fi
+if [[ "${MLFG:-0}" -eq 0 ]]; then
+    COMPAT_TOKENS+=("dxvklowlatency" "vkd3dlowlatency")
+    if [[ "$GPU_VENDOR" == "nvidia" ]]; then
+        COMPAT_TOKENS+=("vkreflex")
+    fi
+fi
+if [[ "${FSR4:-1}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then
+    COMPAT_TOKENS+=("fsr4")
+fi
+if [[ "${MLFG:-0}" -eq 1 || "${USE_MLFG:-0}" -eq 1 ]]; then
+    COMPAT_TOKENS+=("mlfg")
+fi
+if [[ "${SDL:-0}" -eq 1 || "${USE_SDL:-0}" -eq 1 ]]; then
+    COMPAT_TOKENS+=("sdlinput")
+fi
+COMPAT_TOKENS+=("localshadercache" "pipewire")
+AUTO_PROTON_ADD_CONFIG=$(IFS=','; echo "${COMPAT_TOKENS[*]}")
+
 if [[ "$JSON_MODE" -eq 1 ]]; then
     python3 - "$APPID" "$GAME_NAME" "$GAME_DIR" "$AUTO_NATIVE_LINUX" \
         "$AUTO_CLASS" "$AUTO_PRESET" "$AUTO_NET_OPT" "$AUTO_CEF_FIX" \
         "$AUTO_SHARPEN" "$AUTO_OPTISCALER" "$AUTO_REASON" \
-        "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$NTFS_MOUNT" <<'PY'
+        "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$NTFS_MOUNT" \
+        "$AUTO_PROTON_ADD_CONFIG" <<'PY'
 import json
 import sys
 
 (
     appid, game_name, game_dir, native, game_class, preset,
     net_opt, cef_fix, sharpen, optiscaler, reason,
-    has_dlss, has_xess, has_fsr, ntfs_mount,
-) = sys.argv[1:]
+    has_dlss, has_xess, has_fsr, ntfs_mount, proton_add_config,
+) = sys.argv[1:17]
 
 print(json.dumps({
     "app_id": appid or None,
@@ -266,6 +314,7 @@ print(json.dumps({
     "has_xess": has_xess == "1",
     "has_fsr": has_fsr == "1",
     "ntfs_mount": ntfs_mount == "1",
+    "proton_add_config": proton_add_config,
 }, indent=2))
 PY
 elif [[ "$INSPECT_MODE" -eq 1 ]]; then
@@ -285,6 +334,7 @@ OptiScaler   : $AUTO_OPTISCALER (optional plugin)
 DLSS DLL     : $AUTO_HAS_DLSS
 XeSS DLL     : $AUTO_HAS_XESS
 FSR DLL      : $AUTO_HAS_FSR
+Compat Config: $AUTO_PROTON_ADD_CONFIG
 Rationale    : $AUTO_REASON
 EOF
 else
@@ -299,5 +349,6 @@ else
     printf 'AUTO_HAS_XESS=%q\n' "$AUTO_HAS_XESS"
     printf 'AUTO_HAS_FSR=%q\n' "$AUTO_HAS_FSR"
     printf 'NTFS_MOUNT=%q\n' "$NTFS_MOUNT"
+    printf 'AUTO_PROTON_ADD_CONFIG=%q\n' "$AUTO_PROTON_ADD_CONFIG"
     printf 'AUTO_REASON=%q\n' "$AUTO_REASON"
 fi

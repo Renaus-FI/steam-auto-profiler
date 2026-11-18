@@ -105,6 +105,43 @@ class RunTests(unittest.TestCase):
         self.assertIn("PROTON_NO_WM_DECORATION=1", result.stdout)
         self.assertIn("WINE_NO_WM_DECORATION=1", result.stdout)
 
+    def test_fsr_hud_exports_cross_fork_watermark(self):
+        env = os.environ.copy()
+        env.update({
+            "NO_GUI": "1",
+            "GAMEID": "361420",
+            "USE_FSR_HUD": "1",
+        })
+        result = subprocess.run(
+            [str(RUN), "/usr/bin/env"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PROTON_FSR4_INDICATOR=1", result.stdout)
+        self.assertIn("FSR_WATERMARK=1", result.stdout)
+
+    def test_fsr_hud_and_mlfg_export_frame_generation_watermark(self):
+        env = os.environ.copy()
+        env.update({
+            "NO_GUI": "1",
+            "GAMEID": "361420",
+            "USE_FSR_HUD": "1",
+            "USE_MLFG": "1",
+        })
+        result = subprocess.run(
+            [str(RUN), "/usr/bin/env"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("FSR_WATERMARK=1", result.stdout)
+        self.assertIn("FSR_FG_WATERMARK=1", result.stdout)
+
     def test_competitive_profile_keeps_wayland_shortcuts_and_decorations(self):
         env = os.environ.copy()
         env.update({

@@ -64,6 +64,22 @@ class DetectTests(unittest.TestCase):
         self.assertTrue(report["has_fsr"])
         self.assertIn("fsr4", report["proton_add_config"].split(","))
 
+    def test_modular_fidelityfx_wins_over_streamline_dlls(self):
+        cases = (
+            ("1006", "Modular Upscaler", "amd_fidelityfx_upscaler_dx12.dll"),
+            ("1007", "Modular Loader", "amd_fidelityfx_loader_dx12.dll"),
+        )
+        for appid, name, fidelityfx_dll in cases:
+            with self.subTest(fidelityfx_dll=fidelityfx_dll):
+                self.create_game(
+                    appid,
+                    name,
+                    files=(fidelityfx_dll, "nvngx_dlssd.dll", "sl.interposer.dll"),
+                )
+                report = self.classify(appid)
+                self.assertEqual(report["class"], "native-fsr4")
+                self.assertFalse(report["optiscaler"])
+
     def test_tier3_dlss_xess_cef(self):
         self.create_game(
             "1003",

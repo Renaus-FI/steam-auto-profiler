@@ -31,6 +31,24 @@ class ShellScriptTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_no_tracked_python_bytecode(self):
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            self.skipTest("repository is not available as a git worktree")
+        tracked = result.stdout.splitlines()
+        offenders = [
+            path for path in tracked
+            if "/__pycache__/" in f"/{path}"
+            or path.endswith(".pyc")
+            or path.endswith(".pyo")
+        ]
+        self.assertEqual(offenders, [])
+
 
 if __name__ == "__main__":
     unittest.main()

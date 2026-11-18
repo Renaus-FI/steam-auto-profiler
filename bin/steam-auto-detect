@@ -251,13 +251,17 @@ if [[ -n "$APPID" ]]; then
 fi
 
 GPU_VENDOR="$(detect_gpu_vendor)"
+if [[ -n "$APPID" && -f "$HOME/.config/steam-auto-profiler/profiles/$APPID.env" ]]; then
+    # shellcheck disable=SC1090
+    source "$HOME/.config/steam-auto-profiler/profiles/$APPID.env"
+fi
 COMPAT_TOKENS=()
-if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 ]]; then
+if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 ]]; then
     COMPAT_TOKENS+=("wayland")
 fi
 if [[ -n "${WINE_DISABLE_VULKAN_OPWR:-}" && "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
-elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 ]]; then
+elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
 fi
 if [[ "$GPU_VENDOR" == "amd" ]]; then
@@ -266,13 +270,14 @@ fi
 if [[ "${USE_SAFEDX12:-0}" -eq 0 ]]; then
     COMPAT_TOKENS+=("vkd3dbindlesstb")
 fi
-if [[ "${MLFG:-0}" -eq 0 ]]; then
+if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]]; then
     COMPAT_TOKENS+=("dxvklowlatency" "vkd3dlowlatency")
     if [[ "$GPU_VENDOR" == "nvidia" ]]; then
         COMPAT_TOKENS+=("vkreflex")
     fi
 fi
-if [[ "${FSR4:-1}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then
+if [[ "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
+      "${FSR4:-0}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("fsr4")
 fi
 if [[ "${MLFG:-0}" -eq 1 || "${USE_MLFG:-0}" -eq 1 ]]; then
@@ -281,7 +286,8 @@ fi
 if [[ "${SDL:-0}" -eq 1 || "${USE_SDL:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("sdlinput")
 fi
-if [[ "${NO_NTSYNC:-0}" -eq 1 || "${USE_NO_NTSYNC:-0}" -eq 1 ]]; then
+if [[ "${NO_NTSYNC:-0}" -eq 1 || "${USE_NO_NTSYNC:-0}" -eq 1 ||
+      "${PROTON_NO_NTSYNC:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("nontsync")
 fi
 if [[ "${NO_DECORATION:-0}" -eq 1 || "${USE_NO_DECORATION:-0}" -eq 1 ]]; then

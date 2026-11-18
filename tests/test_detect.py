@@ -62,6 +62,7 @@ class DetectTests(unittest.TestCase):
         report = self.classify("1002")
         self.assertEqual(report["class"], "native-fsr")
         self.assertTrue(report["has_fsr"])
+        self.assertIn("fsr4", report["proton_add_config"].split(","))
 
     def test_tier3_dlss_xess_cef(self):
         self.create_game(
@@ -81,6 +82,27 @@ class DetectTests(unittest.TestCase):
         self.assertFalse(report["has_dlss"])
         self.assertFalse(report["has_xess"])
         self.assertFalse(report["has_fsr"])
+        self.assertNotIn("fsr4", report["proton_add_config"].split(","))
+
+    def test_saved_profile_overrides_compat_tokens(self):
+        self.create_game("1005", "Profiled", files=("Game.exe",))
+        profile_dir = self.home / ".config/steam-auto-profiler/profiles"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / "1005.env").write_text(
+            "USE_XWAYLAND=1\n"
+            "USE_MLFG=1\n"
+            "USE_SDL=1\n"
+            "USE_SAFEDX12=1\n"
+            "PROTON_NO_NTSYNC=1\n",
+            encoding="utf-8",
+        )
+        report = self.classify("1005")
+        tokens = report["proton_add_config"].split(",")
+        self.assertIn("mlfg", tokens)
+        self.assertIn("sdlinput", tokens)
+        self.assertIn("nontsync", tokens)
+        self.assertNotIn("vkd3dbindlesstb", tokens)
+        self.assertNotIn("dxvklowlatency", tokens)
 
 
 if __name__ == "__main__":

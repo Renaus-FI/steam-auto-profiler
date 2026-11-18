@@ -29,6 +29,8 @@ Options:
   --inspect         Run the heuristic scanner
   --configure       Force-open the optional configuration GUI
   --reset APPID     Remove a saved profile
+  --doctor, --check-system
+                    Run a read-only CachyOS system readiness audit
 
 Environment overrides:
   FORCE_GUI=1       Re-open the GUI for a saved profile
@@ -39,9 +41,122 @@ Environment overrides:
   NETOPT=1          Enable the optional network profile
   SDL=1             Prefer native SDL/Steam Input emulation
   KEEP_OVERLAY=1    Preserve LD_PRELOAD for Steam Overlay
+  NO_NTSYNC=1       Disable NTSync for legacy titles
+  NO_DECORATION=1   Disable WM decorations
+  PRIME=1           Use prime-run for hybrid GPU launch
   FSR4=0            Disable the native FSR4 upgrade
   FSR_HUD=1         Enable the FSR/DLSS HUD indicator
 EOF
+}
+
+run_doctor() {
+    echo "=== Steam Auto-Profiler: CachyOS System Doctor ==="
+
+    local kernel
+    kernel="$(uname -r)"
+    echo "[INFO] Kernel: $kernel"
+    if [[ -c /dev/ntsync ]]; then
+        echo "[OK] /dev/ntsync is character-device accessible"
+    else
+        echo "[WARN] /dev/ntsync is unavailable; Proton may fall back to fsync/esync (override: PROTON_NO_NTSYNC=1)"
+    fi
+
+    local pstate=""
+    if [[ -r /sys/devices/system/cpu/amd_pstate/status ]]; then
+        pstate="$(cat /sys/devices/system/cpu/amd_pstate/status)"
+    elif [[ -r /sys/devices/system/cpu/intel_pstate/status ]]; then
+        pstate="$(cat /sys/devices/system/cpu/intel_pstate/status)"
+    fi
+    [[ -n "$pstate" ]] && echo "[INFO] CPU P-State: $pstate" || echo "[INFO] CPU P-State: managed outside amd_pstate/intel_pstate"
+
+    if [[ -r /sys/kernel/sched_ext/state ]]; then
+        local sched_ext
+        sched_ext="$(cat /sys/kernel/sched_ext/state)"
+        echo "[INFO] sched-ext state: $sched_ext"
+    else
+        echo "[INFO] sched-ext state: unavailable"
+    fi
+    if command -v scxctl >/dev/null 2>&1; then
+        echo "[INFO] scxctl get: $(scxctl get 2>/dev/null | tr '\n' ' ')"
+    elif command -v scx_loader >/dev/null 2>&1; then
+        echo "[INFO] scx_loader: installed"
+    else
+        echo "[INFO] sched-ext loader: not detected"
+    fi
+
+    if (pgrep -x gamemoded >/dev/null 2>&1) &&
+       systemctl is-active --quiet ananicy-cpp.service 2>/dev/null; then
+        echo "[WARN] gamemode and ananicy-cpp are both active; this may cause process-niceness conflicts"
+    elif systemctl is-active --quiet ananicy-cpp.service 2>/dev/null; then
+        echo "[INFO] ananicy-cpp is active"
+    else
+        echo "[OK] No gamemode/ananicy-cpp conflict detected"
+    fi
+
+    if command -v eac-status >/dev/null 2>&1; then
+        echo "[INFO] Easy Anti-Cheat readiness:"
+        eac-status 2>&1 | sed 's/^/  /'
+    elif [[ "$kernel" == *-cachyos-eac* ]]; then
+        echo "[INFO] CachyOS EAC kernel detected: $kernel"
+        echo "[INFO] Verify Secure Boot, TPM 2.0, lockdown=integrity and IOMMU for Linux EAC v2"
+    else
+        echo "[INFO] eac-status is not installed and no -cachyos-eac kernel is active"
+    fi
+
+    local max_map
+    max_map="$(sysctl -n vm.max_map_count 2>/dev/null || true)"
+    if [[ -n "$max_map" ]] && (( max_map >= 2147483642 )); then
+        echo "[OK] vm.max_map_count=$max_map"
+    elif [[ -n "$max_map" ]]; then
+        echo "[WARN] vm.max_map_count=$max_map; CachyOS recommends >= 2147483642"
+    else
+        echo "[WARN] vm.max_map_count could not be read"
+    fi
+
+    local nvme_schedulers=0
+    for scheduler_file in /sys/block/nvme*/queue/scheduler; do
+        [[ -r "$scheduler_file" ]] || continue
+        nvme_schedulers=1
+        echo "[INFO] NVMe scheduler $(dirname "$(dirname "$scheduler_file")" | xargs basename): $(cat "$scheduler_file")"
+    done
+    (( nvme_schedulers == 1 )) || echo "[INFO] No NVMe block devices detected"
+
+    local env_conf="${XDG_CONFIG_HOME:-$HOME/.config}/environment.d"
+    if [[ -d "$env_conf" ]]; then
+        local cache_lines=""
+        cache_lines="$(grep -hE 'MESA_SHADER_CACHE_MAX_SIZE|__GL_SHADER_DISK_CACHE_(SIZE|SKIP_CLEANUP)' "$env_conf"/*.conf 2>/dev/null || true)"
+        if [[ -n "$cache_lines" ]]; then
+            echo "[OK] Shader cache environment settings:"
+            printf '%s\n' "$cache_lines" | sed 's/^/  /'
+        else
+            echo "[INFO] No MESA/NVIDIA shader cache override found in $env_conf"
+        fi
+    else
+        echo "[INFO] $env_conf does not exist"
+    fi
+
+    local compat_dir="${HOME}/.steam/steam/compatibilitytools.d"
+    local flatpak_compat="${HOME}/.var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d"
+    local found_proton=0
+    for proton_dir in "$compat_dir" "$flatpak_compat"; do
+        [[ -d "$proton_dir" ]] || continue
+        for tool in "$proton_dir"/*; do
+            [[ -d "$tool" ]] || continue
+            local tool_name
+            tool_name="$(basename "$tool")"
+            case "$tool_name" in
+                *proton-cachyos-slr*|*Proton-EM*|*Proton-GE*|*Experimental*)
+                    echo "[INFO] Proton compatibility tool: $tool_name"
+                    found_proton=1
+                    ;;
+                *proton-cachyos-native*)
+                    echo "[WARN] Native Proton-CachyOS detected: prefer proton-cachyos-slr under SteamRT3/SteamRT4"
+                    found_proton=1
+                    ;;
+            esac
+        done
+    done
+    (( found_proton == 1 )) || echo "[INFO] No community Proton compatibility tool directory was detected"
 }
 
 CONFIGURE_ONLY=0
@@ -56,6 +171,10 @@ case "${1:-}" in
         fi
         echo "Error: steam-auto-detect not found." >&2
         exit 1
+        ;;
+    --doctor|--check-system)
+        run_doctor
+        exit 0
         ;;
     --reset)
         if [[ -z "${2:-}" ]]; then
@@ -173,7 +292,8 @@ export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-64G}"
 export PROTON_LOCAL_SHADER_CACHE="${PROTON_LOCAL_SHADER_CACHE:-1}"
 export PROTON_USE_PIPEWIRE="${PROTON_USE_PIPEWIRE:-1}"
 
-APPID="${SteamAppId:-${STEAM_COMPAT_APP_ID:-}}"
+APPID="${SteamAppId:-${STEAM_COMPAT_APP_ID:-${GAMEID:-}}}"
+APPID="${APPID#umu-}"
 PROFILE_FILE=""
 [[ -n "$APPID" ]] && PROFILE_FILE="$PROFILE_DIR/$APPID.env"
 
@@ -188,6 +308,8 @@ USE_FSR_HUD=0
 USE_VULKAN=0
 USE_SAFEDX12=0
 USE_KEEP_OVERLAY=0
+USE_NO_NTSYNC=0
+USE_NO_DECORATION=0
 
 AUTO_CLASS="standard"
 AUTO_PRESET="standard"
@@ -216,7 +338,14 @@ fi
 flag_kd() { [[ "${1:-0}" -eq 1 ]] && echo on || echo off; }
 flag_zn() { [[ "${1:-0}" -eq 1 ]] && echo TRUE || echo FALSE; }
 
-if [[ "$SKIP_GUI" -eq 0 && "${NO_GUI:-0}" -ne 1 &&
+GAMESCOPE_SESSION=0
+if [[ -n "${GAMESCOPE_WAYLAND_DISPLAY:-}" || "${XDG_CURRENT_DESKTOP:-}" == "gamescope" ]]; then
+    GAMESCOPE_SESSION=1
+fi
+
+if [[ "$SKIP_GUI" -eq 0 &&
+      ( "$GAMESCOPE_SESSION" -eq 0 || "${FORCE_GUI:-0}" -eq 1 ) &&
+      "${NO_GUI:-0}" -ne 1 &&
       (-n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}") ]]; then
     SELECTED=""
     EXIT_CODE=1
@@ -234,6 +363,8 @@ if [[ "$SKIP_GUI" -eq 0 && "${NO_GUI:-0}" -ne 1 &&
                 netopt "Session network QoS" "$(flag_kd "$USE_NET_OPT")" \
                 cef "CEF launcher Wayland fix" "$(flag_kd "$USE_CEF_FIX")" \
                 keepoverlay "Preserve Steam Overlay (LD_PRELOAD)" "$(flag_kd "$USE_KEEP_OVERLAY")" \
+                ntsync "Disable NTSync (legacy title)" "$(flag_kd "$USE_NO_NTSYNC")" \
+                nodecor "Disable window decorations" "$(flag_kd "$USE_NO_DECORATION")" \
                 remember "Save profile for future launches" off 2>/dev/null
         )
         EXIT_CODE=$?
@@ -250,6 +381,8 @@ if [[ "$SKIP_GUI" -eq 0 && "${NO_GUI:-0}" -ne 1 &&
                 "$(flag_zn "$USE_NET_OPT")" netopt "Session network QoS" \
                 "$(flag_zn "$USE_CEF_FIX")" cef "CEF launcher Wayland fix" \
                 "$(flag_zn "$USE_KEEP_OVERLAY")" keepoverlay "Preserve Steam Overlay (LD_PRELOAD)" \
+                "$(flag_zn "$USE_NO_NTSYNC")" ntsync "Disable NTSync (legacy title)" \
+                "$(flag_zn "$USE_NO_DECORATION")" nodecor "Disable window decorations" \
                 FALSE remember "Save profile for future launches" 2>/dev/null
         )
         EXIT_CODE=$?
@@ -263,6 +396,8 @@ if [[ "$SKIP_GUI" -eq 0 && "${NO_GUI:-0}" -ne 1 &&
         USE_NET_OPT=0
         USE_CEF_FIX=0
         USE_KEEP_OVERLAY=0
+        USE_NO_NTSYNC=0
+        USE_NO_DECORATION=0
         SAVE_PROFILE=0
 
         for choice in $SELECTED; do
@@ -274,6 +409,8 @@ if [[ "$SKIP_GUI" -eq 0 && "${NO_GUI:-0}" -ne 1 &&
                 netopt) USE_NET_OPT=1 ;;
                 cef) USE_CEF_FIX=1 ;;
                 keepoverlay) USE_KEEP_OVERLAY=1 ;;
+                ntsync) USE_NO_NTSYNC=1 ;;
+                nodecor) USE_NO_DECORATION=1 ;;
                 remember) SAVE_PROFILE=1 ;;
             esac
         done
@@ -287,6 +424,8 @@ USE_SHARPEN=$USE_SHARPEN
 USE_NET_OPT=$USE_NET_OPT
 USE_CEF_FIX=$USE_CEF_FIX
 USE_KEEP_OVERLAY=$USE_KEEP_OVERLAY
+USE_NO_NTSYNC=$USE_NO_NTSYNC
+USE_NO_DECORATION=$USE_NO_DECORATION
 AUTO_PRESET=$AUTO_PRESET
 EOF
         fi
@@ -304,6 +443,8 @@ fi
 [[ "${FSR_HUD:-0}" -eq 1 ]] && USE_FSR_HUD=1
 [[ "${KEEP_OVERLAY:-0}" -eq 1 ]] && USE_KEEP_OVERLAY=1
 [[ "${SAFEDX12:-0}" -eq 1 ]] && USE_SAFEDX12=1
+[[ "${NO_NTSYNC:-0}" -eq 1 ]] && USE_NO_NTSYNC=1
+[[ "${NO_DECORATION:-0}" -eq 1 ]] && USE_NO_DECORATION=1
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
@@ -318,7 +459,9 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     export PROTON_VKD3D_LOWLATENCY=1
 fi
 
-if [[ "$USE_XWAYLAND" -eq 1 ]]; then
+if [[ "$GAMESCOPE_SESSION" -eq 1 ]]; then
+    : # Gamescope owns display backend and window flags.
+elif [[ "$USE_XWAYLAND" -eq 1 ]]; then
     export PROTON_ENABLE_WAYLAND=0
     export SDL_VIDEODRIVER=x11
 else
@@ -346,6 +489,16 @@ fi
 if [[ "${NO_WM_DECORATION:-0}" -eq 1 ]]; then
     export PROTON_NO_WM_DECORATION="${PROTON_NO_WM_DECORATION:-1}"
     export WINE_NO_WM_DECORATION="${WINE_NO_WM_DECORATION:-1}"
+fi
+if [[ "$USE_NO_DECORATION" -eq 1 || "${NO_DECORATION:-0}" -eq 1 ]]; then
+    export PROTON_NO_WM_DECORATION="${PROTON_NO_WM_DECORATION:-1}"
+    export WINE_NO_WM_DECORATION="${WINE_NO_WM_DECORATION:-1}"
+fi
+if [[ "$USE_NO_NTSYNC" -eq 1 ]]; then
+    export PROTON_NO_NTSYNC=1
+fi
+if [[ -n "${WINE_WMCLASS:-}" ]]; then
+    export WINE_WMCLASS="$WINE_WMCLASS"
 fi
 if [[ -n "${WAYLANDDRV_SSD:-}" ]]; then
     export WAYLANDDRV_SSD="$WAYLANDDRV_SSD"
@@ -420,6 +573,8 @@ if [[ "${PROTON_VKD3D_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkd3dlowla
 if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("fsr4"); fi
 if [[ "$USE_MLFG" -eq 1 ]]; then COMPAT_TOKENS+=("mlfg"); fi
 if [[ "$USE_MLFG" -eq 0 && "$GPU_VENDOR" == "nvidia" && "${DXVK_NVAPI_VKREFLEX:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkreflex"); fi
+if [[ "$USE_NO_NTSYNC" -eq 1 ]]; then COMPAT_TOKENS+=("nontsync"); fi
+if [[ "$USE_NO_DECORATION" -eq 1 ]]; then COMPAT_TOKENS+=("nowmdecoration"); fi
 
 # Preserve explicit user compat configuration and append profiler-managed tokens.
 if [[ -n "${PROTON_ADD_CONFIG:-}" || ${#COMPAT_TOKENS[@]} -gt 0 ]]; then
@@ -442,16 +597,36 @@ EXTRA_ARGS=()
 
 run_with_scheduler() {
     if command -v game-performance >/dev/null 2>&1; then
-        game-performance "$@"
+        if [[ "${PRIME:-0}" -eq 1 ]] && command -v prime-run >/dev/null 2>&1; then
+            prime-run game-performance "$@"
+        else
+            game-performance "$@"
+        fi
     elif command -v powerprofilesctl >/dev/null 2>&1; then
-        powerprofilesctl launch -p performance -- "$@"
+        if [[ "${PRIME:-0}" -eq 1 ]] && command -v prime-run >/dev/null 2>&1; then
+            prime-run powerprofilesctl launch -p performance -- "$@"
+        else
+            powerprofilesctl launch -p performance -- "$@"
+        fi
     elif command -v systemctl >/dev/null 2>&1 &&
          systemctl is-active --quiet ananicy-cpp.service; then
-        "$@"
+        if [[ "${PRIME:-0}" -eq 1 ]] && command -v prime-run >/dev/null 2>&1; then
+            prime-run "$@"
+        else
+            "$@"
+        fi
     elif command -v gamemoderun >/dev/null 2>&1; then
-        gamemoderun "$@"
+        if [[ "${PRIME:-0}" -eq 1 ]] && command -v prime-run >/dev/null 2>&1; then
+            prime-run gamemoderun "$@"
+        else
+            gamemoderun "$@"
+        fi
     else
-        "$@"
+        if [[ "${PRIME:-0}" -eq 1 ]] && command -v prime-run >/dev/null 2>&1; then
+            prime-run "$@"
+        else
+            "$@"
+        fi
     fi
 }
 

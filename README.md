@@ -33,6 +33,12 @@ Inspect an installed title without launching it:
 steam-auto-run --inspect 2357570
 ```
 
+Run a read-only CachyOS and Steam compatibility audit:
+
+```bash
+steam-auto-run --doctor
+```
+
 Set the Steam launch options to:
 
 ```text
@@ -51,6 +57,13 @@ Inspect the entire Steam library without modifying `localconfig.vdf`:
 ```bash
 steam-auto-sync --report
 ```
+
+## Lutris, Heroic, and umu-launcher
+
+- Lutris: enable advanced options, set the Proton runner to `proton-cachyos-slr`, disable the Lutris runtime, prefer system libraries, and set the command prefix to `steam-auto-run`.
+- Heroic: select `proton-cachyos-slr` as the Wine/Proton version and add `steam-auto-run` as the wrapper/command prefix.
+- Set `PROTON_VERB=waitforexitandrun` in the environment table when Protonfixes or UMU needs the wait-and-run lifecycle.
+- `steam-auto-run` and `steam-auto-detect` accept `GAMEID=umu-2357570`; the `umu-` prefix is removed when resolving the AppID.
 
 Use `./install.sh --with-net-boost` only if you want the optional session network helper
 installed system-wide with an explicit sudoers rule. The network helper can use CAKE or

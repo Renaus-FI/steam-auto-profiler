@@ -66,3 +66,14 @@ Launches use `game-performance` first, then `powerprofilesctl launch -p performa
 `gamemoderun` is used only when `ananicy-cpp.service` is inactive. If both schedulers are
 present and `ananicy-cpp` is active, the game is launched directly to avoid competing process
 niceness policies.
+
+## System doctor and external launchers
+
+`steam-auto-run --doctor` performs a read-only readiness audit: kernel/NTSync, CPU P-State and
+sched-ext, GameMode/ananicy conflicts, EAC v2 tooling, memory-map limits, NVMe I/O schedulers,
+shader-cache environment settings, and installed Proton compatibility tools.
+
+Steam and UMU launch paths share the AppID resolver: `SteamAppId`, `STEAM_COMPAT_APP_ID`, then
+numeric `GAMEID` (with an optional `umu-` prefix). Lutris and Heroic can use `steam-auto-run`
+as a command prefix with `proton-cachyos-slr`; `PROTON_VERB=waitforexitandrun` supports the
+UMU/Protonfixes lifecycle.

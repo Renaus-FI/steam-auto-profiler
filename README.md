@@ -52,6 +52,21 @@ steam-auto-sync --dry-run
 steam-auto-sync
 ```
 
+Clean legacy and orphan launch options in `localconfig.vdf`:
+
+```bash
+steam-auto-sync --sanitize
+# Alias:
+steam-auto-sync --clean
+```
+
+Migrate legacy cachy-run profiles and inspect the whole library:
+
+```bash
+steam-auto-sync --migrate-cachy-run
+steam-auto-sync --report
+```
+
 Inspect the entire Steam library without modifying `localconfig.vdf`:
 
 ```bash
@@ -72,8 +87,8 @@ installed system-wide with an explicit sudoers rule. The network helper can use 
 ## Commands
 
 - `steam-auto-detect [--inspect] [APPID]` - classify an AppID and print the result.
-- `steam-auto-run [--inspect|--configure|--reset] [APPID]` - orchestrate a Steam launch.
-- `steam-auto-sync [--dry-run|--remove]` - update Steam `localconfig.vdf` launch options.
+- `steam-auto-run [--inspect|--configure|--reset|--doctor|--check-system] [APPID]` - orchestrate a Steam launch or audit the system.
+- `steam-auto-sync [--dry-run|--remove|--sanitize|--clean|--migrate-cachy-run|--report]` - update Steam `localconfig.vdf` launch options or inspect/migrate profiles.
 - `steam-auto-net-boost [on|off|status]` - apply or restore optional network tuning.
 - `steam-auto-detect --inspect --json [APPID]` - print a machine-readable classification report.
 

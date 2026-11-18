@@ -87,7 +87,7 @@ def find_launch_options(text):
 
 WRAPPERS = {"cachy-run", "game-performance", "gamemoderun", "steam-auto-run"}
 MANAGED_ENV_PREFIXES = (
-    "PROTON_", "DXVK_", "VKD3D_", "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT="
+    "PROTON_", "DXVK_", "VKD3D_", "WINE", "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT="
 )
 
 
@@ -104,6 +104,8 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
 
     profile = {}
     for token in before:
+        if token.lower() in ("-vulkan", "--vulkan"):
+            profile["USE_VULKAN"] = "1"
         if "=" not in token:
             continue
         key, value = token.split("=", 1)
@@ -122,6 +124,14 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
         elif key == "PROTON_FSR4_UPGRADE":
             if value in ("1", "true", "TRUE"):
                 profile["USE_FSR4"] = "1"
+        elif key in ("PROTON_ENABLE_WAYLAND", "PROTON_USE_WAYLAND"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_XWAYLAND"] = "1"
+        elif key == "PROTON_NO_NTSYNC":
+            profile["PROTON_NO_NTSYNC"] = "1" if value in ("1", "true", "TRUE") else "0"
+        elif key == "PROTON_ENABLE_MEDIACONV":
+            if value in ("1", "true", "TRUE"):
+                profile["USE_VIDEO_FIX"] = "1"
 
     preserved_after = []
     for token in after:
@@ -137,14 +147,41 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False):
     if preserved_after:
         replacement += " " + " ".join(preserved_after)
 
+    has_command = "%command%" in tokens
+    env_only = bool(before) and all(
+        "=" in token or token in WRAPPERS
+        for token in before
+    )
+    if not has_command and env_only:
+        replacement = ""
+
     if profile and not dry_run:
         profile_dir.mkdir(parents=True, exist_ok=True)
         profile_file = profile_dir / f"{appid}.env"
-        if not profile_file.exists():
-            profile_file.write_text(
-                "".join(f"{key}={value}\n" for key, value in sorted(profile.items())),
-                encoding="utf-8",
-            )
+        existing = {}
+        existing_lines = []
+        if profile_file.exists():
+            existing_lines = profile_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+            for raw in existing_lines:
+                line = raw.strip()
+                if "=" in line and not line.startswith("#"):
+                    key, value = line.split("=", 1)
+                    existing[key.strip()] = value.strip()
+        for key, value in profile.items():
+            existing.setdefault(key, value)
+        if existing_lines:
+            full_profile_keys = {
+                "USE_XWAYLAND", "USE_MLFG", "USE_OPTISCALER", "USE_SHARPEN",
+                "USE_NET_OPT", "USE_CEF_FIX",
+            }
+            if not full_profile_keys.issubset(existing):
+                existing.setdefault("PARTIAL_PROFILE", "1")
+        else:
+            existing["PARTIAL_PROFILE"] = "1"
+        profile_file.write_text(
+            "".join(f"{key}={value}\n" for key, value in sorted(existing.items())),
+            encoding="utf-8",
+        )
     return replacement, profile
 
 
@@ -157,17 +194,23 @@ def migrate_cachy_profiles(home, dry_run=False):
     target.mkdir(parents=True, exist_ok=True)
     for source_file in sorted(source.glob("*.env")):
         destination = target / source_file.name
+        merged = {}
+        order = []
         if destination.exists():
-            continue
-        lines = []
+            for raw in destination.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = raw.strip()
+                if "=" in line and not line.startswith("#"):
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    if key not in merged:
+                        order.append(key)
+                    merged[key] = value.strip()
         preset = None
         for raw in source_file.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = raw.strip()
             if not line or line.startswith("#"):
-                lines.append(raw)
                 continue
             if "=" not in line:
-                lines.append(raw)
                 continue
             key, value = line.split("=", 1)
             key = key.strip()
@@ -181,11 +224,18 @@ def migrate_cachy_profiles(home, dry_run=False):
                     preset = "competitive"
                 elif preset == "oled-clean":
                     value = "'oled-clean'"
-            lines.append(f"{key}={value}")
+            if key not in merged:
+                order.append(key)
+            merged[key] = value
         if preset in ("shooter", "competitive"):
-            lines.append("USE_NET_OPT=1")
+            if "USE_NET_OPT" not in merged:
+                order.append("USE_NET_OPT")
+            merged["USE_NET_OPT"] = "1"
         if not dry_run:
-            destination.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+            destination.write_text(
+                "".join(f"{key}={merged[key]}\n" for key in order),
+                encoding="utf-8",
+            )
         migrated.append(source_file.name)
     return migrated
 
@@ -393,6 +443,35 @@ def main():
                 escaped = replacement.replace("\\", "\\\\").replace('"', '\\"')
                 edits.append((start, end, f'"{escaped}"'))
                 changed.append((appid, name))
+
+            if args.sanitize:
+                for appid, (current, start, end) in app_launch.items():
+                    if appid in games:
+                        continue
+                    lowered = current.lower()
+                    looks_managed = any(wrapper in lowered.split() for wrapper in WRAPPERS)
+                    looks_managed = looks_managed or any(
+                        re.search(pattern, current, re.I)
+                        for pattern in (
+                            r"(?:^|\s)PROTON_[A-Z0-9_]*=",
+                            r"(?:^|\s)DXVK_[A-Z0-9_]*=",
+                            r"(?:^|\s)VKD3D_[A-Z0-9_]*=",
+                            r"(?:^|\s)WINE[A-Z0-9_]*=",
+                            r"(?:^|\s)ENABLE_LAYER_MESA_ANTI_LAG=",
+                            r"(?:^|\s)ENABLE_VKBASALT=",
+                        )
+                    )
+                    if not looks_managed:
+                        continue
+                    profile_dir = home / ".config/steam-auto-profiler/profiles"
+                    replacement, _ = sanitize_launch_option(
+                        appid, current, profile_dir, dry_run=args.dry_run
+                    )
+                    if replacement == current:
+                        continue
+                    escaped = replacement.replace("\\", "\\\\").replace('"', '\\"')
+                    edits.append((start, end, f'"{escaped}"'))
+                    changed.append((appid, f"Orphan AppID {appid}"))
 
             if edits and not args.dry_run:
                 backup = config.with_name(f"localconfig.vdf.bak.{int(time.time())}")

@@ -46,6 +46,12 @@ steam-auto-sync --dry-run
 steam-auto-sync
 ```
 
+Inspect the entire Steam library without modifying `localconfig.vdf`:
+
+```bash
+steam-auto-sync --report
+```
+
 Use `./install.sh --with-net-boost` only if you want the optional session network helper
 installed system-wide with an explicit sudoers rule. The network helper can use CAKE or
 `fq_codel`, but it is not required for normal profile inspection or launching.

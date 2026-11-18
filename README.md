@@ -21,6 +21,9 @@ the installed game directory to ten levels deep.
 
 ## Quick start
 
+For the complete installation, automation, launch-option, troubleshooting, and
+Lutris/Heroic reference, see the [User Guide](docs/USER_GUIDE.md).
+
 ```bash
 git clone https://github.com/Renaus-FI/steam-auto-profiler.git
 cd steam-auto-profiler
@@ -86,6 +89,9 @@ installed system-wide with an explicit sudoers rule. The network helper can use 
 
 Use `./install.sh --compat-cachy-run` to preserve an existing `/usr/local/bin/cachy-run`
 as `.bak` and install a compatibility shim that delegates to `steam-auto-run`.
+
+Use `./install.sh --with-auto-sync` to install a systemd user watcher that synchronizes
+new Steam app manifests after Steam exits.
 
 ## Commands
 

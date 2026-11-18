@@ -27,7 +27,8 @@ Usage:
 Options:
   --help, -h        Show this help message
   --inspect         Run the heuristic scanner
-  --configure       Force-open the optional configuration GUI
+  --configure APPID Force-open the optional configuration GUI
+  --dry-run [APPID] Resolve and print the launch environment without launching
   --reset APPID     Remove a saved profile
   --doctor, --check-system
                     Run a read-only CachyOS system readiness audit
@@ -254,6 +255,8 @@ run_doctor() {
 }
 
 CONFIGURE_ONLY=0
+DRY_RUN=0
+CONFIGURE_FALLBACK=0
 case "${1:-}" in
     -h|--help)
         usage
@@ -289,6 +292,15 @@ case "${1:-}" in
         CONFIGURE_ONLY=1
         shift 2
         ;;
+    --dry-run)
+        DRY_RUN=1
+        shift
+        if [[ -n "${1:-}" && "${1:-}" != "--" && "${1:-}" != -* ]]; then
+            export SteamAppId="$1"
+            shift
+        fi
+        [[ "${1:-}" == "--" ]] && shift
+        ;;
 esac
 
 COMMAND_TOKEN_COUNT=0
@@ -301,7 +313,7 @@ if [[ "$COMMAND_TOKEN_COUNT" -gt 1 ]]; then
     echo "Error: refusing to wrap multiple %command% tokens." >&2
     exit 2
 fi
-if [[ "$CONFIGURE_ONLY" -eq 0 && "$#" -eq 0 ]]; then
+if [[ "$CONFIGURE_ONLY" -eq 0 && "$DRY_RUN" -eq 0 && "$#" -eq 0 ]]; then
     echo "Error: empty launch command. Set Steam launch options to: steam-auto-run %command%" >&2
     exit 2
 fi
@@ -510,6 +522,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
       ( "$GAMESCOPE_SESSION" -eq 0 || "${FORCE_GUI:-0}" -eq 1 ) &&
       "${NO_GUI:-0}" -ne 1 &&
       (-n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}") ]]; then
+    CONFIGURE_FALLBACK=1
     SELECTED=""
     EXIT_CODE=1
     DIALOG_TEXT="Detected class: [$AUTO_CLASS] - ${AUTO_REASON:-Ready}\nSelect launch options:"
@@ -596,6 +609,21 @@ EOF
 fi
 
 if [[ "$CONFIGURE_ONLY" -eq 1 && "$#" -eq 0 ]]; then
+    if [[ "$CONFIGURE_FALLBACK" -eq 0 ]]; then
+        cat >"$PROFILE_FILE" <<EOF
+USE_XWAYLAND=$USE_XWAYLAND
+USE_MLFG=$USE_MLFG
+USE_OPTISCALER=$USE_OPTISCALER
+USE_SHARPEN=$USE_SHARPEN
+USE_NET_OPT=$USE_NET_OPT
+USE_CEF_FIX=$USE_CEF_FIX
+USE_KEEP_OVERLAY=$USE_KEEP_OVERLAY
+USE_NO_NTSYNC=$USE_NO_NTSYNC
+USE_NO_DECORATION=$USE_NO_DECORATION
+AUTO_PRESET=$AUTO_PRESET
+EOF
+        echo "No GUI available; saved auto-detected defaults."
+    fi
     echo "Configuration completed for AppID ${APPID} (${PROFILE_FILE})."
     exit 0
 fi
@@ -793,6 +821,22 @@ fi
 EXTRA_ARGS=()
 [[ "$USE_CEF_FIX" -eq 1 ]] && EXTRA_ARGS+=("--in-process-gpu")
 [[ "$USE_VULKAN" -eq 1 ]] && EXTRA_ARGS+=("-vulkan")
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Steam Auto-Profiler dry run"
+    echo "AppID: ${APPID:-unknown}"
+    echo "Class: ${AUTO_CLASS}"
+    echo "GPU: ${GPU_VENDOR}"
+    echo "VRR cap: ${AUTO_VRR_CAP}"
+    echo "Compat tokens: ${PROTON_ADD_CONFIG:-none}"
+    echo "Exported launch variables:"
+    env | LC_ALL=C sort | awk -F= '
+        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_)/ ||
+        $1 ~ /^(WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|STEAM_COMPAT_CONFIG)$/ {
+            print
+        }'
+    exit 0
+fi
 
 run_with_scheduler() {
     if command -v game-performance >/dev/null 2>&1; then

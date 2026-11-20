@@ -161,6 +161,14 @@ Environment overrides include `NO_GUI=1`, `XWAYLAND=1`, `MLFG=1`, `NETOPT=1`, an
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the proposed Steam/Proton integration
 model.
 
+## Documentation & Translations
+
+- [English User Guide](docs/USER_GUIDE.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Major world-language guides](docs/i18n/global/README.md)
+- [CIS / СНГ guides](docs/i18n/cis/README.md)
+- [Central translation index](docs/i18n/README.md)
+
 ## License
 
 MIT

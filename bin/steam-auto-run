@@ -1020,6 +1020,7 @@ done
 
 if [[ "$USE_NET_OPT" -eq 1 && -n "$NET_BOOST_BIN" ]]; then
     # shellcheck disable=SC2317
+    # shellcheck disable=SC2329
     cleanup_net() { sudo -n "$NET_BOOST_BIN" off --pid "$$" >/dev/null 2>&1 || true; }
     trap cleanup_net EXIT INT TERM
     sudo -n "$NET_BOOST_BIN" on --pid "$$" >/dev/null 2>&1 || true

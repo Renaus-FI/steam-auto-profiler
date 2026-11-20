@@ -1,174 +1,207 @@
 # Steam Auto-Profiler User Guide
 
-This guide covers installation, daily operation, library synchronization, launch
-overrides, and third-party launchers. The scripts require Bash, Python 3, Steam,
-and a Linux desktop session; GUI configuration additionally needs `kdialog` or
-`zenity`.
+This guide describes the complete install, launch, synchronization, and troubleshooting workflow. Steam Auto-Profiler is a Bash/Python launcher for Linux that inspects a Steam AppID, applies a context-aware profile, and starts the existing game command; it does not install or inject a Proton runtime.
 
-## Installation and updates
+## Requirements
+
+- Linux desktop session, Bash, Python 3, Steam, and standard command-line tools.
+- Optional pre-launch dialog: `kdialog` or `zenity`.
+- Optional network helper: `tc`, `ip`, and `ethtool`; the installer also needs `sudo` for `/usr/local/bin` and `/etc/sudoers.d`.
+- Steam/Proton or native Linux game runtime, as appropriate.
+
+## Installation from scratch
 
 ```bash
-git clone https://github.com/Renaus-FI/steam-auto-profiler.git ~/steam-auto-profiler
-cd ~/steam-auto-profiler
+git clone https://github.com/Renaus-FI/steam-auto-profiler.git
+cd steam-auto-profiler
+./install.sh
+```
+
+The installer copies the four commands to `~/.local/bin`, creates `~/.config/steam-auto-profiler/profiles`, and adds default vkBasalt presets. Make sure `~/.local/bin` is in `PATH`.
+
+Optional installation flags may be combined:
+
+```bash
 ./install.sh --with-net-boost --compat-cachy-run --with-auto-sync
 ```
 
-`--with-net-boost` installs the optional CAKE/fq_codel helper and its narrow
-sudoers rule. `--compat-cachy-run` installs a delegating `/usr/local/bin/cachy-run`
-shim and preserves an existing copy as `.bak`. `--with-auto-sync` installs a
-systemd user path/service pair watching Steam's `steamapps` directory. It is
-safe to omit any optional flag.
+- `--with-net-boost`: installs the session network helper as `/usr/local/bin/steam-net-boost` and adds a narrowly scoped passwordless sudoers rule for that executable.
+- `--compat-cachy-run`: preserves an existing `/usr/local/bin/cachy-run` as `/usr/local/bin/cachy-run.bak`, unless it already is the Steam Auto-Profiler shim, then installs a shim that delegates to `steam-auto-run`.
+- `--with-auto-sync`: installs and enables a systemd user `steam-auto-profiler-sync.path` watcher and matching service.
+- `--uninstall`: removes the installed commands, optional network helper/sudoers rule, compatibility shim, and auto-sync units.
 
-Update an existing checkout with:
+Update or reinstall an existing checkout with:
 
 ```bash
-cd ~/steam-auto-profiler
-git fetch origin
-git reset --hard origin/main
+git pull --ff-only
 ./install.sh --with-net-boost --compat-cachy-run --with-auto-sync
 ```
 
-Remove installed binaries and the auto-sync units with:
-
-```bash
-cd ~/steam-auto-profiler && ./install.sh --uninstall
-```
-
-## System readiness
+Verify the system before configuring games:
 
 ```bash
 steam-auto-run --doctor
 ```
 
-The doctor reports kernel and `/dev/ntsync` availability, AMD/Intel pstate,
-sched-ext/scx status, `ananicy-cpp` versus GameMode conflicts, EAC Linux v2
-readiness (`eac-status` when installed), `vm.max_map_count`, NVMe scheduler,
-duplicate `environment.d` and `sysctl.d` settings, Ethernet EEE, CAKE/fq_codel,
-and installed Proton compatibility tools including `proton-cachyos-slr`.
-Warnings are diagnostics, not automatic system modifications.
+## How it works end-to-end
 
-## Automating the Steam library
+1. **Resolve the AppID.** `SteamAppId` and `STEAM_COMPAT_APP_ID` take precedence, followed by numeric `GAMEID`; `umu-<appid>` is accepted and stripped to the numeric AppID.
+2. **Locate the game.** `steam-auto-detect` searches standard Steam roots and secondary library folders in `libraryfolders.vdf`, reads `appmanifest_<APPID>.acf`, and scans the installation up to ten directory levels deep.
+3. **Classify with four-tier precedence.** A known competitive AppID or detected anti-cheat runtime wins first. Native FidelityFX/FSR 3.1+ detection (`native-fsr4`/`native-fsr`) is second. Legacy DLSS/XeSS/FSR 2-style libraries select `legacy-upscaler`. Otherwise the title uses `standard`.
+4. **Guard anti-cheat titles.** Competitive/anti-cheat profiles disable OptiScaler and MLFG/frame generation, disable competitive sharpening, and prefer Steam Linux Runtime + CachyOS compatibility tooling.
+5. **Resolve compatibility settings.** Managed features are mapped into `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG`. Existing user values are preserved. Supported tokens include `wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `localshadercache`, `pipewire`, `fsr4`, `mlfg`, and `vkreflex`.
+6. **Calculate a VRR cap.** An explicit `VRR_CAP=<fps>` is highest priority. Otherwise KDE (`kscreen-doctor`), wlroots (`wlr-randr`), or X11 (`xrandr`) refresh-rate data is read; refresh rates above 60 Hz become a 94% ceiling. In Gamescope, DXVK/VKD3D frame caps are omitted unless `VRR_CAP` is explicit.
+7. **Configure or load the per-AppID profile.** The pre-launch `kdialog` or `zenity` checklist is shown on the first launch unless a profile exists or GUI launch is disabled. Selecting **Save profile** writes a small allowlisted `KEY=VALUE` file to `~/.config/steam-auto-profiler/profiles/<APPID>.env`.
+8. **Apply launch variables and scheduling.** The wrapper exports Wayland/HDR, low-latency DXVK/VKD3D, frame-generation, upscaler, Steam Input, overlay, and compatibility variables as appropriate. It uses `game-performance`, then `powerprofilesctl launch -p performance --`, and `gamemoderun` only when it will not conflict with `ananicy-cpp`.
+9. **Start and monitor the launch.** Native Linux titles omit Proton/Wine/DXVK/VKD3D variables. The wrapper launches the supplied command and writes a bounded last-launch record.
+10. **Restore optional network state.** If QoS is enabled, `steam-net-boost` activates per-session state for the selected interface. CAKE/fq_codel, tx queue length, and NIC EEE state are restored after the last launch session exits.
 
-Close Steam before a write operation, then preview and apply:
+## Steam launch automation
 
-```bash
-steam-auto-sync --report
-steam-auto-sync --sanitize --dry-run
-steam-auto-sync --sanitize
+Set this in each game’s Steam **Properties > General > Launch Options**:
+
+```text
+steam-auto-run %command%
 ```
 
-`--sanitize` backs up each `localconfig.vdf`, preserves engine arguments such as
-`-dx12`, moves supported environment flags into per-game profiles, removes stale
-managed entries, and leaves `steam-auto-run %command%`. Use
-`--migrate-cachy-run` for legacy profiles and `--remove` to remove the wrapper.
-The installed systemd watcher runs the equivalent sanitize command and waits up
-to five minutes for Steam to exit:
-
-```bash
-steam-auto-sync --sanitize --wait-for-steam-exit --steam-exit-timeout 300
-```
-
-The watcher and manual synchronization cover every Steam library returned by
-`steam-auto-sync --print-library-paths`, including secondary SSD/NVMe libraries.
-Use `--keep-backups N` to retain the newest `N` timestamped
-`localconfig.vdf.bak.*` backups per Steam profile (`0` keeps all; the default is
-10).
-
-Install the same watcher directly from an installed binary with:
-
-```bash
-steam-auto-sync --install-systemd
-```
-
-## Launch modes
-
-Use `steam-auto-run %command%` in Steam launch options. The first launch can show
-a checklist; selecting “Save profile” writes
-`~/.config/steam-auto-profiler/profiles/<APPID>.env`, and later launches are
-silent. For zero-click behavior:
-
-```bash
-mkdir -p ~/.config/environment.d
-grep -qxF 'NO_GUI=1' ~/.config/environment.d/gaming.conf 2>/dev/null ||
-  echo 'NO_GUI=1' >> ~/.config/environment.d/gaming.conf
-```
-
-Open a saved game's checklist at any time with `steam-auto-run --configure APPID`.
-Without a graphical display it writes the detected defaults and exits successfully.
-Use `steam-auto-run --dry-run APPID` to print the classification, hardware summary,
-compatibility tokens, and sorted exported launch variables without starting a game.
-Use `steam-auto-run --list-profiles` to list saved profiles and resolved game names,
-and `steam-auto-run --last-log [APPID]` to inspect the bounded last-launch record.
-The log includes launch variables, Gamescope state, the wrapped command, and the
-exit code.
-
-## Command cheat sheet
-
-| Purpose | Command |
-| --- | --- |
-| System audit | `steam-auto-run --doctor` |
-| Inspect one game | `steam-auto-run --inspect APPID` |
-| JSON inspection | `steam-auto-detect --inspect --json APPID` |
-| Configure one game | `steam-auto-run --configure APPID` |
-| Preview one launch | `steam-auto-run --dry-run APPID` |
-| List saved profiles | `steam-auto-run --list-profiles` |
-| Read launch diagnostics | `steam-auto-run --last-log [APPID]` |
-| Reset a profile | `steam-auto-run --reset APPID` |
-| Library report | `steam-auto-sync --report` |
-| Preview sanitization | `steam-auto-sync --sanitize --dry-run` |
-| Apply sanitization | `steam-auto-sync --sanitize` |
-| Remove wrapper | `steam-auto-sync --remove` |
-| Migrate cachy-run profiles | `steam-auto-sync --migrate-cachy-run` |
-| Inspect network boost | `sudo steam-net-boost status [IFACE]` |
-
-## Per-game overrides
-
-Place an override before the wrapper, for example
-`MLFG=1 FSR_HUD=1 steam-auto-run %command%`.
-
-| Variable | Effect |
-| --- | --- |
-| `FORCE_GUI=1` | Reopen the checklist |
-| `NO_GUI=1` | Never show dialogs |
-| `XWAYLAND=1` | Force XWayland |
-| `MLFG=1` | Enable frame generation |
-| `OPTISCALER=1` | Enable OptiScaler |
-| `SHARPEN=1` / `VIVID=1` | Enable sharpening/preset |
-| `NETOPT=1` | Enable network profile |
-| `SDL=1` | Prefer native SDL/Steam Input |
-| `GST=1` / `CEF=1` | Enable launcher compatibility fixes |
-| `SAFEDX12=1` | Avoid the bundled DXVK/VKD3D compatibility token |
-| `FSR_HUD=1` | Show the FSR/DLSS indicator |
-| `VULKAN=1` | Add `-vulkan` |
-| `KEEP_OVERLAY=1` | Preserve Steam Overlay preload |
-| `NO_NTSYNC=1` | Disable NTSync |
-| `NO_DECORATION=1` | Disable window decorations |
-| `VRR_CAP=120` | Set a custom frame cap |
-
-Inside Gamescope, the profiler does not add DXVK/VKD3D frame caps unless
-`VRR_CAP` is explicitly set. Native Linux titles also avoid Proton, Wine, DXVK,
-and VKD3D variables while retaining discrete-GPU selection and native scheduler
-network hooks.
-
-## Lutris, Heroic, Faugus, and umu
-
-Set `steam-auto-run` as the command prefix/wrapper and use the desired Proton
-runner. The `cachy-run` shim is also supported. For UMU-based launchers, pass
-`GAMEID=umu-<APPID>`; the wrapper strips `umu-` when resolving the profile:
+For UMU launchers, include `GAMEID=umu-<appid>`:
 
 ```text
 GAMEID=umu-2357570 steam-auto-run %command%
 ```
 
-## Русская краткая шпаргалка
+Close Steam completely before changing `localconfig.vdf`. Preview discovery and library integration with:
 
-Установка: `./install.sh --with-auto-sync --with-net-boost --compat-cachy-run`.
-Проверка системы: `steam-auto-run --doctor`. Отчёт библиотеки:
-`steam-auto-sync --report`. Перед изменением параметров закройте Steam и выполните
-`steam-auto-sync --sanitize --dry-run`, затем `steam-auto-sync --sanitize`.
-Для полной тишины добавьте `NO_GUI=1` в
-`~/.config/environment.d/gaming.conf`. Настройка игры:
-`steam-auto-run --configure APPID`; просмотр без запуска:
-`steam-auto-run --dry-run APPID`; сброс:
-`steam-auto-run --reset APPID`. В Lutris/Heroic/Faugus используйте
-`steam-auto-run` как префикс, а для UMU передайте `GAMEID=umu-APPID`.
+```bash
+steam-auto-sync --dry-run
+steam-auto-sync --report
+steam-auto-sync --print-library-paths
+```
+
+Apply the wrapper to discovered Steam libraries:
+
+```bash
+steam-auto-sync
+```
+
+Sanitize legacy or stale launch entries while preserving engine arguments such as `-dx12`:
+
+```bash
+steam-auto-sync --sanitize --dry-run
+steam-auto-sync --sanitize
+```
+
+The alias `steam-auto-sync --clean` is equivalent to `--sanitize`. Migrate legacy cachy-run profiles and remove the wrapper with:
+
+```bash
+steam-auto-sync --migrate-cachy-run
+steam-auto-sync --remove
+```
+
+Steam libraries and timestamped backups:
+
+- `--print-library-paths` prints every discovered Steam library.
+- `--keep-backups N` retains the newest `N` timestamped `localconfig.vdf.bak.*` files per profile.
+- `--keep-backups 0` keeps all backups; the default is `10`.
+
+The optional watcher is installed with `./install.sh --with-auto-sync`. It watches Steam `steamapps` directories and runs:
+
+```bash
+steam-auto-sync --sanitize --wait-for-steam-exit --steam-exit-timeout 300
+```
+
+Install or repair only the systemd units:
+
+```bash
+steam-auto-sync --install-systemd
+systemctl --user enable --now steam-auto-profiler-sync.path
+```
+
+## Profiles and configuration
+
+On a graphical session, the first launch shows `kdialog` or `zenity` when available. Check **Save profile** to persist choices as `~/.config/steam-auto-profiler/profiles/<APPID>.env`.
+
+Useful commands:
+
+| Purpose | Command |
+| --- | --- |
+| Inspect a game | `steam-auto-run --inspect APPID` |
+| Machine-readable classification | `steam-auto-detect --inspect --json APPID` |
+| Open/reconfigure a profile | `steam-auto-run --configure APPID` |
+| Preview variables without launching | `steam-auto-run --dry-run APPID` |
+| Reset a profile | `steam-auto-run --reset APPID` |
+| List saved profiles | `steam-auto-run --list-profiles` |
+| Show latest launch log | `steam-auto-run --last-log [APPID]` |
+| Audit system readiness | `steam-auto-run --doctor` |
+| Inspect network helper | `sudo steam-net-boost status [IFACE]` |
+
+Profile files accept an allowlisted set of `KEY=VALUE` lines. CRLF and quoted values are accepted; shell syntax and unknown keys are ignored.
+
+To disable the pre-launch dialog everywhere:
+
+```bash
+mkdir -p ~/.config/environment.d
+printf 'NO_GUI=1\n' >> ~/.config/environment.d/gaming.conf
+```
+
+## Environment overrides
+
+Place overrides before the wrapper:
+
+```text
+VRR_CAP=120 MLFG=1 KEEP_OVERLAY=1 steam-auto-run %command%
+```
+
+| Override | Effect |
+| --- | --- |
+| `NO_GUI=1` | Never show the pre-launch dialog. |
+| `FORCE_GUI=1` | Reopen the checklist even for a saved profile. |
+| `XWAYLAND=1` | Force XWayland instead of native Wayland. |
+| `MLFG=1` | Enable frame generation. |
+| `VRR_CAP=<fps>` | Set the explicit VRR/DXVK/VKD3D frame cap. |
+| `KEEP_OVERLAY=1` | Preserve Steam Overlay `LD_PRELOAD` instead of clearing it. |
+| `GAMEID=umu-<appid>` | Resolve UMU/other launcher AppIDs and strip the `umu-` prefix. |
+| `NETOPT=1` | Request the session network profile. |
+| `OPTISCALER=1` | Allow the optional upscaler bridge; guarded off for anti-cheat titles. |
+| `SHARPEN=1` or `RCAS=1` | Enable post-process sharpening. |
+| `SDL=1` | Prefer native SDL/Steam Input emulation. |
+| `CEF=1` / `GST=1` | Enable launcher compatibility handling. |
+| `FSR_HUD=1` | Enable FSR/DLSS indicator variables. |
+| `SAFEDX12=1` | Disable the bundled DXVK/VKD3D compatibility token. |
+| `VULKAN=1` | Add `-vulkan` to a launch. |
+| `NO_NTSYNC=1` | Disable NTSync for a legacy title. |
+| `NO_DECORATION=1` | Disable window decorations. |
+
+## Lutris, Heroic, Faugus, and UMU
+
+Set `steam-auto-run` as the wrapper/command prefix and choose `proton-cachyos-slr` where supported.
+
+- **Lutris:** enable advanced options, select the Proton runner, disable the Lutris runtime, prefer system libraries, and prefix the command with `steam-auto-run`.
+- **Heroic/Faugus:** select `proton-cachyos-slr` or the intended Proton build and add `steam-auto-run` as the wrapper.
+- **UMU/Protonfixes:** set `PROTON_VERB=waitforexitandrun` if the launch lifecycle requires it.
+
+For UMU:
+
+```text
+GAMEID=umu-2357570 steam-auto-run %command%
+```
+
+## Troubleshooting
+
+**The GUI does not appear:** install `kdialog` or `zenity`, or set `NO_GUI=1`. `FORCE_GUI=1` reopens a saved profile.
+
+**A profile is not detected:** verify the AppID with `steam-auto-run --inspect APPID` or `steam-auto-detect --inspect --json APPID`. Confirm the game manifest exists and that its install folder is under a configured Steam library.
+
+**Steam refuses launch-option changes:** close Steam completely and rerun `steam-auto-sync --sanitize --dry-run`, then apply `steam-auto-sync --sanitize`.
+
+**Wayland or XWayland behaves incorrectly:** use `XWAYLAND=1` for XWayland or remove the override for native Wayland. If a saved profile still wins, use `FORCE_GUI=1` or `steam-auto-run --reset APPID`.
+
+**Anti-cheat or launcher compatibility:** prefer `proton-cachyos-slr` and Steam Linux Runtime. Anti-cheat classification prevents MLFG and OptiScaler; use `steam-auto-run --doctor` to check EAC/Linux runtime prerequisites.
+
+**Network helper is unavailable:** install it with `./install.sh --with-net-boost`, verify `sudo steam-net-boost status`, and select `netopt` or set `NETOPT=1`. The helper has no effect without `sudo` access or supported interface tools.
+
+**Wrong frame cap:** set `VRR_CAP=<fps>` explicitly. In a Gamescope session it is the only way to export DXVK/VKD3D frame rate variables intentionally.
+
+**Review the last launch:** run `steam-auto-run --last-log APPID`; it includes launch variables, Gamescope state, command, and exit code.
+
+For implementation details and compatibility design, see [ARCHITECTURE.md](ARCHITECTURE.md).

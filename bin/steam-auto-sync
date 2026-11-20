@@ -2,7 +2,9 @@
 """Batch-inject or remove steam-auto-run in Steam localconfig.vdf."""
 
 import argparse
+import fcntl
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -91,7 +93,7 @@ MANAGED_ENV_PREFIXES = (
 )
 
 
-def install_systemd_units(home):
+def install_systemd_units(home, library_paths=None):
     """Install and enable the user watcher when a user systemd session exists."""
     unit_dir = Path.home() / ".config/systemd/user"
     unit_dir.mkdir(parents=True, exist_ok=True)
@@ -106,11 +108,14 @@ def install_systemd_units(home):
         "--steam-exit-timeout 300\n",
         encoding="utf-8",
     )
+    if library_paths is None:
+        library_paths = discover_libraries(home)
+    path_entries = "".join(f"PathChanged={Path(p) / 'steamapps'}\n" for p in library_paths)
     path.write_text(
         "[Unit]\n"
         "Description=Watch Steam app manifests for new games\n\n"
         "[Path]\n"
-        "PathChanged=%h/.local/share/Steam/steamapps\n"
+        + path_entries +
         "Unit=steam-auto-profiler-sync.service\n\n"
         "[Install]\n"
         "WantedBy=default.target\n",
@@ -225,9 +230,9 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
                 existing.setdefault("PARTIAL_PROFILE", "1")
         else:
             existing["PARTIAL_PROFILE"] = "1"
-        profile_file.write_text(
+        locked_write(
+            profile_file,
             "".join(f"{key}={value}\n" for key, value in sorted(existing.items())),
-            encoding="utf-8",
         )
     return replacement, profile
 
@@ -279,12 +284,63 @@ def migrate_cachy_profiles(home, dry_run=False):
                 order.append("USE_NET_OPT")
             merged["USE_NET_OPT"] = "1"
         if not dry_run:
-            destination.write_text(
-                "".join(f"{key}={merged[key]}\n" for key in order),
-                encoding="utf-8",
-            )
+            locked_write(destination, "".join(f"{key}={merged[key]}\n" for key in order))
         migrated.append(source_file.name)
     return migrated
+
+
+def discover_libraries(home):
+    candidates = [
+        home / ".local/share/Steam",
+        home / ".steam/steam",
+        home / ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+    ]
+    roots, seen = [], set()
+    for candidate in candidates:
+        if not (candidate / "steamapps").is_dir():
+            continue
+        root = candidate.resolve()
+        if root in seen:
+            continue
+        seen.add(root)
+        roots.append(candidate)
+        vdf = candidate / "steamapps/libraryfolders.vdf"
+        if vdf.exists():
+            for match in re.finditer(r'"path"\s+"([^"]+)"', vdf.read_text(encoding="utf-8", errors="ignore")):
+                library = Path(match.group(1))
+                resolved = library.resolve()
+                if (library / "steamapps").is_dir() and resolved not in seen:
+                    seen.add(resolved)
+                    roots.append(library)
+    return roots
+
+
+def locked_write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        handle.truncate()
+        handle.write(text)
+        handle.flush()
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def acquire_sync_lock():
+    runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    handle = (runtime_dir / "steam-auto-sync.lock").open("a+", encoding="utf-8")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def prune_backups(config, keep):
+    if keep == 0:
+        return
+    backups = sorted(config.parent.glob("localconfig.vdf.bak.*"),
+                     key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in backups[keep:]:
+        old.unlink(missing_ok=True)
 
 
 def main():
@@ -298,6 +354,10 @@ def main():
     parser.add_argument("--sanitize", "--clean", action="store_true")
     parser.add_argument("--migrate-cachy-run", action="store_true")
     parser.add_argument("--install-systemd", action="store_true")
+    parser.add_argument("--keep-backups", type=int, default=10, metavar="N",
+                        help="keep N localconfig backups (0 keeps all; default: 10)")
+    parser.add_argument("--print-library-paths", action="store_true",
+                        help="print discovered Steam library paths and exit")
     parser.add_argument(
         "--wait-for-steam-exit",
         action="store_true",
@@ -311,10 +371,16 @@ def main():
         help="maximum wait for Steam to exit (default: 300)",
     )
     args = parser.parse_args()
+    if args.keep_backups < 0:
+        parser.error("--keep-backups must be zero or greater")
 
     home = Path.home()
+    if args.print_library_paths:
+        for library in discover_libraries(home):
+            print(library)
+        return 0
     if args.install_systemd:
-        install_systemd_units(home)
+        install_systemd_units(home, discover_libraries(home))
         return 0
     if args.migrate_cachy_run:
         profile_dir = home / ".config/steam-auto-profiler/profiles"
@@ -346,20 +412,7 @@ def main():
             print("Error: Close Steam completely before syncing.", file=sys.stderr)
             return 1
 
-    candidates = [
-        home / ".local/share/Steam",
-        home / ".steam/steam",
-        home / ".var/app/com.valvesoftware.Steam/.local/share/Steam",
-    ]
-
-    roots = []
-    seen = set()
-    for candidate in candidates:
-        if (candidate / "steamapps").is_dir():
-            resolved = candidate.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                roots.append(candidate)
+    roots = discover_libraries(home)
 
     if not roots:
         print("No Steam installation directory found.", file=sys.stderr)
@@ -370,6 +423,10 @@ def main():
         r"Wallpaper Engine|Lossless Scaling)",
         re.I,
     )
+
+    write_lock = None
+    if not args.dry_run and not args.report:
+        write_lock = acquire_sync_lock()
 
     for steam_root in roots:
         libraries = [steam_root]
@@ -557,12 +614,13 @@ def main():
                     changed.append((appid, f"Orphan AppID {appid}"))
 
             if edits and not args.dry_run:
-                backup = config.with_name(f"localconfig.vdf.bak.{int(time.time())}")
+                backup = config.with_name(f"localconfig.vdf.bak.{time.time_ns()}")
                 shutil.copy2(config, backup)
+                prune_backups(config, args.keep_backups)
                 output = raw
                 for start, end, replacement in sorted(edits, key=lambda edit: edit[0], reverse=True):
                     output = output[:start] + replacement + output[end:]
-                config.write_text(output, encoding="utf-8")
+                locked_write(config, output)
 
             prefix = "[DRY-RUN] " if args.dry_run else ""
             action = "Removed from" if args.remove else "Updated"
@@ -570,6 +628,9 @@ def main():
             for appid, name in changed:
                 print(f"  {'-' if args.remove else '+'} [{appid}] {name}")
 
+    if write_lock is not None:
+        fcntl.flock(write_lock.fileno(), fcntl.LOCK_UN)
+        write_lock.close()
     return 0
 
 

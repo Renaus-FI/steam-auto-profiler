@@ -68,6 +68,12 @@ to five minutes for Steam to exit:
 steam-auto-sync --sanitize --wait-for-steam-exit --steam-exit-timeout 300
 ```
 
+The watcher and manual synchronization cover every Steam library returned by
+`steam-auto-sync --print-library-paths`, including secondary SSD/NVMe libraries.
+Use `--keep-backups N` to retain the newest `N` timestamped
+`localconfig.vdf.bak.*` backups per Steam profile (`0` keeps all; the default is
+10).
+
 Install the same watcher directly from an installed binary with:
 
 ```bash
@@ -91,6 +97,10 @@ Open a saved game's checklist at any time with `steam-auto-run --configure APPID
 Without a graphical display it writes the detected defaults and exits successfully.
 Use `steam-auto-run --dry-run APPID` to print the classification, hardware summary,
 compatibility tokens, and sorted exported launch variables without starting a game.
+Use `steam-auto-run --list-profiles` to list saved profiles and resolved game names,
+and `steam-auto-run --last-log [APPID]` to inspect the bounded last-launch record.
+The log includes launch variables, Gamescope state, the wrapped command, and the
+exit code.
 
 ## Command cheat sheet
 
@@ -101,12 +111,15 @@ compatibility tokens, and sorted exported launch variables without starting a ga
 | JSON inspection | `steam-auto-detect --inspect --json APPID` |
 | Configure one game | `steam-auto-run --configure APPID` |
 | Preview one launch | `steam-auto-run --dry-run APPID` |
+| List saved profiles | `steam-auto-run --list-profiles` |
+| Read launch diagnostics | `steam-auto-run --last-log [APPID]` |
 | Reset a profile | `steam-auto-run --reset APPID` |
 | Library report | `steam-auto-sync --report` |
 | Preview sanitization | `steam-auto-sync --sanitize --dry-run` |
 | Apply sanitization | `steam-auto-sync --sanitize` |
 | Remove wrapper | `steam-auto-sync --remove` |
 | Migrate cachy-run profiles | `steam-auto-sync --migrate-cachy-run` |
+| Inspect network boost | `sudo steam-net-boost status [IFACE]` |
 
 ## Per-game overrides
 
@@ -131,6 +144,11 @@ Place an override before the wrapper, for example
 | `NO_NTSYNC=1` | Disable NTSync |
 | `NO_DECORATION=1` | Disable window decorations |
 | `VRR_CAP=120` | Set a custom frame cap |
+
+Inside Gamescope, the profiler does not add DXVK/VKD3D frame caps unless
+`VRR_CAP` is explicitly set. Native Linux titles also avoid Proton, Wine, DXVK,
+and VKD3D variables while retaining discrete-GPU selection and native scheduler
+network hooks.
 
 ## Lutris, Heroic, Faugus, and umu
 

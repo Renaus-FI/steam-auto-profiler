@@ -4,6 +4,7 @@
 
 set -euo pipefail
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ORIG_LD_PRELOAD="${LD_PRELOAD:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +19,33 @@ done
 PROFILE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles"
 mkdir -p "$PROFILE_DIR"
 
+load_profile_safe() {
+    local file="$1" line key value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+        key="${line%%=*}"; value="${line#*=}"
+        key="${key%"${key##*[![:space:]]}"}"
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        case "$key" in
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC)
+                ;;
+            *) continue ;;
+        esac
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+            value="${value:1:${#value}-2}"
+        elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+            value="${value:1:${#value}-2}"
+        fi
+        # shellcheck disable=SC2016
+        [[ "$value" != *'$('* && "$value" != *'`'* && "$value" != *';'* ]] || continue
+        printf -v "$key" '%s' "$value"
+    done < "$file"
+}
+
 usage() {
     cat <<'EOF'
 Usage:
@@ -30,6 +58,8 @@ Options:
   --configure APPID Force-open the optional configuration GUI
   --dry-run [APPID] Resolve and print the launch environment without launching
   --reset APPID     Remove a saved profile
+  --list-profiles   List saved profiles
+  --last-log [APPID] Show the bounded last-launch log
   --doctor, --check-system
                     Run a read-only CachyOS system readiness audit
 
@@ -282,6 +312,47 @@ case "${1:-}" in
         echo "Profile reset for AppID $2."
         exit 0
         ;;
+    --list-profiles)
+        for profile in "$PROFILE_DIR"/*.env; do
+            [[ -f "$profile" ]] || continue
+            appid="${profile##*/}"; appid="${appid%.env}"
+            game_name=""
+            for steam_root in \
+                "$HOME/.local/share/Steam" "$HOME/.steam/steam" \
+                "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"; do
+                [[ -f "$steam_root/steamapps/appmanifest_${appid}.acf" ]] || continue
+                game_name="$(sed -n '0,/^[[:space:]]*"name"/s/^[[:space:]]*"name"[[:space:]]*"\([^"]*\)".*/\1/p' \
+                    "$steam_root/steamapps/appmanifest_${appid}.acf")"
+                [[ -n "$game_name" ]] && break
+            done
+            [[ -n "$game_name" ]] || game_name="(uninstalled)"
+            overrides=()
+            while IFS='=' read -r key value; do
+                [[ -n "$key" ]] && overrides+=("$key=$value")
+            done < <(grep -vE '^[[:space:]]*(#|$)' "$profile" 2>/dev/null || true)
+            printf '%s  %s' "$appid" "$game_name"
+            ((${#overrides[@]} > 0)) && printf '  overrides: %s' "$(IFS=', '; echo "${overrides[*]}")"
+            printf '\n'
+        done
+        exit 0
+        ;;
+    --last-log)
+        LAST_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/steam-auto-profiler"
+        if [[ -n "${2:-}" && "${2:-}" != -* ]]; then
+            if [[ -f "$LAST_LOG_DIR/last-${2}.log" ]]; then
+                cat "$LAST_LOG_DIR/last-${2}.log"
+            else
+                echo "No last-launch log found for AppID $2."
+            fi
+        else
+            if [[ -f "$LAST_LOG_DIR/last-launch.log" ]]; then
+                cat "$LAST_LOG_DIR/last-launch.log"
+            else
+                echo "No last-launch log found."
+            fi
+        fi
+        exit 0
+        ;;
     --configure)
         if [[ -z "${2:-}" ]]; then
             echo "Usage: steam-auto-run --configure APPID" >&2
@@ -492,8 +563,7 @@ export USE_OPTISCALER USE_SHARPEN USE_NET_OPT USE_CEF_FIX USE_VIVID
 
 SKIP_GUI=0
 if [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" && "${FORCE_GUI:-0}" -ne 1 ]]; then
-    # shellcheck disable=SC1090
-    source "$PROFILE_FILE"
+    load_profile_safe "$PROFILE_FILE"
     if [[ "${USE_RCAS:-0}" -eq 1 ]]; then
         USE_SHARPEN=1
     fi
@@ -517,6 +587,9 @@ GAMESCOPE_SESSION=0
 if [[ -n "${GAMESCOPE_WAYLAND_DISPLAY:-}" || "${XDG_CURRENT_DESKTOP:-}" == "gamescope" ]]; then
     GAMESCOPE_SESSION=1
 fi
+for gamescope_arg in "$@"; do
+    [[ "${gamescope_arg,,}" == *gamescope* ]] && GAMESCOPE_SESSION=1
+done
 
 if [[ "$SKIP_GUI" -eq 0 &&
       ( "$GAMESCOPE_SESSION" -eq 0 || "${FORCE_GUI:-0}" -eq 1 ) &&
@@ -676,6 +749,17 @@ else
     if [[ "${DXVK_NO_HDR:-0}" != "1" ]]; then
         export DXVK_HDR="${DXVK_HDR:-1}"
     fi
+
+fi
+
+# Gamescope applies its own pacing; do not export DXVK/VKD3D caps there.
+if [[ "$GAMESCOPE_SESSION" -eq 1 ]]; then
+    if [[ -z "${VRR_CAP:-}" ]]; then
+        unset DXVK_FRAME_RATE VKD3D_FRAME_RATE
+    else
+        export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$VRR_CAP}"
+        export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$VRR_CAP}"
+    fi
 fi
 
 if [[ "$GPU_VENDOR" == "nvidia" ]]; then
@@ -734,8 +818,10 @@ else
     export ENABLE_LAYER_MESA_ANTI_LAG="${ENABLE_LAYER_MESA_ANTI_LAG:-1}"
     export PROTON_DXVK_LOWLATENCY="${PROTON_DXVK_LOWLATENCY:-1}"
     export PROTON_VKD3D_LOWLATENCY="${PROTON_VKD3D_LOWLATENCY:-1}"
-    export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
-    if (( AUTO_VRR_CAP > 0 )); then
+    if [[ "$GAMESCOPE_SESSION" -eq 0 ]]; then
+        export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
+    fi
+    if [[ "$GAMESCOPE_SESSION" -eq 0 ]] && (( AUTO_VRR_CAP > 0 )); then
         export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AUTO_VRR_CAP}"
         export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AUTO_VRR_CAP}"
     fi
@@ -822,6 +908,28 @@ EXTRA_ARGS=()
 [[ "$USE_CEF_FIX" -eq 1 ]] && EXTRA_ARGS+=("--in-process-gpu")
 [[ "$USE_VULKAN" -eq 1 ]] && EXTRA_ARGS+=("-vulkan")
 
+if [[ "$AUTO_NATIVE_LINUX" -eq 1 ]]; then
+    NATIVE_RUNTIME=1
+    for launch_arg in "$@"; do
+        case "${launch_arg,,}" in
+            *proton*|*wine*|*umu-run*) NATIVE_RUNTIME=0 ;;
+        esac
+    done
+    [[ "$NATIVE_RUNTIME" -eq 1 ]] || unset NATIVE_RUNTIME
+fi
+
+if [[ "$AUTO_NATIVE_LINUX" -eq 1 && "${NATIVE_RUNTIME:-0}" -eq 1 ]]; then
+    unset PROTON_ADD_CONFIG STEAM_COMPAT_CONFIG PROTON_MLFG_UPGRADE MLFG_UPGRADE
+    unset PROTON_FSR4_UPGRADE PROTON_FSR4_RDNA3_UPGRADE PROTON_USE_OPTISCALER
+    while IFS='=' read -r env_name _; do
+        case "$env_name" in
+            PROTON_*|WINE_*|DXVK_*|VKD3D_*)
+                unset "$env_name"
+                ;;
+        esac
+    done < <(env)
+fi
+
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Steam Auto-Profiler dry run"
     echo "AppID: ${APPID:-unknown}"
@@ -837,6 +945,34 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
         }'
     exit 0
 fi
+
+LAST_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/steam-auto-profiler"
+write_last_log() {
+    local app_log="$LAST_LOG_DIR/last-${APPID:-launch}.log"
+    local exit_code="${1:-0}"
+    shift || true
+    mkdir -p "$LAST_LOG_DIR"
+    {
+        printf 'timestamp=%s\n' "$(date -Is)"
+        printf 'appid=%s\n' "${APPID:-unknown}"
+        printf 'class=%s\n' "${AUTO_CLASS:-unknown}"
+        printf 'gpu=%s\n' "${GPU_VENDOR:-unknown}"
+        printf 'gamescope=%s\n' "$GAMESCOPE_SESSION"
+        printf 'vrr_cap=%s\n' "${AUTO_VRR_CAP:-0}"
+        printf 'command='
+        printf '%q ' "$@"
+        printf '\n'
+        printf 'exported_variables:\n'
+        env | LC_ALL=C sort | awk -F= '
+            $1 ~ /^(PROTON_|DXVK_|VKD3D_|WINE_|MESA_|ENABLE_|SDL_|STEAM_COMPAT_CONFIG)/ ||
+            $1 ~ /^(WAYLANDDRV_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_)/ { print }
+        '
+        printf 'exit_code=%s\n' "$exit_code"
+    } > "$app_log"
+    tail -n 200 "$app_log" > "$app_log.tmp"
+    mv -f "$app_log.tmp" "$app_log"
+    cp "$app_log" "$LAST_LOG_DIR/last-launch.log"
+}
 
 run_with_scheduler() {
     if command -v game-performance >/dev/null 2>&1; then
@@ -882,9 +1018,10 @@ for net_candidate in "$SCRIPT_DIR/steam-net-boost" "$HOME/.local/bin/steam-net-b
 done
 
 if [[ "$USE_NET_OPT" -eq 1 && -n "$NET_BOOST_BIN" ]]; then
-    cleanup_net() { sudo -n "$NET_BOOST_BIN" off >/dev/null 2>&1 || true; }
+    # shellcheck disable=SC2317
+    cleanup_net() { sudo -n "$NET_BOOST_BIN" off --pid "$$" >/dev/null 2>&1 || true; }
     trap cleanup_net EXIT INT TERM
-    sudo -n "$NET_BOOST_BIN" on >/dev/null 2>&1 || true
+    sudo -n "$NET_BOOST_BIN" on --pid "$$" >/dev/null 2>&1 || true
 fi
 
 if [[ "$USE_KEEP_OVERLAY" -eq 1 ]]; then
@@ -897,4 +1034,10 @@ else
     export LD_PRELOAD=""
 fi
 
-run_with_scheduler "$@" "${EXTRA_ARGS[@]}"
+if run_with_scheduler "$@" "${EXTRA_ARGS[@]}"; then
+    launch_exit=0
+else
+    launch_exit=$?
+fi
+write_last_log "$launch_exit" "$@" "${EXTRA_ARGS[@]}"
+exit "$launch_exit"

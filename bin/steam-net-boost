@@ -1,86 +1,138 @@
 #!/usr/bin/env bash
 
-# Session-scoped network and NIC power-save helper.
-
 set -euo pipefail
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
-MODE="${1:-status}"
+STATE_DIR="${STEAM_NET_BOOST_STATE_DIR:-/run/steam-net-boost}"
+MODE=""
+IFACE=""
+PID=""
 
-detect_default_iface() {
-    ip -o -4 route show to default 2>/dev/null | awk '{print $5; exit}' \
-        || ip -o -6 route show to default 2>/dev/null | awk '{print $5; exit}'
+usage() { echo "Usage: steam-net-boost {on|off|status} [--iface IFACE] [--pid PID]" >&2; }
+valid_iface() {
+    [[ "$1" =~ ^[a-zA-Z0-9_.:-]+$ && -d "/sys/class/net/$1" ]]
 }
-
-IFACE="$(detect_default_iface)"
-[[ -n "$IFACE" ]] || exit 0
-
-has_static_cake() {
+default_iface() {
+    ip -o -4 route show to default 2>/dev/null | awk 'NR==1 {print $5; exit}'
+}
+ensure_state() {
+    [[ ! -L "$STATE_DIR" ]] || { echo "Refusing symlink state directory" >&2; exit 1; }
+    [[ -e "$STATE_DIR" ]] || mkdir -p "$STATE_DIR"
+    [[ -d "$STATE_DIR" ]] || { echo "Invalid state directory" >&2; exit 1; }
+    if [[ "$(id -u)" -eq 0 ]]; then
+        chown root:root "$STATE_DIR" 2>/dev/null || true
+        chmod 700 "$STATE_DIR" 2>/dev/null || true
+    fi
+}
+prune_stale() {
+    local iface="${1:-}" f p
+    for f in "$STATE_DIR"/*.pid; do
+        [[ -f "$f" ]] || continue
+        p="$(cat "$f" 2>/dev/null || true)"
+        if [[ -n "$iface" && "$f" != "$STATE_DIR/$iface."*".pid" ]]; then
+            continue
+        fi
+        if [[ ! "$p" =~ ^[0-9]+$ ]] || ! kill -0 "$p" 2>/dev/null; then
+            rm -f "$f"
+        fi
+    done
+}
+eee_state() {
+    ethtool --show-eee "$1" 2>/dev/null | awk -F: '
+        /EEE status/ {v=$2} /enabled:/ {v=$2}
+        END {gsub(/[[:space:]]/, "", v); if (tolower(v) ~ /disabled|no/) print "off"; else if (tolower(v) ~ /enabled|yes/) print "on"; else print "unknown"}'
+}
+is_cake() {
     if command -v systemctl >/dev/null 2>&1 &&
        systemctl is-active --quiet cake-shaper.service 2>/dev/null; then
         return 0
     fi
-    if command -v tc >/dev/null 2>&1; then
-        tc qdisc show dev "$IFACE" 2>/dev/null | grep -Eiq 'cake.*(bandwidth|rate)[[:space:]]+[0-9]'
-        return
-    fi
-    return 1
+    tc qdisc show dev "$1" 2>/dev/null |
+        grep -Eiq '(^|[[:space:]])cake([[:space:]]|$).*((bandwidth|rate)[[:space:]]+[0-9])'
 }
-
-disable_eee() {
-    if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then
-        if command -v iw >/dev/null 2>&1; then
-            iw dev "$IFACE" set power_save off 2>/dev/null || true
-        fi
-    elif command -v ethtool >/dev/null 2>&1; then
-        ethtool --set-eee "$IFACE" eee off 2>/dev/null || true
-    fi
-}
-
-case "$MODE" in
-    on)
-        disable_eee
-        if has_static_cake; then
-            echo "[INFO] Preserving existing static CAKE shaper on $IFACE"
-            if [[ -x /usr/local/bin/cake-auto-rtt ]]; then
-                /usr/local/bin/cake-auto-rtt >/dev/null 2>&1 || true
-            fi
-            exit 0
-        fi
-        if command -v tc >/dev/null 2>&1; then
-            tc qdisc replace dev "$IFACE" root cake diffserv4 triple-isolate 2>/dev/null \
-                || tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null \
-                || true
-        fi
-        ip link set dev "$IFACE" txqueuelen 500 2>/dev/null || true
-        ;;
-    off)
-        if has_static_cake; then
-            echo "[INFO] Preserving existing static CAKE shaper on $IFACE"
-            disable_eee
-            exit 0
-        fi
-        if command -v tc >/dev/null 2>&1; then
-            tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null || true
-        fi
-        ip link set dev "$IFACE" txqueuelen 1000 2>/dev/null || true
-        if [[ -d "/sys/class/net/$IFACE/wireless" ]]; then
-            if command -v iw >/dev/null 2>&1; then
-                iw dev "$IFACE" set power_save on 2>/dev/null || true
-            fi
-        else
-            if command -v ethtool >/dev/null 2>&1; then
-                ethtool --set-eee "$IFACE" eee on 2>/dev/null || true
-            fi
-        fi
-        ;;
-    status)
-        echo "Interface : $IFACE"
-        if command -v tc >/dev/null 2>&1; then
-            tc qdisc show dev "$IFACE" 2>/dev/null || true
-        fi
-        ;;
-    *)
-        echo "Usage: steam-net-boost [on|off|status]" >&2
+parse() {
+    [[ $# -gt 0 ]] || { usage; exit 2; }
+    MODE="$1"; shift
+    [[ "$MODE" == on || "$MODE" == off || "$MODE" == status ]] || { usage; exit 2; }
+    while (($#)); do
+        case "$1" in
+            --iface) (($# >= 2)) || { usage; exit 2; }; IFACE="$2"; shift 2 ;;
+            --pid) [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { usage; exit 2; }; PID="$2"; shift 2 ;;
+            --) shift; (($# == 0)) || { usage; exit 2; } ;;
+            *) [[ -z "$IFACE" ]] || { usage; exit 2; }; IFACE="$1"; shift ;;
+        esac
+    done
+    IFACE="${IFACE:-$(default_iface)}"
+    if [[ -z "$IFACE" ]] || ! valid_iface "$IFACE"; then
+        echo "Invalid network interface: ${IFACE:-<none>}" >&2
         exit 2
-        ;;
-esac
+    fi
+    [[ -n "$PID" ]] || PID="${PPID:-$$}"
+}
+on() {
+    local state="$STATE_DIR/$IFACE.state" pidfile="$STATE_DIR/$IFACE.$PID.pid" count=0 old_eee static_cake=no
+    prune_stale "$IFACE"
+    [[ -f "$pidfile" ]] && return 0
+    [[ -f "$state" ]] && count="$(awk -F= '$1=="count"{print $2}' "$state")"
+    if (( count == 0 )); then
+        old_eee="$(eee_state "$IFACE")"
+        static_cake="$(is_cake "$IFACE" && echo yes || echo no)"
+        printf 'count=0\neee=%s\ncake=%s\ntx=%s\n' "$old_eee" "$static_cake" \
+            "$(cat "/sys/class/net/$IFACE/tx_queue_len" 2>/dev/null || echo 1000)" > "$state"
+        if [[ "$static_cake" != yes ]] && command -v tc >/dev/null 2>&1; then
+            tc qdisc replace dev "$IFACE" root cake diffserv4 triple-isolate 2>/dev/null ||
+                tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null || true
+        fi
+        if [[ "$static_cake" != yes ]]; then
+            ethtool --set-eee "$IFACE" eee off 2>/dev/null || true
+            ip link set dev "$IFACE" txqueuelen 500 2>/dev/null || true
+        fi
+    fi
+    printf '%s\n' "$PID" > "$pidfile"
+    count=0
+    for f in "$STATE_DIR/$IFACE."*.pid; do
+        [[ -f "$f" ]] && count=$((count + 1))
+    done
+    sed -i "s/^count=.*/count=$count/" "$state"
+}
+off() {
+    local state="$STATE_DIR/$IFACE.state" pidfile="$STATE_DIR/$IFACE.$PID.pid" count=0 old f
+    prune_stale "$IFACE"
+    rm -f "$pidfile"
+    [[ -f "$state" ]] || return 0
+    for f in "$STATE_DIR/$IFACE."*.pid; do
+        [[ -f "$f" ]] && count=$((count + 1))
+    done
+    sed -i "s/^count=.*/count=$count/" "$state"
+    (( count > 0 )) && { sed -i "s/^count=.*/count=$count/" "$state"; return; }
+    old="$(awk -F= '$1=="eee"{print $2}' "$state")"
+    if [[ "$(awk -F= '$1=="cake"{print $2}' "$state")" != yes ]]; then
+        tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null || true
+        ip link set dev "$IFACE" txqueuelen "$(awk -F= '$1=="tx"{print $2}' "$state")" 2>/dev/null || true
+        if [[ "$old" == on ]]; then
+            ethtool --set-eee "$IFACE" eee on 2>/dev/null || true
+        elif [[ "$old" == off ]]; then
+            ethtool --set-eee "$IFACE" eee off 2>/dev/null || true
+        fi
+    fi
+    rm -f "$state"
+}
+status() {
+    local state="$STATE_DIR/$IFACE.state" count=0 static=no f
+    prune_stale "$IFACE"
+    [[ -f "$state" ]] && count="$(awk -F= '$1=="count"{print $2}' "$state")"
+    if [[ -f "$state" ]]; then
+        [[ "$(awk -F= '$1=="cake"{print $2}' "$state")" == yes ]] && static=yes
+    elif is_cake "$IFACE"; then
+        static=yes
+    fi
+    count=0
+    for f in "$STATE_DIR/$IFACE."*.pid; do
+        [[ -f "$f" ]] && count=$((count + 1))
+    done
+    printf 'interface=%s active_sessions=%s qdisc=%s static_cake=%s eee=%s\n' "$IFACE" "$count" \
+        "$(tc qdisc show dev "$IFACE" 2>/dev/null | awk 'NR==1 {print $2}')" "$static" "$(eee_state "$IFACE")"
+}
+
+parse "$@"; ensure_state; prune_stale
+case "$MODE" in on) on ;; off) off ;; status) status ;; esac

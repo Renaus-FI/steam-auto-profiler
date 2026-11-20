@@ -121,17 +121,16 @@ done
 
 if [[ "$WITH_NET_BOOST" -eq 1 ]]; then
     USER_NAME="$(id -un)"
-    TMP_SUDOERS="$(mktemp)"
-    printf '%s ALL=(root) NOPASSWD: /usr/local/bin/steam-net-boost\n' "$USER_NAME" >"$TMP_SUDOERS"
     sudo rm -f /etc/sudoers.d/cachy-net-boost /usr/local/bin/cachy-net-boost
     for script in steam-auto-run steam-auto-detect steam-auto-sync; do
         sudo install -m 755 "$REPO_DIR/bin/$script" "/usr/local/bin/$script"
         echo "Installed /usr/local/bin/$script"
     done
     sudo install -m 755 "$REPO_DIR/bin/steam-net-boost" /usr/local/bin/steam-net-boost
-    sudo install -m 440 "$TMP_SUDOERS" /etc/sudoers.d/steam-net-boost
+    printf '%s ALL=(root) NOPASSWD: /usr/local/bin/steam-net-boost\n' "$USER_NAME" |
+        sudo tee /etc/sudoers.d/steam-net-boost >/dev/null
+    sudo chmod 440 /etc/sudoers.d/steam-net-boost
     sudo visudo -cf /etc/sudoers.d/steam-net-boost
-    rm -f "$TMP_SUDOERS"
     echo "Installed optional network helper and sudoers rule"
 fi
 
@@ -146,13 +145,11 @@ if [[ "$COMPAT_CACHY_RUN" -eq 1 ]]; then
             fi
         fi
     fi
-    TMP_CACHY_RUN="$(mktemp)"
-    cat >"$TMP_CACHY_RUN" <<'EOF'
+    sudo tee /usr/local/bin/cachy-run >/dev/null <<'EOF'
 #!/usr/bin/env bash
 exec steam-auto-run "$@"
 EOF
-    sudo install -m 755 "$TMP_CACHY_RUN" /usr/local/bin/cachy-run
-    rm -f "$TMP_CACHY_RUN"
+    sudo chmod 755 /usr/local/bin/cachy-run
     echo "Installed /usr/local/bin/cachy-run compatibility shim"
 fi
 
@@ -167,17 +164,30 @@ Description=Synchronize Steam launch options with Steam Auto-Profiler
 Type=oneshot
 ExecStart=$TARGET_DIR/steam-auto-sync --sanitize --wait-for-steam-exit --steam-exit-timeout 300
 EOF
-    cat >"$SYSTEMD_USER_DIR/steam-auto-profiler-sync.path" <<'EOF'
+    LIBRARY_PATHS=()
+    while IFS= read -r library; do
+        [[ -n "$library" ]] && LIBRARY_PATHS+=("$library")
+    done < <(HOME="$HOME" python3 "$REPO_DIR/bin/steam-auto-sync" --print-library-paths 2>/dev/null || true)
+    if ((${#LIBRARY_PATHS[@]} == 0)); then
+        LIBRARY_PATHS+=("$HOME/.local/share/Steam")
+    fi
+    {
+        cat <<'EOF'
 [Unit]
 Description=Watch Steam app manifests for new games
 
 [Path]
-PathChanged=%h/.local/share/Steam/steamapps
+EOF
+        for library in "${LIBRARY_PATHS[@]}"; do
+            printf 'PathChanged=%s/steamapps\n' "$library"
+        done
+        cat <<'EOF'
 Unit=steam-auto-profiler-sync.service
 
 [Install]
 WantedBy=default.target
 EOF
+    } >"$SYSTEMD_USER_DIR/steam-auto-profiler-sync.path"
     if command -v systemctl >/dev/null 2>&1 &&
        systemctl --user daemon-reload 2>/dev/null &&
        systemctl --user enable --now steam-auto-profiler-sync.path 2>/dev/null; then

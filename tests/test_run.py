@@ -211,6 +211,33 @@ class RunTests(unittest.TestCase):
             self.assertIn("USE_SHARPEN=1", result.stdout)
             self.assertIn("USE_NET_OPT=0", result.stdout)
 
+    def test_load_profile_safe_reads_last_key_without_trailing_newline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            profile_dir = home / ".config/steam-auto-profiler/profiles"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "361420.env").write_text(
+                "USE_XWAYLAND=1\nUSE_MLFG=1",
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "NO_GUI": "1",
+                "GAMEID": "361420",
+            })
+            result = subprocess.run(
+                [str(RUN), "/usr/bin/env"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", result.stdout)
+            self.assertIn("PROTON_MLFG_UPGRADE=1", result.stdout)
+            self.assertIn("MLFG_UPGRADE=1", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

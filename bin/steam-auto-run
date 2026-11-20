@@ -21,7 +21,7 @@ mkdir -p "$PROFILE_DIR"
 
 load_profile_safe() {
     local file="$1" line key value
-    while IFS= read -r line || [[ -n "$line" ]]; do
+    while IFS= read -r line || [ -n "$line" ]; do
         line="${line%$'\r'}"
         line="${line#"${line%%[![:space:]]*}"}"
         [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
@@ -579,6 +579,7 @@ else
         USE_NO_DECORATION=0
     fi
 fi
+AUTO_VRR_CAP="$(detect_vrr_cap)"
 
 flag_kd() { [[ "${1:-0}" -eq 1 ]] && echo on || echo off; }
 flag_zn() { [[ "${1:-0}" -eq 1 ]] && echo TRUE || echo FALSE; }
@@ -782,7 +783,7 @@ if [[ "$USE_NO_DECORATION" -eq 1 || "${NO_DECORATION:-0}" -eq 1 ]]; then
     export PROTON_NO_WM_DECORATION="${PROTON_NO_WM_DECORATION:-1}"
     export WINE_NO_WM_DECORATION="${WINE_NO_WM_DECORATION:-1}"
 fi
-if [[ "$USE_NO_NTSYNC" -eq 1 ]]; then
+if [[ "$USE_NO_NTSYNC" -eq 1 || "${PROTON_NO_NTSYNC:-0}" -eq 1 ]]; then
     export PROTON_NO_NTSYNC=1
 fi
 if [[ -n "${WINE_WMCLASS:-}" ]]; then
@@ -886,7 +887,7 @@ if [[ "${PROTON_VKD3D_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkd3dlowla
 if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("fsr4"); fi
 if [[ "$USE_MLFG" -eq 1 ]]; then COMPAT_TOKENS+=("mlfg"); fi
 if [[ "$USE_MLFG" -eq 0 && "$GPU_VENDOR" == "nvidia" && "${DXVK_NVAPI_VKREFLEX:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkreflex"); fi
-if [[ "$USE_NO_NTSYNC" -eq 1 ]]; then COMPAT_TOKENS+=("nontsync"); fi
+if [[ "$USE_NO_NTSYNC" -eq 1 || "${PROTON_NO_NTSYNC:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("nontsync"); fi
 if [[ "$USE_NO_DECORATION" -eq 1 ]]; then COMPAT_TOKENS+=("nowmdecoration"); fi
 
 # Preserve explicit user compat configuration and append profiler-managed tokens.

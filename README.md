@@ -70,6 +70,15 @@ steam-auto-sync --migrate-cachy-run
 steam-auto-sync --report
 ```
 
+`steam-auto-sync` discovers every configured Steam library. Use
+`--print-library-paths` to inspect them, and `--keep-backups N` to retain the
+most recent `localconfig.vdf` backups (`0` keeps all; default is 10).
+
+Profiles are parsed as a small allowlisted `KEY=VALUE` format (CRLF and quoted
+values are accepted); shell syntax and unknown keys are ignored. Use
+`steam-auto-run --list-profiles` or `--last-log [APPID]` for local launch
+administration.
+
 Inspect the entire Steam library without modifying `localconfig.vdf`:
 
 ```bash
@@ -93,11 +102,16 @@ as `.bak` and install a compatibility shim that delegates to `steam-auto-run`.
 Use `./install.sh --with-auto-sync` to install a systemd user watcher that synchronizes
 new Steam app manifests after Steam exits.
 
+In Gamescope sessions, redundant DXVK/VKD3D frame pacing is suppressed unless
+`VRR_CAP` is explicit. Native Linux launches omit Proton/Wine/DXVK/VKD3D variables.
+The network helper exposes `steam-net-boost status [IFACE]` and restores its
+pre-activation EEE and temporary-qdisc state after all launch sessions exit.
+
 ## Commands
 
 - `steam-auto-detect [--inspect] [APPID]` - classify an AppID and print the result.
 - `steam-auto-run [--inspect|--configure|--reset|--doctor|--check-system] [APPID]` - orchestrate a Steam launch or audit the system.
-- `steam-auto-sync [--dry-run|--remove|--sanitize|--clean|--migrate-cachy-run|--report]` - update Steam `localconfig.vdf` launch options or inspect/migrate profiles.
+- `steam-auto-sync [--dry-run|--remove|--sanitize|--clean|--migrate-cachy-run|--report|--print-library-paths|--keep-backups N]` - update Steam `localconfig.vdf` launch options or inspect/migrate profiles.
 - `steam-auto-net-boost [on|off|status]` - apply or restore optional network tuning.
 - `steam-auto-detect --inspect --json [APPID]` - print a machine-readable classification report.
 

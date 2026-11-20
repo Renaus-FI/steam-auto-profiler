@@ -85,6 +85,7 @@ class RunTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
                 "NO_GUI": "1",
                 "GAMEID": "361420",
             })
@@ -197,6 +198,7 @@ class RunTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
                 "NO_GUI": "1",
                 "GAMEID": "361420",
             })
@@ -223,6 +225,7 @@ class RunTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
                 "NO_GUI": "1",
                 "GAMEID": "361420",
             })
@@ -244,13 +247,14 @@ if __name__ == "__main__":
 
 
 _SAP_TEST_STATE_DIR = None
+_SAP_TEST_CONFIG_DIR = None
 _SAP_ORIG_XDG_ENV = {}
 
 
 def setUpModule():
     import os as _os
     import tempfile as _tempfile
-    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_ENV
+    global _SAP_TEST_STATE_DIR, _SAP_TEST_CONFIG_DIR, _SAP_ORIG_XDG_ENV
     _SAP_ORIG_XDG_ENV = {
         k: _os.environ.get(k)
         for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
@@ -258,12 +262,14 @@ def setUpModule():
     _os.environ.pop("XDG_CONFIG_HOME", None)
     _os.environ.pop("XDG_DATA_HOME", None)
     _SAP_TEST_STATE_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-state-")
+    _SAP_TEST_CONFIG_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-config-")
+    _os.environ["XDG_CONFIG_HOME"] = _SAP_TEST_CONFIG_DIR.name
     _os.environ["XDG_STATE_HOME"] = _SAP_TEST_STATE_DIR.name
 
 
 def tearDownModule():
     import os as _os
-    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_ENV
+    global _SAP_TEST_STATE_DIR, _SAP_TEST_CONFIG_DIR, _SAP_ORIG_XDG_ENV
     for k, val in _SAP_ORIG_XDG_ENV.items():
         if val is None:
             _os.environ.pop(k, None)
@@ -273,3 +279,6 @@ def tearDownModule():
     if _SAP_TEST_STATE_DIR is not None:
         _SAP_TEST_STATE_DIR.cleanup()
         _SAP_TEST_STATE_DIR = None
+    if _SAP_TEST_CONFIG_DIR is not None:
+        _SAP_TEST_CONFIG_DIR.cleanup()
+        _SAP_TEST_CONFIG_DIR = None

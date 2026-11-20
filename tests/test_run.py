@@ -241,3 +241,28 @@ class RunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_SAP_TEST_STATE_DIR = None
+_SAP_ORIG_XDG_STATE_HOME = None
+
+
+def setUpModule():
+    import os as _os
+    import tempfile as _tempfile
+    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_STATE_HOME
+    _SAP_ORIG_XDG_STATE_HOME = _os.environ.get("XDG_STATE_HOME")
+    _SAP_TEST_STATE_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-state-")
+    _os.environ["XDG_STATE_HOME"] = _SAP_TEST_STATE_DIR.name
+
+
+def tearDownModule():
+    import os as _os
+    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_STATE_HOME
+    if _SAP_ORIG_XDG_STATE_HOME is None:
+        _os.environ.pop("XDG_STATE_HOME", None)
+    else:
+        _os.environ["XDG_STATE_HOME"] = _SAP_ORIG_XDG_STATE_HOME
+    if _SAP_TEST_STATE_DIR is not None:
+        _SAP_TEST_STATE_DIR.cleanup()
+        _SAP_TEST_STATE_DIR = None

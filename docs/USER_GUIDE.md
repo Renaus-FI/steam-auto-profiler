@@ -50,7 +50,7 @@ steam-auto-run --doctor
 3. **Classify with four-tier precedence.** A known competitive AppID or detected anti-cheat runtime wins first. Native FidelityFX/FSR 3.1+ detection (`native-fsr4`/`native-fsr`) is second. Legacy DLSS/XeSS/FSR 2-style libraries select `legacy-upscaler`. Otherwise the title uses `standard`.
 4. **Guard anti-cheat titles.** Competitive/anti-cheat profiles disable OptiScaler and MLFG/frame generation, disable competitive sharpening, and prefer Steam Linux Runtime + CachyOS compatibility tooling.
 5. **Resolve compatibility settings.** Managed features are mapped into `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG`. Existing user values are preserved. Supported tokens include `wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `localshadercache`, `pipewire`, `fsr4`, `mlfg`, and `vkreflex`.
-6. **Calculate a VRR cap.** An explicit `VRR_CAP=<fps>` is highest priority. Otherwise KDE (`kscreen-doctor`), wlroots (`wlr-randr`), or X11 (`xrandr`) refresh-rate data is read; refresh rates above 60 Hz become a 94% ceiling. In Gamescope, DXVK/VKD3D frame caps are omitted unless `VRR_CAP` is explicit.
+6. **Calculate a VRR cap.** An explicit `VRR_CAP=<fps>` is highest priority (`VRR_CAP=0` disables capping). Otherwise KDE (`kscreen-doctor`), wlroots (`wlr-randr`), or X11 (`xrandr`) refresh-rate data is read and used directly at 1:1 by default, such as 240 FPS on a 240 Hz display. Set `VRR_MINUS_MARGIN=1` to enable the optional -6% VRR headroom calculation (`hz * 94 / 100`). In Gamescope, DXVK/VKD3D frame caps are omitted unless `VRR_CAP` is explicit.
 7. **Configure or load the per-AppID profile.** The pre-launch `kdialog` or `zenity` checklist is shown on the first launch unless a profile exists or GUI launch is disabled. Selecting **Save profile** writes a small allowlisted `KEY=VALUE` file to `~/.config/steam-auto-profiler/profiles/<APPID>.env`.
 8. **Apply launch variables and scheduling.** The wrapper exports Wayland/HDR, low-latency DXVK/VKD3D, frame-generation, upscaler, Steam Input, overlay, and compatibility variables as appropriate. It uses `game-performance`, then `powerprofilesctl launch -p performance --`, and `gamemoderun` only when it will not conflict with `ananicy-cpp`.
 9. **Start and monitor the launch.** Native Linux titles omit Proton/Wine/DXVK/VKD3D variables. The wrapper launches the supplied command and writes a bounded last-launch record.
@@ -158,7 +158,8 @@ VRR_CAP=120 MLFG=1 KEEP_OVERLAY=1 steam-auto-run %command%
 | `FORCE_GUI=1` | Reopen the checklist even for a saved profile. |
 | `XWAYLAND=1` | Force XWayland instead of native Wayland. |
 | `MLFG=1` | Enable frame generation. |
-| `VRR_CAP=<fps>` | Set the explicit VRR/DXVK/VKD3D frame cap. |
+| `VRR_CAP=<fps>` | Set a custom VRR/DXVK/VKD3D frame cap; `VRR_CAP=0` disables capping. |
+| `VRR_MINUS_MARGIN=1` | Enable the optional -6% monitor-refresh safety margin. |
 | `KEEP_OVERLAY=1` | Preserve Steam Overlay `LD_PRELOAD` instead of clearing it. |
 | `GAMEID=umu-<appid>` | Resolve UMU/other launcher AppIDs and strip the `umu-` prefix. |
 | `NETOPT=1` | Request the session network profile. |
@@ -200,7 +201,7 @@ GAMEID=umu-2357570 steam-auto-run %command%
 
 **Network helper is unavailable:** install it with `./install.sh --with-net-boost`, verify `sudo steam-net-boost status`, and select `netopt` or set `NETOPT=1`. The helper has no effect without `sudo` access or supported interface tools.
 
-**Wrong frame cap:** set `VRR_CAP=<fps>` explicitly. In a Gamescope session it is the only way to export DXVK/VKD3D frame rate variables intentionally.
+**Wrong frame cap:** set `VRR_CAP=<fps>` explicitly, or set `VRR_MINUS_MARGIN=1` for the optional -6% headroom. By default the detected monitor refresh rate is used directly. In a Gamescope session `VRR_CAP` is the only way to export DXVK/VKD3D frame rate variables intentionally.
 
 **Review the last launch:** run `steam-auto-run --last-log APPID`; it includes launch variables, Gamescope state, command, and exit code.
 

@@ -31,7 +31,7 @@ Proton and Mesa/Vulkan could resolve settings centrally:
 
 - Enforce mutual exclusion between frame generation and low-latency VRR frame caps.
 - Disable external sharpening when an upscaler bridge is active.
-- Use the active compositor refresh rate to calculate a safe VRR ceiling.
+- Use the active compositor refresh rate directly for the VRR ceiling, with an opt-in -6% margin via `VRR_MINUS_MARGIN=1`.
 - Preserve explicit user overrides while applying anti-cheat and crash-safety guardrails.
 
 ## Proton compatibility matrix

@@ -35,7 +35,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC)
                 ;;
             *) continue ;;
         esac
@@ -73,6 +73,7 @@ Environment overrides:
   FORCE_GUI=1       Re-open the GUI for a saved profile
   NO_GUI=1          Run silently
   VRR_CAP=<fps>     Override the calculated VRR frame cap
+  VRR_MINUS_MARGIN=1 Enable optional 6% VRR safety margin
   XWAYLAND=1        Force XWayland
   MLFG=1            Enable frame generation
   NETOPT=1          Enable the optional network profile
@@ -441,19 +442,31 @@ detect_vrr_cap() {
     elif command -v wlr-randr >/dev/null 2>&1; then
         hz=$(
             wlr-randr 2>/dev/null \
-                | awk '/current/ {for(i=1;i<=NF;i++) if($i ~ /Hz/) print $(i-1)}' \
-                | sort -nr | head -n1 | cut -d. -f1
+                | awk '/current/ {
+                    for (i = 1; i <= NF; i++) {
+                        if ($i ~ /Hz/) {
+                            v = $(i-1)
+                            gsub(/[^0-9.]/, "", v)
+                            if (v + 0 > best) best = v + 0
+                        }
+                    }
+                    } END {if (best > 0) printf "%.0f\n", best}'
         )
     elif command -v xrandr >/dev/null 2>&1; then
         hz=$(
             xrandr --current 2>/dev/null \
-                | grep -oE '[0-9]+\.[0-9]+\*' \
-                | tr -d '*' | sort -nr | head -n1 | cut -d. -f1
+                | grep -oE '[0-9]+(\.[0-9]+)?\*' \
+                | tr -d '*' \
+                | sort -nr \
+                | head -n1 \
+                | awk '{printf "%.0f\n", $1}'
         )
     fi
 
-    if [[ -n "$hz" ]] && (( hz > 60 )); then
+    if [[ -n "$hz" ]] && [[ "${VRR_MINUS_MARGIN:-0}" -eq 1 ]]; then
         echo $((hz * 94 / 100))
+    elif [[ -n "$hz" ]]; then
+        echo "$hz"
     else
         echo 0
     fi
@@ -548,6 +561,19 @@ APPID="${APPID#umu-}"
 PROFILE_FILE=""
 [[ -n "$APPID" ]] && PROFILE_FILE="$PROFILE_DIR/$APPID.env"
 
+ORIG_VRR_CAP_SET=0
+ORIG_VRR_CAP=""
+if [[ -n "${VRR_CAP+x}" ]]; then
+    ORIG_VRR_CAP_SET=1
+    ORIG_VRR_CAP="$VRR_CAP"
+fi
+ORIG_VRR_MINUS_MARGIN_SET=0
+ORIG_VRR_MINUS_MARGIN=""
+if [[ -n "${VRR_MINUS_MARGIN+x}" ]]; then
+    ORIG_VRR_MINUS_MARGIN_SET=1
+    ORIG_VRR_MINUS_MARGIN="$VRR_MINUS_MARGIN"
+fi
+
 USE_XWAYLAND=0
 USE_MLFG="${USE_MLFG:-0}"
 USE_OPTISCALER=0
@@ -561,6 +587,7 @@ USE_SAFEDX12=0
 USE_KEEP_OVERLAY=0
 USE_NO_NTSYNC=0
 USE_NO_DECORATION=0
+VRR_MINUS_MARGIN="${VRR_MINUS_MARGIN:-0}"
 
 AUTO_CLASS="standard"
 AUTO_PRESET="standard"
@@ -602,6 +629,15 @@ else
         USE_NO_DECORATION=0
     fi
 fi
+
+if [[ "$ORIG_VRR_CAP_SET" -eq 1 ]]; then
+    VRR_CAP="$ORIG_VRR_CAP"
+fi
+if [[ "$ORIG_VRR_MINUS_MARGIN_SET" -eq 1 ]]; then
+    VRR_MINUS_MARGIN="$ORIG_VRR_MINUS_MARGIN"
+elif [[ -z "${VRR_MINUS_MARGIN+x}" ]]; then
+    VRR_MINUS_MARGIN=0
+fi
 AUTO_VRR_CAP="$(detect_vrr_cap)"
 
 flag_kd() { [[ "${1:-0}" -eq 1 ]] && echo on || echo off; }
@@ -638,6 +674,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
                 keepoverlay "Preserve Steam Overlay (LD_PRELOAD)" "$(flag_kd "$USE_KEEP_OVERLAY")" \
                 ntsync "Disable NTSync (legacy title)" "$(flag_kd "$USE_NO_NTSYNC")" \
                 nodecor "Disable window decorations" "$(flag_kd "$USE_NO_DECORATION")" \
+                vrrmargin "Enable optional 6% VRR safety margin" "$(flag_kd "$VRR_MINUS_MARGIN")" \
                 remember "Save profile for future launches" off 2>/dev/null
         )
         EXIT_CODE=$?
@@ -656,6 +693,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
                 "$(flag_zn "$USE_KEEP_OVERLAY")" keepoverlay "Preserve Steam Overlay (LD_PRELOAD)" \
                 "$(flag_zn "$USE_NO_NTSYNC")" ntsync "Disable NTSync (legacy title)" \
                 "$(flag_zn "$USE_NO_DECORATION")" nodecor "Disable window decorations" \
+                "$(flag_zn "$VRR_MINUS_MARGIN")" vrrmargin "Enable optional 6% VRR safety margin" \
                 FALSE remember "Save profile for future launches" 2>/dev/null
         )
         EXIT_CODE=$?
@@ -671,6 +709,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
         USE_KEEP_OVERLAY=0
         USE_NO_NTSYNC=0
         USE_NO_DECORATION=0
+        VRR_MINUS_MARGIN=0
         SAVE_PROFILE=0
 
         for choice in $SELECTED; do
@@ -684,6 +723,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
                 keepoverlay) USE_KEEP_OVERLAY=1 ;;
                 ntsync) USE_NO_NTSYNC=1 ;;
                 nodecor) USE_NO_DECORATION=1 ;;
+                vrrmargin) VRR_MINUS_MARGIN=1 ;;
                 remember) SAVE_PROFILE=1 ;;
             esac
         done
@@ -699,6 +739,8 @@ USE_CEF_FIX=$USE_CEF_FIX
 USE_KEEP_OVERLAY=$USE_KEEP_OVERLAY
 USE_NO_NTSYNC=$USE_NO_NTSYNC
 USE_NO_DECORATION=$USE_NO_DECORATION
+VRR_CAP=${VRR_CAP:-}
+VRR_MINUS_MARGIN=$VRR_MINUS_MARGIN
 AUTO_PRESET=$AUTO_PRESET
 EOF
         fi
@@ -717,6 +759,8 @@ USE_CEF_FIX=$USE_CEF_FIX
 USE_KEEP_OVERLAY=$USE_KEEP_OVERLAY
 USE_NO_NTSYNC=$USE_NO_NTSYNC
 USE_NO_DECORATION=$USE_NO_DECORATION
+VRR_CAP=${VRR_CAP:-}
+VRR_MINUS_MARGIN=$VRR_MINUS_MARGIN
 AUTO_PRESET=$AUTO_PRESET
 EOF
         echo "No GUI available; saved auto-detected defaults."

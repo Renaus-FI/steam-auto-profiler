@@ -107,6 +107,10 @@ new Steam app manifests after Steam exits.
 
 In Gamescope sessions, redundant DXVK/VKD3D frame pacing is suppressed unless
 `VRR_CAP` is explicit. Native Linux launches omit Proton/Wine/DXVK/VKD3D variables.
+By default, `VRR_CAP` follows the active monitor refresh rate directly (1:1),
+so a 240 Hz display uses a 240 FPS cap. Set `VRR_CAP=<fps>` for a custom cap,
+or `VRR_CAP=0` to disable capping. Set `VRR_MINUS_MARGIN=1` to enable the
+optional -6% VRR headroom calculation instead.
 The network helper exposes `steam-net-boost status [IFACE]` and restores its
 pre-activation EEE and temporary-qdisc state after all launch sessions exit.
 
@@ -154,7 +158,7 @@ game runtime; no third-party overlay or injection library is bundled. Optional G
 dialogs use `kdialog` or `zenity` when available.
 
 Environment overrides include `NO_GUI=1`, `XWAYLAND=1`, `MLFG=1`, `NETOPT=1`, and
-`VRR_CAP=<fps>`.
+`VRR_CAP=<fps>` or `VRR_MINUS_MARGIN=1`.
 
 ## Architecture
 

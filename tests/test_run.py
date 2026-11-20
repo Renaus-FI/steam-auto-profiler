@@ -244,25 +244,32 @@ if __name__ == "__main__":
 
 
 _SAP_TEST_STATE_DIR = None
-_SAP_ORIG_XDG_STATE_HOME = None
+_SAP_ORIG_XDG_ENV = {}
 
 
 def setUpModule():
     import os as _os
     import tempfile as _tempfile
-    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_STATE_HOME
-    _SAP_ORIG_XDG_STATE_HOME = _os.environ.get("XDG_STATE_HOME")
+    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_ENV
+    _SAP_ORIG_XDG_ENV = {
+        k: _os.environ.get(k)
+        for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+    }
+    _os.environ.pop("XDG_CONFIG_HOME", None)
+    _os.environ.pop("XDG_DATA_HOME", None)
     _SAP_TEST_STATE_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-state-")
     _os.environ["XDG_STATE_HOME"] = _SAP_TEST_STATE_DIR.name
 
 
 def tearDownModule():
     import os as _os
-    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_STATE_HOME
-    if _SAP_ORIG_XDG_STATE_HOME is None:
-        _os.environ.pop("XDG_STATE_HOME", None)
-    else:
-        _os.environ["XDG_STATE_HOME"] = _SAP_ORIG_XDG_STATE_HOME
+    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_ENV
+    for k, val in _SAP_ORIG_XDG_ENV.items():
+        if val is None:
+            _os.environ.pop(k, None)
+        else:
+            _os.environ[k] = val
+    _SAP_ORIG_XDG_ENV = {}
     if _SAP_TEST_STATE_DIR is not None:
         _SAP_TEST_STATE_DIR.cleanup()
         _SAP_TEST_STATE_DIR = None

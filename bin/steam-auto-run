@@ -411,9 +411,26 @@ detect_vrr_cap() {
     local hz=""
     if command -v kscreen-doctor >/dev/null 2>&1; then
         hz=$(
-            kscreen-doctor -o 2>/dev/null \
-                | grep -oE '[0-9]+(\.[0-9]+)?Hz' \
-                | tr -d 'Hz' | sort -nr | head -n1 | cut -d. -f1
+            kscreen-doctor -o 2>/dev/null | awk '
+                {
+                    gsub(/\033\[[0-9;]*[A-Za-z]/, "")
+                    for (i = 1; i <= NF; i++) {
+                        if ($i ~ /@[0-9]+(\.[0-9]+)?(\*!?|!\*)/) {
+                            v = $i
+                            sub(/^.*@/, "", v)
+                            sub(/[^0-9.].*$/, "", v)
+                            if (v + 0 > max_star) max_star = v + 0
+                        } else if (match($i, /[0-9]+(\.[0-9]+)?Hz/)) {
+                            v = substr($i, RSTART, RLENGTH - 2)
+                            if (v + 0 > max_hz) max_hz = v + 0
+                        }
+                    }
+                }
+                END {
+                    res = (max_star > 0 ? max_star : max_hz)
+                    if (res > 0) printf "%.0f\n", res
+                }
+            '
         )
     elif command -v wlr-randr >/dev/null 2>&1; then
         hz=$(

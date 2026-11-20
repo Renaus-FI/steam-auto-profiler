@@ -1,5 +1,8 @@
 # Steam Auto-Profiler
 
+[![CI](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Context-aware heuristic game classifier and pre-launch orchestrator for Steam on Linux.**
 
 Steam Auto-Profiler is a working reference prototype for Wayland/KDE/GNOME systems. It

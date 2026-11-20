@@ -4,7 +4,13 @@
 
 set -euo pipefail
 
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+for _sap_dir in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+    case ":${PATH:-}:" in
+        *:"$_sap_dir":*) ;;
+        *) PATH="${PATH:+${PATH}:}$_sap_dir" ;;
+    esac
+done
+export PATH
 ORIG_LD_PRELOAD="${LD_PRELOAD:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

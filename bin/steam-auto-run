@@ -1018,7 +1018,8 @@ for net_candidate in "$SCRIPT_DIR/steam-net-boost" "$HOME/.local/bin/steam-net-b
 done
 
 if [[ "$USE_NET_OPT" -eq 1 && -n "$NET_BOOST_BIN" ]]; then
-    # shellcheck disable=SC2317
+    # shellcheck disable=SC2317,SC2329
+    # This function is registered below and invoked indirectly by the trap.
     cleanup_net() { sudo -n "$NET_BOOST_BIN" off --pid "$$" >/dev/null 2>&1 || true; }
     trap cleanup_net EXIT INT TERM
     sudo -n "$NET_BOOST_BIN" on --pid "$$" >/dev/null 2>&1 || true

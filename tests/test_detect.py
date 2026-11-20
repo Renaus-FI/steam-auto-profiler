@@ -120,6 +120,40 @@ class DetectTests(unittest.TestCase):
         self.assertNotIn("vkd3dbindlesstb", tokens)
         self.assertNotIn("dxvklowlatency", tokens)
 
+    def test_single_pass_scan_prunes_asset_dirs_and_reaches_depth_10(self):
+        pruned = self.create_game(
+            "1008",
+            "Pruned Assets",
+            dirs=("Screenshots", "Saves", "Logs"),
+            files=(
+                "Screenshots/EasyAntiCheat.exe",
+                "Saves/nvngx_dlss.dll",
+                "Logs/amdxcffx64.dll",
+            ),
+        )
+        pruned_report = self.classify("1008")
+        self.assertNotEqual(pruned_report["class"], "competitive-anticheat")
+        self.assertFalse(pruned_report["has_dlss"])
+        self.assertFalse(pruned_report["has_fsr"])
+
+        nested_ac = self.create_game("1009", "Nested Anti Cheat")
+        nested_ac_dir = nested_ac
+        for index in range(9):
+            nested_ac_dir = nested_ac_dir / f"Depth{index}"
+            nested_ac_dir.mkdir()
+        (nested_ac_dir / "EasyAntiCheat.exe").touch()
+        ac_report = self.classify("1009")
+        self.assertEqual(ac_report["class"], "competitive-anticheat")
+
+        nested_upscaler = self.create_game("1010", "Nested Upscaler")
+        nested_upscaler_dir = nested_upscaler
+        for index in range(9):
+            nested_upscaler_dir = nested_upscaler_dir / f"Layer{index}"
+            nested_upscaler_dir.mkdir()
+        (nested_upscaler_dir / "nvngx_dlss.dll").touch()
+        upscaler_report = self.classify("1010")
+        self.assertTrue(upscaler_report["has_dlss"])
+
 
 if __name__ == "__main__":
     unittest.main()

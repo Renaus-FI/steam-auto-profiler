@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import os
 import subprocess
 import tempfile
 import unittest
@@ -226,6 +227,45 @@ class SyncTests(unittest.TestCase):
         self.assertIn("steam-auto-run %command%", replacement)
         self.assertNotIn("USE_XWAYLAND", profile)
         self.assertFalse((profile_dir / "730.env").exists())
+
+    def test_keep_backups_prunes_oldest_localconfig_backups(self):
+        config_dir = self.config.parent
+        backups = []
+        for index in range(4):
+            backup = config_dir / f"localconfig.vdf.bak.{1000 + index}"
+            backup.write_text(f"backup-{index}", encoding="utf-8")
+            os.utime(backup, (1000 + index, 1000 + index))
+            backups.append(backup)
+
+        result = self.run_sync("--keep-backups", "2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        remaining = sorted(
+            config_dir.glob("localconfig.vdf.bak.*"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        self.assertEqual(len(remaining), 2)
+        self.assertIn(backups[-1], remaining)
+        self.assertFalse(backups[0].exists())
+        self.assertFalse(backups[1].exists())
+
+    def test_print_library_paths_returns_all_library_steamapps_roots(self):
+        secondary = self.home / "SteamLibrary"
+        (secondary / "steamapps").mkdir(parents=True)
+        library_vdf = self.steam / "steamapps/libraryfolders.vdf"
+        library_vdf.write_text(
+            '"LibraryFolders"\n{\n\t"1"\n\t{\n'
+            f'\t\t"path"\t\t"{secondary}"\n'
+            '\t}\n}\n',
+            encoding="utf-8",
+        )
+
+        result = self.run_sync("--print-library-paths")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = set(result.stdout.splitlines())
+        self.assertIn(str(self.steam), lines)
+        self.assertIn(str(secondary), lines)
 
 
 if __name__ == "__main__":

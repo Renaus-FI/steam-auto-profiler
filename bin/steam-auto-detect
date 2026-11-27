@@ -78,6 +78,10 @@ AUTO_OPTISCALER=0
 AUTO_SHARPEN=1
 AUTO_NET_OPT=0
 AUTO_CEF_FIX=0
+AUTO_XWAYLAND=0
+AUTO_SAFEDX12=0
+AUTO_NATIVE_AGS=1
+AUTO_BLEEDING_EDGE=0
 AUTO_NATIVE_LINUX=0
 AUTO_IS_VR=0
 AUTO_HAS_DLSS=0
@@ -371,7 +375,14 @@ PY
 
     IS_ANTICHEAT=0
     case "$APPID" in
-        730|570|252490|304390|393380|553850|581320|594650|1085660|1172470|1172620|1874880|1938090|2051620|2073850|2100280|2357570|2479810|2767030|2887580)
+        594650)
+            IS_ANTICHEAT=1
+            AUTO_XWAYLAND=1
+            AUTO_SAFEDX12=1
+            AUTO_NATIVE_AGS=0
+            AUTO_REASON="Hunt: Showdown 1896 (AppID 594650) CryEngine/EAC safe defaults: XWayland + SafeDX12 + no native AGS/MLFG/bleeding-edge"
+            ;;
+        730|570|252490|304390|393380|553850|581320|1085660|1172470|1172620|1874880|1938090|2051620|2073850|2100280|2357570|2479810|2767030|2887580)
             IS_ANTICHEAT=1
             AUTO_REASON="Known competitive multiplayer / anti-cheat AppID ($APPID)"
             ;;
@@ -434,22 +445,38 @@ PROFILE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles/$AP
 if [[ -n "$APPID" && -f "$PROFILE_FILE" ]]; then
     load_profile_safe "$PROFILE_FILE"
 fi
+if [[ "${BLEEDING_EDGE:-0}" -eq 1 || "${USE_BLEEDING_EDGE:-0}" -eq 1 ]]; then
+    AUTO_BLEEDING_EDGE=1
+fi
+if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
+    AUTO_BLEEDING_EDGE=0
+fi
+if [[ "$APPID" == "594650" ]]; then
+    USE_XWAYLAND=1
+    USE_SAFEDX12=1
+    USE_MLFG=0
+    USE_REFLEX_LAYER=0
+    AUTO_XWAYLAND=1
+    AUTO_SAFEDX12=1
+    AUTO_NATIVE_AGS=0
+    AUTO_BLEEDING_EDGE=0
+fi
 COMPAT_TOKENS=()
-if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 ]]; then
+if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 ]]; then
     COMPAT_TOKENS+=("wayland")
 fi
 if [[ -n "${WINE_DISABLE_VULKAN_OPWR:-}" && "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
-elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 ]]; then
+elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
 fi
-if [[ "$GPU_VENDOR" == "amd" ]]; then
+if [[ "$GPU_VENDOR" == "amd" && "${AUTO_NATIVE_AGS:-1}" -eq 1 ]]; then
     COMPAT_TOKENS+=("nativeags")
 fi
-if [[ "${SAFEDX12:-0}" -ne 1 && "${USE_SAFEDX12:-0}" -eq 0 ]]; then
+if [[ "${SAFEDX12:-0}" -ne 1 && "${USE_SAFEDX12:-0}" -eq 0 && "${AUTO_SAFEDX12:-0}" -eq 0 ]]; then
     COMPAT_TOKENS+=("vkd3dbindlesstb")
 fi
-if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]]; then
+if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]] || [[ "$APPID" == "594650" ]]; then
     COMPAT_TOKENS+=("dxvklowlatency" "vkd3dlowlatency")
     if [[ "$GPU_VENDOR" == "nvidia" ]]; then
         COMPAT_TOKENS+=("vkreflex")
@@ -459,12 +486,17 @@ if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]]; then
         COMPAT_TOKENS+=("lowlatencylayer")
     fi
 fi
-if [[ "${FSR4:-${USE_FSR4:-1}}" -ne 0 ]] &&
-   [[ "$AUTO_CLASS" == "native-fsr4" || "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
-      "${FSR4:-0}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then
+if [[ "$AUTO_BLEEDING_EDGE" -eq 1 ]] || {
+    [[ "${FSR4:-${USE_FSR4:-1}}" -ne 0 ]] &&
+    [[ "$AUTO_CLASS" == "native-fsr4" || "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
+       "${FSR4:-0}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]];
+}; then
     COMPAT_TOKENS+=("fsr4")
 fi
-if [[ "${MLFG:-0}" -eq 1 || "${USE_MLFG:-0}" -eq 1 ]]; then
+if [[ "$AUTO_BLEEDING_EDGE" -eq 1 ]]; then
+    COMPAT_TOKENS+=("wow64")
+fi
+if [[ "$APPID" != "594650" && ( "${MLFG:-0}" -eq 1 || "${USE_MLFG:-0}" -eq 1 ) ]]; then
     COMPAT_TOKENS+=("mlfg")
 fi
 if [[ "${SDL:-0}" -eq 1 || "${USE_SDL:-0}" -eq 1 ]]; then
@@ -485,7 +517,8 @@ if [[ "$JSON_MODE" -eq 1 ]]; then
         "$AUTO_CLASS" "$AUTO_PRESET" "$AUTO_NET_OPT" "$AUTO_CEF_FIX" \
         "$AUTO_SHARPEN" "$AUTO_OPTISCALER" "$AUTO_REASON" \
         "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$NTFS_MOUNT" \
-        "$AUTO_PROTON_ADD_CONFIG" "$AUTO_IS_VR" "$AUTO_SOURCE" "$AUTO_UPSCALER_INFO" <<'PY'
+        "$AUTO_PROTON_ADD_CONFIG" "$AUTO_IS_VR" "$AUTO_SOURCE" "$AUTO_UPSCALER_INFO" \
+        "$AUTO_XWAYLAND" "$AUTO_SAFEDX12" "$AUTO_NATIVE_AGS" "$AUTO_BLEEDING_EDGE" <<'PY'
 import json
 import sys
 
@@ -493,8 +526,8 @@ import sys
     appid, game_name, game_dir, native, game_class, preset,
     net_opt, cef_fix, sharpen, optiscaler, reason,
     has_dlss, has_xess, has_fsr, ntfs_mount, proton_add_config, is_vr,
-    source, upscaler_info,
-) = sys.argv[1:20]
+    source, upscaler_info, xwayland, safedx12, native_ags, bleeding_edge,
+) = sys.argv[1:24]
 
 print(json.dumps({
     "app_id": appid or None,
@@ -508,6 +541,10 @@ print(json.dumps({
     "cef_fix": cef_fix == "1",
     "sharpen_layer": sharpen == "1",
     "optiscaler": optiscaler == "1",
+    "xwayland": xwayland == "1",
+    "safedx12": safedx12 == "1",
+    "native_ags": native_ags == "1",
+    "bleeding_edge": bleeding_edge == "1",
     "rationale": reason,
     "upscaler_info": upscaler_info,
     "has_dlss": has_dlss == "1",
@@ -534,6 +571,7 @@ Net QoS Hook : $AUTO_NET_OPT
 CEF Fix      : $AUTO_CEF_FIX
 Sharpen Layer: $AUTO_SHARPEN
 OptiScaler   : $AUTO_OPTISCALER (optional plugin)
+Bleeding-Edge: $AUTO_BLEEDING_EDGE
 Upscaler SDK : $AUTO_UPSCALER_INFO
 DLSS DLL     : $AUTO_HAS_DLSS
 XeSS DLL     : $AUTO_HAS_XESS
@@ -549,6 +587,10 @@ else
     printf 'AUTO_SHARPEN=%q\n' "$AUTO_SHARPEN"
     printf 'AUTO_NET_OPT=%q\n' "$AUTO_NET_OPT"
     printf 'AUTO_CEF_FIX=%q\n' "$AUTO_CEF_FIX"
+    printf 'AUTO_XWAYLAND=%q\n' "$AUTO_XWAYLAND"
+    printf 'AUTO_SAFEDX12=%q\n' "$AUTO_SAFEDX12"
+    printf 'AUTO_NATIVE_AGS=%q\n' "$AUTO_NATIVE_AGS"
+    printf 'AUTO_BLEEDING_EDGE=%q\n' "$AUTO_BLEEDING_EDGE"
     printf 'AUTO_NATIVE_LINUX=%q\n' "$AUTO_NATIVE_LINUX"
     printf 'AUTO_IS_VR=%q\n' "$AUTO_IS_VR"
     printf 'AUTO_SOURCE=%q\n' "$AUTO_SOURCE"

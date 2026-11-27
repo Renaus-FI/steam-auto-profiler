@@ -9,9 +9,11 @@ TARGET_DIR="${HOME}/.local/bin"
 APPLICATIONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 SYSTEM_BIN_DIR="${STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR:-/usr/local/bin}"
 SUDOERS_DIR="${STEAM_AUTO_PROFILER_SUDOERS_DIR:-/etc/sudoers.d}"
+UDEV_RULES_DIR="${STEAM_AUTO_PROFILER_UDEV_DIR:-/etc/udev/rules.d}"
 WITH_NET_BOOST=0
 COMPAT_CACHY_RUN=0
 WITH_AUTO_SYNC=0
+WITH_STEAM_CONTROLLER=0
 UNINSTALL=0
 
 for arg in "$@"; do
@@ -25,11 +27,14 @@ for arg in "$@"; do
         --with-auto-sync|--enable-auto-sync)
             WITH_AUTO_SYNC=1
             ;;
+        --with-steam-controller)
+            WITH_STEAM_CONTROLLER=1
+            ;;
         --uninstall)
             UNINSTALL=1
             ;;
         --help|-h)
-            echo "Usage: ./install.sh [--with-net-boost] [--compat-cachy-run] [--with-auto-sync] [--uninstall]"
+            echo "Usage: ./install.sh [--with-net-boost] [--compat-cachy-run] [--with-auto-sync] [--with-steam-controller] [--uninstall]"
             exit 0
             ;;
         *)
@@ -64,6 +69,17 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
     if [[ -e "$SUDOERS_DIR/steam-net-boost" ]]; then
         sudo rm -f "$SUDOERS_DIR/steam-net-boost"
         echo "Removed $SUDOERS_DIR/steam-net-boost"
+    fi
+    if [[ -e "$UDEV_RULES_DIR/61-steam-controller-2026.rules" ]]; then
+        if [[ -n "${STEAM_AUTO_PROFILER_UDEV_DIR:-}" ]]; then
+            rm -f "$UDEV_RULES_DIR/61-steam-controller-2026.rules"
+        else
+            sudo rm -f "$UDEV_RULES_DIR/61-steam-controller-2026.rules"
+            if command -v udevadm >/dev/null 2>&1; then
+                sudo udevadm control --reload-rules 2>/dev/null || true
+            fi
+        fi
+        echo "Removed $UDEV_RULES_DIR/61-steam-controller-2026.rules"
     fi
     for script in steam-auto-run steam-auto-detect steam-auto-sync vr-run steam-auto-ui; do
         if [[ -e "$SYSTEM_BIN_DIR/$script" || -L "$SYSTEM_BIN_DIR/$script" ]]; then
@@ -218,6 +234,36 @@ EOF
     else
         echo "Installed systemd user auto-sync units (user session unavailable; enable manually)."
     fi
+fi
+
+if [[ "$WITH_STEAM_CONTROLLER" -eq 1 ]]; then
+    UDEV_RULE_FILE="$UDEV_RULES_DIR/61-steam-controller-2026.rules"
+    UDEV_CONTENT='# Steam Controller (2026, Triton/Proteus) & Wireless Steam Puck (28de:{1302,1304,1005,1007})
+# Installed by steam-auto-profiler (--with-steam-controller)
+
+# USB permissions, ModemManager ignore, and disable USB selective suspend for zero wireless wake-up latency
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="28de", ATTR{idProduct}=="1302|1304|1005|1007", MODE="0660", GROUP="uucp", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1", TEST=="power/control", ATTR{power/control}="on", TEST=="power/autosuspend", ATTR{power/autosuspend}="-1"
+
+# HIDRAW access for Steam Input (USB, 2.4 GHz Steam Puck, and BLE)
+KERNEL=="hidraw*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1302|1304|1005|1007", MODE="0660", GROUP="uucp", TAG+="uaccess"
+KERNEL=="hidraw*", KERNELS=="*28DE:1302*|*28DE:1304*|*28DE:1005*|*28DE:1007*", MODE="0660", GROUP="uucp", TAG+="uaccess"
+
+# Serial bootloader / firmware update ports (ttyACM*): grant uucp/uaccess and block ModemManager probing
+SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1302|1304|1005|1007", MODE="0660", GROUP="uucp", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"'
+    if [[ -n "${STEAM_AUTO_PROFILER_UDEV_DIR:-}" ]]; then
+        mkdir -p "$UDEV_RULES_DIR"
+        printf '%s\n' "$UDEV_CONTENT" >"$UDEV_RULE_FILE"
+        chmod 644 "$UDEV_RULE_FILE"
+    else
+        sudo mkdir -p "$UDEV_RULES_DIR"
+        printf '%s\n' "$UDEV_CONTENT" | sudo tee "$UDEV_RULE_FILE" >/dev/null
+        sudo chmod 644 "$UDEV_RULE_FILE"
+        if command -v udevadm >/dev/null 2>&1; then
+            sudo udevadm control --reload-rules 2>/dev/null || true
+            sudo udevadm trigger --attr-match=idVendor=28de 2>/dev/null || true
+        fi
+    fi
+    echo "Installed Steam Controller 2026 udev rules at $UDEV_RULE_FILE"
 fi
 
 echo "Done! Test with: $TARGET_DIR/steam-auto-run --help"

@@ -387,6 +387,22 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(clean_prof, {})
         self.assertFalse((profile_dir / "999002.env").exists())
 
+    def test_sanitize_migrates_bleeding_edge_and_steam_controller_flags(self):
+        loader = importlib.machinery.SourceFileLoader("steam_auto_sync_bleeding", str(SYNC))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        profile_dir = self.home / ".config/steam-auto-profiler/profiles"
+        messy = "BLEEDING_EDGE=1 USE_STEAM_CONTROLLER=1 WAYLANDDRV_RAWINPUT=1 %command% -dx12"
+        replacement, profile = module.sanitize_launch_option("361420", messy, profile_dir)
+        self.assertEqual(replacement, "steam-auto-run %command% -dx12")
+        self.assertEqual(profile.get("USE_BLEEDING_EDGE"), "1")
+        self.assertEqual(profile.get("USE_STEAM_CONTROLLER"), "1")
+        written = (profile_dir / "361420.env").read_text(encoding="utf-8")
+        self.assertIn("USE_BLEEDING_EDGE=1", written)
+        self.assertIn("USE_STEAM_CONTROLLER=1", written)
+
 
 if __name__ == "__main__":
     unittest.main()

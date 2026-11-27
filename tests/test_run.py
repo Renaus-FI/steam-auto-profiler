@@ -983,6 +983,272 @@ class RunTests(unittest.TestCase):
             self.assertIn("RADV_EXPERIMENTAL=video_decode", res_mig.stdout)
             self.assertIn("RADV_PERFTEST=sam\n", res_mig.stdout)
 
+    def test_bleeding_edge_mode_exports_and_guards(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            empty_usb = home / "usb-empty"
+            empty_usb.mkdir()
+            env = os.environ.copy()
+            for key in (
+                "RADV_PERFTEST", "RADV_EXPERIMENTAL", "VKD3D_CONFIG",
+                "VKD3D_FEATURE_LEVEL", "VKD3D_SHADER_MODEL", "PROTON_USE_WOW64",
+                "PROTON_MEDIA_FORCE_GST", "WAYLANDDRV_RAWINPUT", "BLEEDING_EDGE",
+                "USE_BLEEDING_EDGE", "MLFG", "USE_MLFG", "XWAYLAND", "SAFEDX12",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP",
+            ):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_USB_DIR": str(empty_usb),
+            })
+
+            # Non-anticheat title with BLEEDING_EDGE=1 activates full experimental stack & disables vkBasalt
+            res = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "BLEEDING_EDGE": "1", "SHARPEN": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res.stdout)
+            self.assertIn("RADV_EXPERIMENTAL=video_decode", res.stdout)
+            self.assertIn("VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer", res.stdout)
+            self.assertIn("VKD3D_FEATURE_LEVEL=12_2", res.stdout)
+            self.assertIn("VKD3D_SHADER_MODEL=6_8", res.stdout)
+            self.assertIn("PROTON_FSR4_UPGRADE=1", res.stdout)
+            self.assertIn("PROTON_NATIVE_AGS=1", res.stdout)
+            self.assertIn("PROTON_USE_WOW64=1", res.stdout)
+            self.assertIn("PROTON_MEDIA_FORCE_GST=1", res.stdout)
+            self.assertIn("WAYLANDDRV_RAWINPUT=1", res.stdout)
+            self.assertIn("ENABLE_VKBASALT=0", res.stdout)
+            self.assertIn("wow64", res.stdout)
+
+            # With XWAYLAND=1, WAYLANDDRV_RAWINPUT is not exported
+            res_xway = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "USE_BLEEDING_EDGE": "1", "XWAYLAND": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_xway.returncode, 0, res_xway.stderr)
+            self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_xway.stdout)
+            self.assertIn("PROTON_USE_WOW64=1", res_xway.stdout)
+
+            # With MLFG=1 also active, FPS caps and Anti-Lag remain disabled
+            res_mlfg = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "USE_BLEEDING_EDGE": "1", "USE_MLFG": "1", "VRR_CAP": "240"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_mlfg.returncode, 0, res_mlfg.stderr)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_mlfg.stdout)
+            self.assertNotIn("DXVK_FRAME_RATE=", res_mlfg.stdout)
+            self.assertNotIn("VKD3D_FRAME_RATE=", res_mlfg.stdout)
+
+            # competitive-anticheat (2357570) hard-blocks bleeding-edge hooks
+            res_ac = subprocess.run(
+                [str(RUN), "--dry-run", "2357570"],
+                env={**env, "USE_BLEEDING_EDGE": "1", "BLEEDING_EDGE": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_ac.returncode, 0, res_ac.stderr)
+            self.assertNotIn("PROTON_USE_WOW64=", res_ac.stdout)
+            self.assertNotIn("PROTON_MEDIA_FORCE_GST=", res_ac.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_ac.stdout)
+            self.assertNotIn("VKD3D_SHADER_MODEL=", res_ac.stdout)
+            self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_ac.stdout)
+            self.assertNotIn("transfer_queue", res_ac.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_ac.stdout)
+
+    def test_hunt_showdown_594650_safe_overrides_and_doctor_compat_warning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            empty_usb = home / "usb-empty"
+            empty_usb.mkdir()
+            env = os.environ.copy()
+            for key in ("VKD3D_CONFIG", "PROTON_NATIVE_AGS", "LOW_LATENCY_LAYER", "GAMESCOPE_WAYLAND_DISPLAY"):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_USB_DIR": str(empty_usb),
+                "BLEEDING_EDGE": "1",
+                "MLFG": "1",
+                "REFLEX_LAYER": "1",
+                "PROTON_NATIVE_AGS": "1",
+                "VKD3D_CONFIG": "descriptor_heap,dxr12",
+            })
+
+            res = subprocess.run(
+                [str(RUN), "--dry-run", "594650"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn("Class: competitive-anticheat", res.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res.stdout)
+            self.assertIn("SDL_VIDEODRIVER=x11", res.stdout)
+            self.assertIn("PROTON_NATIVE_AGS=0", res.stdout)
+            self.assertIn("LOW_LATENCY_LAYER=0", res.stdout)
+            self.assertIn("PROTON_MLFG_UPGRADE=0", res.stdout)
+            self.assertNotIn("VKD3D_CONFIG=", res.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res.stdout)
+            self.assertNotIn("vkd3dbindlesstb", res.stdout)
+            self.assertNotIn("nativeags", res.stdout)
+
+            # Verify --doctor CompatToolMapping checks in config/config.vdf
+            cfg_vdf = home / ".local" / "share" / "Steam" / "config" / "config.vdf"
+            cfg_vdf.parent.mkdir(parents=True)
+
+            # 1) Unset 594650 -> [WARN]
+            cfg_vdf.write_text(
+                '"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                '\t\t\t\t"CompatToolMapping"\n\t\t\t\t{\n\t\t\t\t\t"0"\n\t\t\t\t\t{\n'
+                '\t\t\t\t\t\t"name"\t\t"proton-cachyos-slr"\n\t\t\t\t\t}\n\t\t\t\t}\n'
+                '\t\t\t}\n\t\t}\n\t}\n}\n',
+                encoding="utf-8",
+            )
+            doc_unset = subprocess.run([str(RUN), "--doctor"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(doc_unset.returncode, 0, doc_unset.stderr)
+            self.assertIn("[WARN] Hunt: Showdown 1896 (AppID 594650)", doc_unset.stdout)
+            self.assertIn("Proton 11.0-2", doc_unset.stdout)
+            self.assertIn("Proton Hotfix", doc_unset.stdout)
+
+            # 2) Mapped to proton-cachyos-slr -> [WARN]
+            cfg_vdf.write_text(
+                '"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                '\t\t\t\t"CompatToolMapping"\n\t\t\t\t{\n\t\t\t\t\t"594650"\n\t\t\t\t\t{\n'
+                '\t\t\t\t\t\t"name"\t\t"proton-cachyos-slr"\n\t\t\t\t\t}\n\t\t\t\t}\n'
+                '\t\t\t}\n\t\t}\n\t}\n}\n',
+                encoding="utf-8",
+            )
+            doc_cachy = subprocess.run([str(RUN), "--doctor"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(doc_cachy.returncode, 0, doc_cachy.stderr)
+            self.assertIn("[WARN] Hunt: Showdown 1896 (AppID 594650)", doc_cachy.stdout)
+            self.assertIn("proton-cachyos-slr", doc_cachy.stdout)
+
+            # 3) Mapped to Valve Proton 11 -> [OK]
+            cfg_vdf.write_text(
+                '"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                '\t\t\t\t"CompatToolMapping"\n\t\t\t\t{\n\t\t\t\t\t"594650"\n\t\t\t\t\t{\n'
+                '\t\t\t\t\t\t"name"\t\t"proton_11"\n\t\t\t\t\t}\n\t\t\t\t}\n'
+                '\t\t\t}\n\t\t}\n\t}\n}\n',
+                encoding="utf-8",
+            )
+            doc_ok = subprocess.run([str(RUN), "--doctor"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(doc_ok.returncode, 0, doc_ok.stderr)
+            self.assertIn("[OK] Hunt: Showdown 1896 (AppID 594650) CompatToolMapping: proton_11", doc_ok.stdout)
+
+    def test_steam_controller_2026_usb_auto_detection_and_doctor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            base_env = os.environ.copy()
+            for key in (
+                "XWAYLAND", "SDL", "USE_SDL", "PROTON_USE_SDL", "PROTON_NO_STEAMINPUT",
+                "USE_STEAM_CONTROLLER", "STEAM_CONTROLLER", "GAMESCOPE_WAYLAND_DISPLAY",
+            ):
+                base_env.pop(key, None)
+            base_env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+            })
+
+            for pid in ("1304", "1302", "1005", "1007"):
+                with self.subTest(usb_pid=pid):
+                    usb_dir = home / f"usb-{pid}"
+                    dev_dir = usb_dir / "3-2"
+                    (dev_dir / "power").mkdir(parents=True)
+                    (dev_dir / "idVendor").write_text("28de\n", encoding="utf-8")
+                    (dev_dir / "idProduct").write_text(f"{pid}\n", encoding="utf-8")
+                    (dev_dir / "power" / "control").write_text("auto\n", encoding="utf-8")
+
+                    res_auto = subprocess.run(
+                        [str(RUN), "--dry-run", "361420"],
+                        env={**base_env, "SAP_USB_DIR": str(usb_dir)},
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(res_auto.returncode, 0, res_auto.stderr)
+                    self.assertIn("PROTON_ENABLE_WAYLAND=0", res_auto.stdout)
+                    self.assertIn("PROTON_USE_SDL=1", res_auto.stdout)
+                    self.assertIn("sdlinput", res_auto.stdout)
+                    self.assertNotIn("PROTON_NO_STEAMINPUT=1", res_auto.stdout)
+
+            # USE_STEAM_CONTROLLER=0 disables auto override even when 28de:1304 is present
+            usb_1304 = home / "usb-1304"
+            res_off = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**base_env, "SAP_USB_DIR": str(usb_1304), "USE_STEAM_CONTROLLER": "0"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_off.returncode, 0, res_off.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_off.stdout)
+
+            # USE_STEAM_CONTROLLER=1 forces routing even without USB hardware
+            empty_usb = home / "usb-empty"
+            empty_usb.mkdir()
+            res_forced = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**base_env, "SAP_USB_DIR": str(empty_usb), "USE_STEAM_CONTROLLER": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_forced.returncode, 0, res_forced.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_forced.stdout)
+            self.assertIn("PROTON_USE_SDL=1", res_forced.stdout)
+
+            # Doctor checks udev rule presence and USB power/control
+            udev_dir = home / "udev"
+            udev_dir.mkdir()
+            doc_warn = subprocess.run(
+                [str(RUN), "--doctor"],
+                env={**base_env, "SAP_USB_DIR": str(usb_1304), "SAP_UDEV_RULES_DIR": str(udev_dir)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(doc_warn.returncode, 0, doc_warn.stderr)
+            self.assertIn("Steam Controller 2026 / Puck detected: 28de:1304", doc_warn.stdout)
+            self.assertIn("[WARN] Steam Controller 2026 USB power/control=auto", doc_warn.stdout)
+            self.assertIn("[WARN] Steam Controller 2026 udev rules", doc_warn.stdout)
+
+            (usb_1304 / "3-2" / "power" / "control").write_text("on\n", encoding="utf-8")
+            (udev_dir / "61-steam-controller-2026.rules").write_text(
+                'SUBSYSTEM=="tty", ENV{ID_MM_DEVICE_IGNORE}="1", ATTR{power/control}="on"\n',
+                encoding="utf-8",
+            )
+            doc_ok = subprocess.run(
+                [str(RUN), "--doctor"],
+                env={**base_env, "SAP_USB_DIR": str(usb_1304), "SAP_UDEV_RULES_DIR": str(udev_dir)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(doc_ok.returncode, 0, doc_ok.stderr)
+            self.assertIn("[OK] Steam Controller 2026 USB selective suspend disabled", doc_ok.stdout)
+            self.assertIn("[OK] Steam Controller 2026 udev rules installed", doc_ok.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -990,28 +1256,31 @@ if __name__ == "__main__":
 
 _SAP_TEST_STATE_DIR = None
 _SAP_TEST_CONFIG_DIR = None
+_SAP_TEST_USB_DIR = None
 _SAP_ORIG_XDG_ENV = {}
 
 
 def setUpModule():
     import os as _os
     import tempfile as _tempfile
-    global _SAP_TEST_STATE_DIR, _SAP_TEST_CONFIG_DIR, _SAP_ORIG_XDG_ENV
+    global _SAP_TEST_STATE_DIR, _SAP_TEST_CONFIG_DIR, _SAP_TEST_USB_DIR, _SAP_ORIG_XDG_ENV
     _SAP_ORIG_XDG_ENV = {
         k: _os.environ.get(k)
-        for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+        for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "SAP_USB_DIR")
     }
     _os.environ.pop("XDG_CONFIG_HOME", None)
     _os.environ.pop("XDG_DATA_HOME", None)
     _SAP_TEST_STATE_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-state-")
     _SAP_TEST_CONFIG_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-config-")
+    _SAP_TEST_USB_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-usb-")
     _os.environ["XDG_CONFIG_HOME"] = _SAP_TEST_CONFIG_DIR.name
     _os.environ["XDG_STATE_HOME"] = _SAP_TEST_STATE_DIR.name
+    _os.environ["SAP_USB_DIR"] = _SAP_TEST_USB_DIR.name
 
 
 def tearDownModule():
     import os as _os
-    global _SAP_TEST_STATE_DIR, _SAP_TEST_CONFIG_DIR, _SAP_ORIG_XDG_ENV
+    global _SAP_TEST_STATE_DIR, _SAP_TEST_CONFIG_DIR, _SAP_TEST_USB_DIR, _SAP_ORIG_XDG_ENV
     for k, val in _SAP_ORIG_XDG_ENV.items():
         if val is None:
             _os.environ.pop(k, None)
@@ -1024,3 +1293,6 @@ def tearDownModule():
     if _SAP_TEST_CONFIG_DIR is not None:
         _SAP_TEST_CONFIG_DIR.cleanup()
         _SAP_TEST_CONFIG_DIR = None
+    if _SAP_TEST_USB_DIR is not None:
+        _SAP_TEST_USB_DIR.cleanup()
+        _SAP_TEST_USB_DIR = None

@@ -204,6 +204,47 @@ class DetectTests(unittest.TestCase):
         self.assertTrue(rep2["is_vr"])
         self.assertEqual(rep2["class"], "vr")
 
+    def test_hunt_showdown_594650_safe_defaults_and_bleeding_edge_guard(self):
+        self.create_game("594650", "Hunt: Showdown 1896", files=("hunt.exe",))
+        env = os.environ.copy()
+        env["HOME"] = str(self.home)
+        env["WAYLAND_DISPLAY"] = "wayland-0"
+        env["BLEEDING_EDGE"] = "1"
+        raw = subprocess.run(
+            [str(DETECT), "--json", "594650"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        report = json.loads(raw)
+        self.assertEqual(report["class"], "competitive-anticheat")
+        self.assertTrue(report["xwayland"])
+        self.assertTrue(report["safedx12"])
+        self.assertFalse(report["native_ags"])
+        self.assertTrue(report["net_qos_hook"])
+        self.assertFalse(report["bleeding_edge"])
+        tokens = report["proton_add_config"].split(",")
+        self.assertNotIn("wayland", tokens)
+        self.assertNotIn("vkd3dbindlesstb", tokens)
+        self.assertNotIn("nativeags", tokens)
+        self.assertNotIn("wow64", tokens)
+
+        # Standard title with BLEEDING_EDGE=1 enables bleeding_edge + wow64 + fsr4 tokens
+        self.create_game("2099", "Standard Experimental", files=("game.exe",))
+        raw_std = subprocess.run(
+            [str(DETECT), "--json", "2099"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        std_report = json.loads(raw_std)
+        self.assertTrue(std_report["bleeding_edge"])
+        std_tokens = std_report["proton_add_config"].split(",")
+        self.assertIn("wow64", std_tokens)
+        self.assertIn("fsr4", std_tokens)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -101,14 +101,93 @@ class UiTests(unittest.TestCase):
         self.assertEqual(norm5["USE_TRANSFER_QUEUE"], "1")
         self.assertTrue(any("Reflex" in w for w in warns5))
 
-        # Verify all 3 new Mesa 27 / Proton 11 toggles exist in PROFILE_TOGGLES and all 27 languages
+        # Verify all Mesa 27 / Proton 11 / Bleeding-Edge / Steam Controller toggles exist in PROFILE_TOGGLES and all 27 languages
         toggle_keys = {k for k, _ in ui.PROFILE_TOGGLES}
-        for new_key in ("USE_TRANSFER_QUEUE", "USE_NATIVE_ANTILAG", "USE_REFLEX_LAYER"):
+        for new_key in (
+            "USE_TRANSFER_QUEUE",
+            "USE_NATIVE_ANTILAG",
+            "USE_REFLEX_LAYER",
+            "USE_BLEEDING_EDGE",
+            "USE_STEAM_CONTROLLER",
+        ):
             self.assertIn(new_key, toggle_keys)
             for lang_code, _ in ui.SUPPORTED_LANGUAGES:
                 label = ui.tr(lang_code, f"toggle_{new_key}")
                 self.assertNotEqual(label, f"toggle_{new_key}")
                 self.assertTrue(label.strip())
+
+        # Ultra Bleeding-Edge disables vkBasalt on standard titles and is blocked on competitive-anticheat
+        be_std, be_warns = ui.validate_profile(
+            {"USE_BLEEDING_EDGE": "1", "USE_FSR4": "0", "USE_SHARPEN": "1", "USE_STEAM_CONTROLLER": "1"},
+            "standard",
+        )
+        self.assertEqual(be_std["USE_BLEEDING_EDGE"], "1")
+        self.assertEqual(be_std["USE_SHARPEN"], "0")
+        self.assertEqual(be_std["USE_STEAM_CONTROLLER"], "1")
+        self.assertTrue(any("vkBasalt" in w for w in be_warns))
+
+        be_ac, be_ac_warns = ui.validate_profile({"USE_BLEEDING_EDGE": "1"}, "competitive-anticheat")
+        self.assertEqual(be_ac["USE_BLEEDING_EDGE"], "0")
+        self.assertTrue(any("Bleeding-Edge" in w for w in be_ac_warns))
+
+        # AppID 594650 (Hunt: Showdown 1896) enforces safe CryEngine/EAC profile
+        hunt_norm, hunt_warns = ui.validate_profile(
+            {"USE_XWAYLAND": "0", "USE_SAFEDX12": "0", "USE_MLFG": "1", "USE_BLEEDING_EDGE": "1"},
+            "standard",
+            appid="594650",
+        )
+        self.assertEqual(hunt_norm["USE_XWAYLAND"], "1")
+        self.assertEqual(hunt_norm["USE_SAFEDX12"], "1")
+        self.assertEqual(hunt_norm["USE_MLFG"], "0")
+        self.assertEqual(hunt_norm["USE_BLEEDING_EDGE"], "0")
+        self.assertEqual(hunt_norm["USE_NET_OPT"], "1")
+        self.assertTrue(any("594650" in w for w in hunt_warns))
+
+    def test_hunt_compat_tool_diagnostic_in_ui_backend(self):
+        ui = _load_ui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            cfg_vdf = home / ".local" / "share" / "Steam" / "config" / "config.vdf"
+            cfg_vdf.parent.mkdir(parents=True)
+            backend = ui.ProfilerBackend(home=home)
+
+            # Unset 594650 -> warning
+            cfg_vdf.write_text(
+                '"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                '\t\t\t\t"CompatToolMapping"\n\t\t\t\t{\n\t\t\t\t\t"0"\n\t\t\t\t\t{\n'
+                '\t\t\t\t\t\t"name"\t\t"proton-cachyos-slr"\n\t\t\t\t\t}\n\t\t\t\t}\n'
+                '\t\t\t}\n\t\t}\n\t}\n}\n',
+                encoding="utf-8",
+            )
+            res_unset = backend.check_hunt_compat_tool()
+            self.assertTrue(res_unset["found"])
+            self.assertIsNotNone(res_unset["warning"])
+            self.assertIn("Proton 11.0-2", res_unset["warning"])
+
+            # proton-cachyos-slr -> warning
+            cfg_vdf.write_text(
+                '"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                '\t\t\t\t"CompatToolMapping"\n\t\t\t\t{\n\t\t\t\t\t"594650"\n\t\t\t\t\t{\n'
+                '\t\t\t\t\t\t"name"\t\t"proton-cachyos-slr"\n\t\t\t\t\t}\n\t\t\t\t}\n'
+                '\t\t\t}\n\t\t}\n\t}\n}\n',
+                encoding="utf-8",
+            )
+            res_cachy = backend.check_hunt_compat_tool()
+            self.assertEqual(res_cachy["tool"], "proton-cachyos-slr")
+            self.assertIsNotNone(res_cachy["warning"])
+            self.assertIn("Proton Hotfix", res_cachy["warning"])
+
+            # Valve Proton 11 -> no warning
+            cfg_vdf.write_text(
+                '"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                '\t\t\t\t"CompatToolMapping"\n\t\t\t\t{\n\t\t\t\t\t"594650"\n\t\t\t\t\t{\n'
+                '\t\t\t\t\t\t"name"\t\t"proton_11"\n\t\t\t\t\t}\n\t\t\t\t}\n'
+                '\t\t\t}\n\t\t}\n\t}\n}\n',
+                encoding="utf-8",
+            )
+            res_ok = backend.check_hunt_compat_tool()
+            self.assertEqual(res_ok["tool"], "proton_11")
+            self.assertIsNone(res_ok["warning"])
 
     def test_backend_profile_safe_mode_and_log_parsing(self):
         ui = _load_ui_module()

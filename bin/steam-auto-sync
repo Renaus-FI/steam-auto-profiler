@@ -93,10 +93,12 @@ def find_launch_options(text):
 WRAPPERS = {"cachy-run", "game-performance", "gamemoderun", "steam-auto-run"}
 VR_WRAPPERS = {"vr-run"}
 MANAGED_ENV_PREFIXES = (
-    "PROTON_", "DXVK_", "VKD3D_", "WINE",
+    "PROTON_", "DXVK_", "VKD3D_", "WINE", "WAYLANDDRV_",
     "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT=",
     "RADV_PERFTEST=", "RADV_EXPERIMENTAL=",
     "LOW_LATENCY_LAYER=", "LOW_LATENCY_LAYER_REFLEX=",
+    "BLEEDING_EDGE=", "USE_BLEEDING_EDGE=",
+    "STEAM_CONTROLLER=", "USE_STEAM_CONTROLLER=",
 )
 RETIRED_PROTON_VARS = {
     "PROTON_ENABLE_HDR",
@@ -363,6 +365,19 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
         elif key in ("VK_VIDEO_DECODE", "USE_VK_VIDEO_DECODE"):
             if value in ("1", "true", "TRUE"):
                 profile["USE_VK_VIDEO_DECODE"] = "1"
+        elif key in ("BLEEDING_EDGE", "USE_BLEEDING_EDGE"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_BLEEDING_EDGE"] = "1"
+            elif value in ("0", "false", "FALSE"):
+                profile["USE_BLEEDING_EDGE"] = "0"
+        elif key in ("STEAM_CONTROLLER", "USE_STEAM_CONTROLLER"):
+            low_val = value.strip().lower()
+            if low_val in ("auto", ""):
+                profile["USE_STEAM_CONTROLLER"] = "auto"
+            elif low_val in ("1", "true", "on", "yes"):
+                profile["USE_STEAM_CONTROLLER"] = "1"
+            elif low_val in ("0", "false", "off", "no"):
+                profile["USE_STEAM_CONTROLLER"] = "0"
 
     if wayland_enabled:
         profile.pop("USE_XWAYLAND", None)
@@ -851,6 +866,8 @@ def main():
                                 r"(?:^|\s)ENABLE_VKBASALT=",
                                 r"(?:^|\s)RADV_(?:PERFTEST|EXPERIMENTAL)=",
                                 r"(?:^|\s)LOW_LATENCY_LAYER(?:_REFLEX)?=",
+                                r"(?:^|\s)(?:USE_)?BLEEDING_EDGE=",
+                                r"(?:^|\s)(?:USE_)?STEAM_CONTROLLER=",
                             )
                         )
                         if not looks_managed:

@@ -58,6 +58,8 @@ PROFILE_TOGGLES = (
     ("USE_TRANSFER_QUEUE", "Transfer Queue (RDNA 3/4 SDMA)"),
     ("USE_NATIVE_ANTILAG", "Native RADV Anti-Lag (VK_AMD_anti_lag)"),
     ("USE_REFLEX_LAYER", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)"),
+    ("USE_BLEEDING_EDGE", "Ultra Bleeding-Edge (Experimental)"),
+    ("USE_STEAM_CONTROLLER", "Steam Controller 2026 / Puck Routing"),
 )
 
 SUPPORTED_LANGUAGES: tuple[tuple[str, str], ...] = (
@@ -101,6 +103,7 @@ _I18N_KEYS: tuple[str, ...] = (
     "toggle_USE_SAFEDX12", "toggle_USE_NET_OPT", "toggle_USE_SDL", "toggle_USE_KEEP_OVERLAY",
     "toggle_USE_OPTISCALER", "toggle_AUTO_HDR_SWITCH",
     "toggle_USE_TRANSFER_QUEUE", "toggle_USE_NATIVE_ANTILAG", "toggle_USE_REFLEX_LAYER",
+    "toggle_USE_BLEEDING_EDGE", "toggle_USE_STEAM_CONTROLLER",
     "vrr_cap_label", "vrr_cap_placeholder",
     "btn_save_profile", "btn_dry_run", "btn_benchmarks", "btn_reset_profile", "dry_run_placeholder",
     "status_scanning_library", "status_loaded_titles", "status_saved_profile",
@@ -134,6 +137,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Safe DX12 (disable experimental VKD3D)", "Session Network QoS", "Prefer SDL / Steam Input", "Keep Steam Overlay (LD_PRELOAD)",
         "OptiScaler Bridge", "Auto KDE Plasma 6 HDR Toggle",
         "Transfer Queue (RDNA 3/4 SDMA)", "Native RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Experimental)", "Steam Controller 2026 / Puck Routing",
         "VRR_CAP (empty=Auto, 0=Off):", "Auto",
         "Save Profile", "Dry-Run Preview", "Benchmarks", "Reset Profile", "Dry-run environment output appears here...",
         "Scanning Steam libraries and shortcuts.vdf...", "Loaded {count} title(s) (Steam + Non-Steam shortcuts).", "Saved {path}",
@@ -165,6 +169,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Turvallinen DX12 (poista kokeellinen VKD3D)", "Istunnon verkon QoS", "Suosi SDL / Steam Inputia", "Säilytä Steam Overlay (LD_PRELOAD)",
         "OptiScaler-silta", "Automaattinen KDE Plasma 6 HDR -kytkin",
         "Siirtojono / Transfer Queue (RDNA 3/4 SDMA)", "Natiivi RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Kokeellinen)", "Steam Controller 2026 / Puck -reititys",
         "VRR_CAP (tyhjä=Auto, 0=Pois):", "Auto",
         "Tallenna profiili", "Esikatselu (Dry-Run)", "Testit", "Nollaa profiili", "Dry-run-ympäristön tuloste näkyy tässä...",
         "Skannataan Steam-kirjastoja ja shortcuts.vdf-tiedostoja...", "Ladattu {count} nimikettä (Steam + Non-Steam-pikakuvakkeet).", "Tallennettu: {path}",
@@ -196,6 +201,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безопасный DX12 (отключить эксперим. VKD3D)", "Сетевой QoS на сессию", "Предпочитать SDL / Steam Input", "Сохранить Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Автопереключение HDR в KDE Plasma 6",
         "Очередь передачи SDMA (RDNA 3/4 Transfer Queue)", "Нативный RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ультра-экспериментальный режим (Ultra Bleeding-Edge)", "Маршрутизация Steam Controller 2026 / Puck",
         "VRR_CAP (пусто=Авто, 0=Выкл):", "Авто",
         "Сохранить профиль", "Предпросмотр (Dry-Run)", "Бенчмарки", "Сбросить профиль", "Вывод dry-run окружения появится здесь...",
         "Сканирование библиотек Steam и shortcuts.vdf...", "Загружено игр/ярлыков: {count} (Steam + Non-Steam).", "Сохранено: {path}",
@@ -227,6 +233,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безпечний DX12 (вимкнути експерим. VKD3D)", "Мережевий QoS на сесію", "Надавати перевагу SDL / Steam Input", "Зберегти Steam Overlay (LD_PRELOAD)",
         "Міст OptiScaler", "Автоперемикач HDR у KDE Plasma 6",
         "Черга передачі SDMA (RDNA 3/4 Transfer Queue)", "Нативний RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ультраекспериментальний режим (Ultra Bleeding-Edge)", "Маршрутизація Steam Controller 2026 / Puck",
         "VRR_CAP (порожньо=Авто, 0=Вимк):", "Авто",
         "Зберегти профіль", "Попередній перегляд (Dry-Run)", "Бенчмарки", "Скинути профіль", "Вивід dry-run середовища з'явиться тут...",
         "Сканування бібліотек Steam і shortcuts.vdf...", "Завантажено {count} позицій (Steam + Non-Steam).", "Збережено: {path}",
@@ -258,6 +265,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Бяспечны DX12 (адключыць эксперым. VKD3D)", "Сеткавы QoS на сесію", "Аддаваць перавагу SDL / Steam Input", "Захаваць Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Аўтапераключальнік HDR у KDE Plasma 6",
         "Чарга перадачы SDMA (RDNA 3/4 Transfer Queue)", "Натыўны RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ультраэксперыментальны рэжым (Ultra Bleeding-Edge)", "Маршрутызацыя Steam Controller 2026 / Puck",
         "VRR_CAP (пуста=Аўта, 0=Выкл):", "Аўта",
         "Захаваць профіль", "Прадпрагляд (Dry-Run)", "Бенчмаркі", "Скінуць профіль", "Вывад dry-run асяроддзя з'явіцца тут...",
         "Сканаванне бібліятэк Steam і shortcuts.vdf...", "Загружана пазіцый: {count} (Steam + Non-Steam).", "Захавана: {path}",
@@ -289,6 +297,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Қауіпсіз DX12 (эксперименттік VKD3D өшіру)", "Сеанстық желі QoS", "SDL / Steam Input таңдау", "Steam Overlay сақтау (LD_PRELOAD)",
         "OptiScaler көпірі", "KDE Plasma 6 авто-HDR ауыстырғышы",
         "SDMA тасымалдау кезегі (RDNA 3/4 Transfer Queue)", "Нативті RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ультра-эксперименттік режим (Ultra Bleeding-Edge)", "Steam Controller 2026 / Puck бағыттауы",
         "VRR_CAP (бос=Авто, 0=Өшірулі):", "Авто",
         "Профильді сақтау", "Алдын ала қарау (Dry-Run)", "Бенчмарктер", "Профильді тастау", "Dry-run ортасының нәтижесі осында шығады...",
         "Steam кітапханалары мен shortcuts.vdf сканерленуде...", "{count} ойын/таңбаша жүктелді (Steam + Non-Steam).", "Сақталды: {path}",
@@ -320,6 +329,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Xavfsiz DX12 (eksperimental VKD3Dni o'chirish)", "Sessiya tarmoq QoS", "SDL / Steam Inputni afzal ko'rish", "Steam Overlayni saqlash (LD_PRELOAD)",
         "OptiScaler ko'prigi", "KDE Plasma 6 avto-HDR almashtirgichi",
         "SDMA uzatish navbati (RDNA 3/4 Transfer Queue)", "Mahalliy RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Eksperimental)", "Steam Controller 2026 / Puck marshrutlash",
         "VRR_CAP (bo'sh=Avto, 0=O'chiq):", "Avto",
         "Profilni saqlash", "Oldindan ko'rish (Dry-Run)", "Benchmarklar", "Profilni tiklash", "Dry-run muhit chiqishi shu yerda ko'rinadi...",
         "Steam kutubxonalari va shortcuts.vdf skanerlanmoqda...", "{count} ta o'yin/yorliq yuklandi (Steam + Non-Steam).", "Saqlandi: {path}",
@@ -351,6 +361,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Անվտանգ DX12 (անջատել փորձարարական VKD3D)", "Սեսիայի ցանցային QoS", "Նախընտրել SDL / Steam Input", "Պահել Steam Overlay (LD_PRELOAD)",
         "OptiScaler կամուրջ", "KDE Plasma 6 ավտո-HDR փոխարկիչ",
         "SDMA փոխանցման հերթ (RDNA 3/4 Transfer Queue)", "Բնիկ RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ուլտրա փորձարարական ռեժիմ (Ultra Bleeding-Edge)", "Steam Controller 2026 / Puck երթուղավորում",
         "VRR_CAP (դատարկ=Ավտո, 0=Անջատ):", "Ավտո",
         "Պահպանել պրոֆիլը", "Նախադիտում (Dry-Run)", "Բենչմարկներ", "Վերակայել պրոֆիլը", "Dry-run միջավայրի արդյունքը կհայտնվի այստեղ...",
         "Սկանավորվում են Steam գրադարաններն ու shortcuts.vdf-ը...", "Բեռնվել է {count} խաղ/պիտակ (Steam + Non-Steam):", "Պահպանվեց՝ {path}",
@@ -382,6 +393,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Təhlükəsiz DX12 (eksperimental VKD3D söndür)", "Sessiya şəbəkə QoS", "SDL / Steam Input üstün tut", "Steam Overlay saxla (LD_PRELOAD)",
         "OptiScaler körpüsü", "KDE Plasma 6 avto-HDR açarı",
         "SDMA ötürmə növbəsi (RDNA 3/4 Transfer Queue)", "Yerli RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Eksperimental)", "Steam Controller 2026 / Puck yönləndirməsi",
         "VRR_CAP (boş=Avto, 0=Sönülü):", "Avto",
         "Profili saxla", "Önizləmə (Dry-Run)", "Bençmarklar", "Profili sıfırla", "Dry-run mühit çıxışı burada görünəcək...",
         "Steam kitabxanaları və shortcuts.vdf skan edilir...", "{count} oyun/qısayol yükləndi (Steam + Non-Steam).", "Saxlanıldı: {path}",
@@ -413,6 +425,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Коопсуз DX12 (эксперименттик VKD3D өчүрүү)", "Сеанстык тармак QoS", "SDL / Steam Input артык көрүү", "Steam Overlay сактоо (LD_PRELOAD)",
         "OptiScaler көпүрөсү", "KDE Plasma 6 авто-HDR которгучу",
         "SDMA өткөрүү кезеги (RDNA 3/4 Transfer Queue)", "Нативдик RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ультра-эксперименттик режим (Ultra Bleeding-Edge)", "Steam Controller 2026 / Puck багыттоо",
         "VRR_CAP (бош=Авто, 0=Өчүк):", "Авто",
         "Профилди сактоо", "Алдын ала көрүү (Dry-Run)", "Бенчмарктар", "Профилди таштоо", "Dry-run чөйрөсүнүн натыйжасы бул жерде көрүнөт...",
         "Steam китепканалары жана shortcuts.vdf сканерленүүдө...", "{count} оюн/жарлык жүктөлдү (Steam + Non-Steam).", "Сакталды: {path}",
@@ -444,6 +457,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12-и бехатар (хомӯш кардани VKD3D-и таҷрибавӣ)", "QoS-и шабака барои сессия", "Афзалият ба SDL / Steam Input", "Нигоҳ доштани Steam Overlay (LD_PRELOAD)",
         "Пули OptiScaler", "Авто-калиди HDR дар KDE Plasma 6",
         "Навбати интиқоли SDMA (RDNA 3/4 Transfer Queue)", "RADV Anti-Lag-и аслӣ (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Реҷаи ултра-таҷрибавӣ (Ultra Bleeding-Edge)", "Масирёбии Steam Controller 2026 / Puck",
         "VRR_CAP (холӣ=Авто, 0=Хомӯш):", "Авто",
         "Сабти профил", "Пешнамоиш (Dry-Run)", "Бенчмаркҳо", "Бозсозии профил", "Натиҷаи муҳити dry-run дар ин ҷо пайдо мешавад...",
         "Скан кардани китобхонаҳои Steam ва shortcuts.vdf...", "{count} бозӣ/нишона бор шуд (Steam + Non-Steam).", "Сабт шуд: {path}",
@@ -475,6 +489,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Bezpieczny DX12 (wyłącz eksperym. VKD3D)", "Sieciowy QoS sesji", "Preferuj SDL / Steam Input", "Zachowaj nakładkę Steam (LD_PRELOAD)",
         "Mostek OptiScaler", "Automatyczny przełącznik HDR w KDE Plasma 6",
         "Kolejka transferu SDMA (RDNA 3/4 Transfer Queue)", "Natywny RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Eksperymentalny)", "Trasowanie Steam Controller 2026 / Puck",
         "VRR_CAP (puste=Auto, 0=Wył):", "Auto",
         "Zapisz profil", "Podgląd Dry-Run", "Benchmarki", "Resetuj profil", "Tutaj pojawi się wynik środowiska dry-run...",
         "Skanowanie bibliotek Steam i shortcuts.vdf...", "Wczytano {count} pozycji (Steam + skróty Non-Steam).", "Zapisano {path}",
@@ -506,6 +521,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Bezpečný DX12 (vypnout experim. VKD3D)", "Síťové QoS pro relaci", "Upřednostnit SDL / Steam Input", "Zachovat Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Automatický přepínač HDR v KDE Plasma 6",
         "Přenosová fronta SDMA (RDNA 3/4 Transfer Queue)", "Nativní RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Experimentální)", "Směrování Steam Controller 2026 / Puck",
         "VRR_CAP (prázdné=Auto, 0=Vyp):", "Auto",
         "Uložit profil", "Náhled Dry-Run", "Benchmarky", "Obnovit výchozí", "Výstup prostředí dry-run se zobrazí zde...",
         "Skenování knihoven Steam a shortcuts.vdf...", "Načteno {count} položek (Steam + zástupci Non-Steam).", "Uloženo {path}",
@@ -537,6 +553,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Bezpečný DX12 (vypnúť experim. VKD3D)", "Sieťové QoS pre reláciu", "Uprednostniť SDL / Steam Input", "Zachovať Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Automatický prepínač HDR v KDE Plasma 6",
         "Prenosový front SDMA (RDNA 3/4 Transfer Queue)", "Natívny RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Experimentálny)", "Smerovanie Steam Controller 2026 / Puck",
         "VRR_CAP (prázdne=Auto, 0=Vyp):", "Auto",
         "Uložiť profil", "Náhľad Dry-Run", "Benchmarky", "Resetovať profil", "Výstup prostredia dry-run sa zobrazí tu...",
         "Skenujem knižnice Steam a shortcuts.vdf...", "Načítaných {count} položiek (Steam + odkazy Non-Steam).", "Uložené {path}",
@@ -568,6 +585,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безопасен DX12 (изключи експерим. VKD3D)", "Мрежов QoS за сесията", "Предпочитай SDL / Steam Input", "Запази Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Автоматичен HDR в KDE Plasma 6",
         "SDMA опашка за пренос (RDNA 3/4 Transfer Queue)", "Вграден RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ултра експериментален режим (Ultra Bleeding-Edge)", "Маршрутизиране на Steam Controller 2026 / Puck",
         "VRR_CAP (празно=Авто, 0=Изкл):", "Авто",
         "Запази профила", "Преглед (Dry-Run)", "Бенчмаркове", "Нулирай профила", "Изходът от dry-run средата ще се появи тук...",
         "Сканиране на Steam библиотеки и shortcuts.vdf...", "Заредени са {count} заглавия (Steam + Non-Steam).", "Запазено: {path}",
@@ -599,6 +617,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безбедни DX12 (искључи експерим. VKD3D)", "Мрежни QoS за сесију", "Дај предност SDL / Steam Input-у", "Задржи Steam Overlay (LD_PRELOAD)",
         "OptiScaler мост", "Аутоматски KDE Plasma 6 HDR прекидач",
         "SDMA ред преноса (RDNA 3/4 Transfer Queue)", "Изворни RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ултра експериментални режим (Ultra Bleeding-Edge)", "Усмеравање Steam Controller 2026 / Puck",
         "VRR_CAP (празно=Ауто, 0=Искљ):", "Ауто",
         "Сачувај профил", "Преглед (Dry-Run)", "Бенчмаркови", "Ресетуј профил", "Излаз dry-run окружења појавиће се овде...",
         "Скенирање Steam библиотека и shortcuts.vdf...", "Учитано {count} наслова (Steam + Non-Steam).", "Сачувано: {path}",
@@ -630,6 +649,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Sigurni DX12 (onemogući eksperim. VKD3D)", "Mrežni QoS za sesiju", "Preferiraj SDL / Steam Input", "Zadrži Steam Overlay (LD_PRELOAD)",
         "OptiScaler most", "Automatski KDE Plasma 6 HDR prekidač",
         "SDMA red prijenosa (RDNA 3/4 Transfer Queue)", "Izvorni RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Eksperimentalno)", "Usmjeravanje Steam Controller 2026 / Puck",
         "VRR_CAP (prazno=Auto, 0=Isklj):", "Auto",
         "Spremi profil", "Pregled (Dry-Run)", "Benchmarkovi", "Poništi profil", "Izlaz dry-run okruženja pojavit će se ovdje...",
         "Skeniranje Steam biblioteka i shortcuts.vdf...", "Učitano {count} naslova (Steam + Non-Steam).", "Spremljeno: {path}",
@@ -661,6 +681,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Varni DX12 (onemogoči eksperim. VKD3D)", "Omrežni QoS seje", "Daj prednost SDL / Steam Input", "Ohrani Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Samodejni preklop HDR v KDE Plasma 6",
         "Prenosna vrsta SDMA (RDNA 3/4 Transfer Queue)", "Izvorni RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Eksperimentalno)", "Usmerjanje Steam Controller 2026 / Puck",
         "VRR_CAP (prazno=Samod., 0=Izkl):", "Samod.",
         "Shrani profil", "Predogled Dry-Run", "Testi", "Ponastavi profil", "Izpis okolja dry-run se prikaže tukaj...",
         "Pregledovanje knjižnic Steam in shortcuts.vdf...", "Naloženih {count} naslovov (Steam + Non-Steam).", "Shranjeno: {path}",
@@ -692,6 +713,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Sicheres DX12 (experim. VKD3D deaktivieren)", "Sitzungs-Netzwerk-QoS", "SDL / Steam Input bevorzugen", "Steam-Overlay behalten (LD_PRELOAD)",
         "OptiScaler-Brücke", "Automatischer KDE-Plasma-6-HDR-Schalter",
         "Transfer-Warteschlange (RDNA 3/4 SDMA)", "Natives RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Experimentell)", "Steam Controller 2026 / Puck-Routing",
         "VRR_CAP (leer=Auto, 0=Aus):", "Auto",
         "Profil speichern", "Dry-Run-Vorschau", "Benchmarks", "Profil zurücksetzen", "Die Dry-Run-Ausgabe erscheint hier...",
         "Steam-Bibliotheken und shortcuts.vdf werden gescannt...", "{count} Titel geladen (Steam + Non-Steam-Verknüpfungen).", "Gespeichert: {path}",
@@ -723,6 +745,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 sûr (désactiver VKD3D expérimental)", "QoS réseau de session", "Préférer SDL / Steam Input", "Conserver l'overlay Steam (LD_PRELOAD)",
         "Passerelle OptiScaler", "Bascule HDR auto KDE Plasma 6",
         "File de transfert SDMA (RDNA 3/4)", "RADV Anti-Lag natif (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Expérimental)", "Routage Steam Controller 2026 / Puck",
         "VRR_CAP (vide=Auto, 0=Désact.) :", "Auto",
         "Enregistrer le profil", "Aperçu Dry-Run", "Benchmarks", "Réinitialiser", "La sortie dry-run s'affichera ici...",
         "Analyse des bibliothèques Steam et de shortcuts.vdf...", "{count} titre(s) chargé(s) (Steam + raccourcis Non-Steam).", "Enregistré : {path}",
@@ -754,6 +777,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 seguro (desactivar VKD3D experimental)", "QoS de red por sesión", "Preferir SDL / Steam Input", "Conservar Steam Overlay (LD_PRELOAD)",
         "Puente OptiScaler", "Cambio automático de HDR en KDE Plasma 6",
         "Cola de transferencia SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Experimental)", "Enrutamiento Steam Controller 2026 / Puck",
         "VRR_CAP (vacío=Auto, 0=Desact.):", "Auto",
         "Guardar perfil", "Vista previa Dry-Run", "Benchmarks", "Restablecer perfil", "La salida del entorno dry-run aparecerá aquí...",
         "Escaneando bibliotecas de Steam y shortcuts.vdf...", "Se cargaron {count} título(s) (Steam + accesos Non-Steam).", "Guardado: {path}",
@@ -785,6 +809,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 seguro (desativar VKD3D experimental)", "QoS de rede da sessão", "Preferir SDL / Steam Input", "Manter Steam Overlay (LD_PRELOAD)",
         "Ponte OptiScaler", "Alternância automática de HDR no KDE Plasma 6",
         "Fila de transferência SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Experimental)", "Roteamento Steam Controller 2026 / Puck",
         "VRR_CAP (vazio=Auto, 0=Deslig.):", "Auto",
         "Salvar perfil", "Prévia Dry-Run", "Benchmarks", "Redefinir perfil", "A saída do ambiente dry-run aparecerá aqui...",
         "Verificando bibliotecas Steam e shortcuts.vdf...", "{count} título(s) carregado(s) (Steam + atalhos Non-Steam).", "Salvo: {path}",
@@ -816,6 +841,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 sicuro (disabilita VKD3D sperimentale)", "QoS di rete per sessione", "Preferisci SDL / Steam Input", "Mantieni Steam Overlay (LD_PRELOAD)",
         "Bridge OptiScaler", "Switch automatico HDR su KDE Plasma 6",
         "Coda di trasferimento SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Sperimentale)", "Routing Steam Controller 2026 / Puck",
         "VRR_CAP (vuoto=Auto, 0=Off):", "Auto",
         "Salva profilo", "Anteprima Dry-Run", "Benchmark", "Ripristina profilo", "L'output dell'ambiente dry-run apparirà qui...",
         "Scansione librerie Steam e shortcuts.vdf...", "Caricati {count} titoli (Steam + collegamenti Non-Steam).", "Salvato: {path}",
@@ -847,6 +873,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "安全DX12 (実験的VKD3Dを無効化)", "セッションネットワーク QoS", "SDL / Steam Input を優先", "Steamオーバーレイを維持 (LD_PRELOAD)",
         "OptiScaler ブリッジ", "KDE Plasma 6 HDR 自動切替",
         "転送キュー / Transfer Queue (RDNA 3/4 SDMA)", "ネイティブ RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (実験的)", "Steam Controller 2026 / Puck ルーティング",
         "VRR_CAP (空欄=自動, 0=無効):", "自動",
         "プロファイル保存", "Dry-Run プレビュー", "ベンチマーク", "プロファイル初期化", "Dry-run の環境変数出力がここに表示されます...",
         "Steam ライブラリと shortcuts.vdf をスキャン中...", "{count} 件のタイトルを読み込みました (Steam + 非Steam)。", "保存しました: {path}",
@@ -878,6 +905,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "안전 DX12 (실험적 VKD3D 비활성화)", "세션 네트워크 QoS", "SDL / Steam Input 우선", "Steam 오버레이 유지 (LD_PRELOAD)",
         "OptiScaler 브리지", "KDE Plasma 6 자동 HDR 전환",
         "전송 큐 / Transfer Queue (RDNA 3/4 SDMA)", "네이티브 RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (실험적)", "Steam Controller 2026 / Puck 라우팅",
         "VRR_CAP (비움=자동, 0=끔):", "자동",
         "프로필 저장", "Dry-Run 미리보기", "벤치마크", "프로필 초기화", "Dry-run 환경 변수 출력이 여기에 표시됩니다...",
         "Steam 라이브러리 및 shortcuts.vdf 스캔 중...", "{count}개 항목을 불러왔습니다 (Steam + 비-Steam).", "저장됨: {path}",
@@ -909,6 +937,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "安全 DX12（禁用实验性 VKD3D）", "会话网络 QoS", "优先 SDL / Steam Input", "保留 Steam 覆盖层 (LD_PRELOAD)",
         "OptiScaler 桥接", "KDE Plasma 6 自动 HDR 切换",
         "SDMA 传输队列 (RDNA 3/4 Transfer Queue)", "原生 RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "极致前沿模式 (Ultra Bleeding-Edge 实验性)", "Steam Controller 2026 / Puck 路由",
         "VRR_CAP（留空=自动，0=关闭）：", "自动",
         "保存配置", "Dry-Run 预览", "基准测试", "重置配置", "Dry-run 环境变量预览将显示在此处...",
         "正在扫描 Steam 游戏库与 shortcuts.vdf...", "已加载 {count} 个项目（Steam + 非 Steam 快捷方式）。", "已保存：{path}",
@@ -940,6 +969,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Güvenli DX12 (deneysel VKD3D'yi kapat)", "Oturum Ağı QoS", "SDL / Steam Input Tercih Et", "Steam Arayüzünü Koru (LD_PRELOAD)",
         "OptiScaler Köprüsü", "Otomatik KDE Plasma 6 HDR Anahtarı",
         "SDMA Aktarım Kuyruğu (RDNA 3/4 Transfer Queue)", "Yerel RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Ultra Bleeding-Edge (Deneysel)", "Steam Controller 2026 / Puck Yönlendirmesi",
         "VRR_CAP (boş=Oto, 0=Kapalı):", "Oto",
         "Profili Kaydet", "Dry-Run Önizleme", "Kıyaslamalar", "Profili Sıfırla", "Dry-run ortam çıktısı burada görünür...",
         "Steam kütüphaneleri ve shortcuts.vdf taranıyor...", "{count} başlık yüklendi (Steam + Non-Steam kısayollar).", "Kaydedildi: {path}",
@@ -1221,12 +1251,25 @@ def format_bytes(num: int | None) -> str:
     return f"{num} B"
 
 
-def validate_profile(profile: dict[str, str], game_class: str = "standard") -> tuple[dict[str, str], list[str]]:
+def validate_profile(
+    profile: dict[str, str],
+    game_class: str = "standard",
+    appid: str = "",
+) -> tuple[dict[str, str], list[str]]:
     """Apply Steam Auto-Profiler mutual-exclusion guards and return (normalized, warnings)."""
     norm = dict(profile)
     warnings: list[str] = []
 
     for key, _ in PROFILE_TOGGLES:
+        if key == "USE_STEAM_CONTROLLER":
+            raw_sc = str(norm.get(key, "auto")).strip().lower()
+            if raw_sc in ("1", "true", "yes", "on"):
+                norm[key] = "1"
+            elif raw_sc in ("0", "false", "no", "off"):
+                norm[key] = "0"
+            else:
+                norm[key] = "auto"
+            continue
         default = "1" if key == "USE_FSR4" else "0"
         val = str(norm.get(key, default)).strip()
         norm[key] = "1" if val in ("1", "true", "TRUE", "yes") else "0"
@@ -1236,6 +1279,23 @@ def validate_profile(profile: dict[str, str], game_class: str = "standard") -> t
         warnings.append(f"Invalid VRR_CAP '{vrr_raw}'; cleared to Auto.")
         vrr_raw = ""
     norm["VRR_CAP"] = vrr_raw
+
+    if str(appid).strip() == "594650":
+        game_class = "competitive-anticheat"
+        hunt_adjusted = False
+        if norm["USE_XWAYLAND"] != "1":
+            norm["USE_XWAYLAND"] = "1"
+            hunt_adjusted = True
+        if norm["USE_SAFEDX12"] != "1":
+            norm["USE_SAFEDX12"] = "1"
+            hunt_adjusted = True
+        if norm["USE_NET_OPT"] != "1":
+            norm["USE_NET_OPT"] = "1"
+            hunt_adjusted = True
+        if hunt_adjusted:
+            warnings.append(
+                "Hunt: Showdown 1896 (AppID 594650) enforces XWayland, Safe DX12, and Session Network QoS for CryEngine/EAC stability."
+            )
 
     if game_class == "competitive-anticheat":
         if norm["USE_MLFG"] == "1":
@@ -1250,6 +1310,13 @@ def validate_profile(profile: dict[str, str], game_class: str = "standard") -> t
         if norm["USE_REFLEX_LAYER"] == "1":
             norm["USE_REFLEX_LAYER"] = "0"
             warnings.append("Reflex -> Anti-Lag 2 layer disabled automatically for competitive-anticheat titles.")
+        if norm["USE_BLEEDING_EDGE"] == "1":
+            norm["USE_BLEEDING_EDGE"] = "0"
+            warnings.append("Ultra Bleeding-Edge disabled automatically for competitive-anticheat titles.")
+
+    if norm["USE_BLEEDING_EDGE"] == "1" and norm["USE_SHARPEN"] == "1":
+        norm["USE_SHARPEN"] = "0"
+        warnings.append("vkBasalt disabled: mutually exclusive with Ultra Bleeding-Edge (FSR 4 active).")
 
     if norm["USE_SHARPEN"] == "1" and (norm["USE_FSR4"] == "1" or norm["USE_OPTISCALER"] == "1"):
         norm["USE_SHARPEN"] = "0"
@@ -1597,10 +1664,21 @@ class ProfilerBackend:
         return [r for r in results if r is not None]
 
     def load_profile(self, appid: str) -> dict[str, str]:
-        profile: dict[str, str] = {key: ("1" if key == "USE_FSR4" else "0") for key, _ in PROFILE_TOGGLES}
+        profile: dict[str, str] = {}
+        for key, _ in PROFILE_TOGGLES:
+            if key == "USE_FSR4":
+                profile[key] = "1"
+            elif key == "USE_STEAM_CONTROLLER":
+                profile[key] = "auto"
+            else:
+                profile[key] = "0"
         profile["VRR_CAP"] = ""
         path = self.profile_dir / f"{appid}.env"
         if not path.is_file():
+            if str(appid).strip() == "594650":
+                profile["USE_XWAYLAND"] = "1"
+                profile["USE_SAFEDX12"] = "1"
+                profile["USE_NET_OPT"] = "1"
             return profile
         for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = raw.strip()
@@ -1615,7 +1693,7 @@ class ProfilerBackend:
         return profile
 
     def save_profile(self, appid: str, profile: dict[str, str], game_class: str = "standard") -> tuple[Path, list[str]]:
-        norm, warnings = validate_profile(profile, game_class)
+        norm, warnings = validate_profile(profile, game_class, appid=appid)
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         path = self.profile_dir / f"{appid}.env"
         lines = [f"{key}={norm[key]}" for key, _ in PROFILE_TOGGLES]
@@ -1626,6 +1704,107 @@ class ProfilerBackend:
                 lines.append(f"{key}={value}")
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path, warnings
+
+    def check_hunt_compat_tool(self, config_vdf: Path | str | None = None) -> dict[str, Any]:
+        """Inspect Steam config/config.vdf CompatToolMapping for Hunt: Showdown 1896 (AppID 594650)."""
+        target_vdf: Path | None = None
+        if config_vdf is not None:
+            cand = Path(config_vdf)
+            if cand.is_file():
+                target_vdf = cand
+        else:
+            env_vdf = os.environ.get("SAP_STEAM_CONFIG_VDF")
+            candidates: list[Path] = []
+            if env_vdf:
+                candidates.append(Path(env_vdf))
+            candidates.extend([
+                self.home / ".local/share/Steam/config/config.vdf",
+                self.home / ".steam/steam/config/config.vdf",
+                self.home / ".var/app/com.valvesoftware.Steam/.local/share/Steam/config/config.vdf",
+            ])
+            for cand in candidates:
+                if cand.is_file():
+                    target_vdf = cand
+                    break
+
+        if target_vdf is None:
+            return {"found": False, "tool": "", "warning": None}
+
+        try:
+            text = target_vdf.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return {"found": False, "tool": "", "warning": None}
+
+        tokens: list[tuple[str, str]] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            c = text[i]
+            if c.isspace():
+                i += 1
+            elif c == "/" and i + 1 < n and text[i + 1] == "/":
+                nl = text.find("\n", i)
+                i = n if nl == -1 else nl + 1
+            elif c in "{}":
+                tokens.append(("B", c))
+                i += 1
+            elif c == '"':
+                j = i + 1
+                parts: list[str] = []
+                while j < n:
+                    if text[j] == "\\" and j + 1 < n:
+                        parts.append(text[j + 1])
+                        j += 2
+                    elif text[j] == '"':
+                        break
+                    else:
+                        parts.append(text[j])
+                        j += 1
+                tokens.append(("S", "".join(parts)))
+                i = j + 1
+            else:
+                j = i
+                while j < n and not text[j].isspace() and text[j] not in '{}"':
+                    j += 1
+                tokens.append(("S", text[i:j]))
+                i = j
+
+        stack: list[str] = []
+        pending: str | None = None
+        tool = ""
+        for kind, val in tokens:
+            if kind == "S":
+                if pending is None:
+                    pending = val
+                else:
+                    if len(stack) >= 2 and stack[-2] == "compattoolmapping" and stack[-1] == "594650":
+                        if pending.lower() == "name":
+                            tool = val.strip()
+                            break
+                    pending = None
+            elif kind == "B" and val == "{":
+                stack.append((pending or "").lower())
+                pending = None
+            elif kind == "B" and val == "}":
+                if stack:
+                    stack.pop()
+                pending = None
+
+        low_tool = tool.lower()
+        warning: str | None = None
+        if not tool:
+            warning = (
+                "[WARN] Hunt: Showdown 1896 (AppID 594650) CompatToolMapping is unset in config.vdf "
+                "(proton-cachyos triggers late-2026 EAC launch/kick bug); set Hunt: Showdown 1896 -> "
+                "Properties -> Compatibility to Valve's 'Proton 11.0-2' or 'Proton Hotfix'."
+            )
+        elif low_tool.startswith("proton-cachyos") or low_tool.startswith("proton_cachyos"):
+            warning = (
+                f"[WARN] Hunt: Showdown 1896 (AppID 594650) is mapped to '{tool}' in config.vdf "
+                "(triggers late-2026 EAC launch/kick bug); set Hunt: Showdown 1896 -> "
+                "Properties -> Compatibility to Valve's 'Proton 11.0-2' or 'Proton Hotfix'."
+            )
+        return {"found": True, "tool": tool, "warning": warning}
 
     def reset_profile(self, appid: str) -> str:
         path = self.profile_dir / f"{appid}.env"
@@ -2037,12 +2216,33 @@ def run_self_check(backend: ProfilerBackend, lang: str = "en") -> int:
     assert len(warns) >= 3
 
     ac_norm, ac_warns = validate_profile(
-        {"USE_REFLEX_LAYER": "1", "USE_NATIVE_ANTILAG": "1"},
+        {"USE_REFLEX_LAYER": "1", "USE_NATIVE_ANTILAG": "1", "USE_BLEEDING_EDGE": "1"},
         "competitive-anticheat",
     )
     assert ac_norm["USE_REFLEX_LAYER"] == "0"
+    assert ac_norm["USE_BLEEDING_EDGE"] == "0"
     assert ac_norm["USE_NATIVE_ANTILAG"] == "1"
-    assert len(ac_warns) >= 1
+    assert len(ac_warns) >= 2
+
+    be_norm, be_warns = validate_profile(
+        {"USE_BLEEDING_EDGE": "1", "USE_FSR4": "0", "USE_SHARPEN": "1", "USE_STEAM_CONTROLLER": "auto"},
+        "standard",
+    )
+    assert be_norm["USE_BLEEDING_EDGE"] == "1"
+    assert be_norm["USE_SHARPEN"] == "0"
+    assert be_norm["USE_STEAM_CONTROLLER"] == "auto"
+    assert len(be_warns) >= 1
+
+    hunt_norm, _ = validate_profile(
+        {"USE_XWAYLAND": "0", "USE_SAFEDX12": "0", "USE_BLEEDING_EDGE": "1", "USE_MLFG": "1"},
+        "standard",
+        appid="594650",
+    )
+    assert hunt_norm["USE_XWAYLAND"] == "1"
+    assert hunt_norm["USE_SAFEDX12"] == "1"
+    assert hunt_norm["USE_BLEEDING_EDGE"] == "0"
+    assert hunt_norm["USE_MLFG"] == "0"
+    assert hunt_norm["USE_NET_OPT"] == "1"
 
     active_lang = normalize_lang(lang)
     for code, _ in SUPPORTED_LANGUAGES:
@@ -2178,7 +2378,20 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
     editor_layout.addWidget(warning_label)
 
     checkboxes: dict[str, Any] = {}
+    sc_label: Any = None
+    sc_combo: Any = None
     for key, _label in PROFILE_TOGGLES:
+        if key == "USE_STEAM_CONTROLLER":
+            sc_row = QtWidgets.QHBoxLayout()
+            sc_label = QtWidgets.QLabel(t("toggle_USE_STEAM_CONTROLLER"))
+            sc_combo = QtWidgets.QComboBox()
+            sc_combo.addItem(t("profile_auto"), "auto")
+            sc_combo.addItem(t("val_on"), "1")
+            sc_combo.addItem(t("val_off"), "0")
+            sc_row.addWidget(sc_label)
+            sc_row.addWidget(sc_combo)
+            editor_layout.addLayout(sc_row)
+            continue
         cb = QtWidgets.QCheckBox(t(f"toggle_{key}"))
         checkboxes[key] = cb
         editor_layout.addWidget(cb)
@@ -2219,6 +2432,8 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
 
     def collect_editor_profile() -> dict[str, str]:
         prof = {key: ("1" if cb.isChecked() else "0") for key, cb in checkboxes.items()}
+        if sc_combo is not None:
+            prof["USE_STEAM_CONTROLLER"] = str(sc_combo.currentData() or "auto")
         prof["VRR_CAP"] = vrr_edit.text().strip()
         return prof
 
@@ -2228,6 +2443,10 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
         try:
             for key, cb in checkboxes.items():
                 cb.setChecked(prof.get(key, "0") == "1")
+            if sc_combo is not None:
+                sc_val = prof.get("USE_STEAM_CONTROLLER", "auto")
+                sc_idx = sc_combo.findData(sc_val)
+                sc_combo.setCurrentIndex(sc_idx if sc_idx >= 0 else 0)
             vrr_edit.setText(prof.get("VRR_CAP", ""))
             warning_label.setText("\n".join(warns))
         finally:
@@ -2236,11 +2455,21 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
     def on_toggle_changed() -> None:
         if updating_ui or not current_game:
             return
-        norm, warns = validate_profile(collect_editor_profile(), current_game.get("class", "standard"))
+        norm, warns = validate_profile(
+            collect_editor_profile(),
+            current_game.get("class", "standard"),
+            appid=current_game.get("appid", ""),
+        )
+        if current_game.get("appid") == "594650":
+            hunt_warn = backend.check_hunt_compat_tool().get("warning")
+            if hunt_warn:
+                warns = [hunt_warn, *warns]
         apply_editor_profile(norm, warns)
 
     for cb in checkboxes.values():
         cb.stateChanged.connect(lambda _state: on_toggle_changed())
+    if sc_combo is not None:
+        sc_combo.currentIndexChanged.connect(lambda _idx: on_toggle_changed())
     vrr_edit.editingFinished.connect(on_toggle_changed)
 
     def populate_table() -> None:
@@ -2331,7 +2560,15 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
         else:
             upscaler_badge.setStyleSheet("color: #64748b;")
         prof = backend.load_profile(current_game["appid"])
-        norm, warns = validate_profile(prof, current_game.get("class", "standard"))
+        norm, warns = validate_profile(
+            prof,
+            current_game.get("class", "standard"),
+            appid=current_game["appid"],
+        )
+        if current_game["appid"] == "594650":
+            hunt_warn = backend.check_hunt_compat_tool().get("warning")
+            if hunt_warn:
+                warns = [hunt_warn, *warns]
         apply_editor_profile(norm, warns)
         details = current_game.get("rationale", "")
         if current_game.get("launch_options"):
@@ -2667,6 +2904,11 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
             selected_label.setText(t("select_game_prompt"))
         for key, cb in checkboxes.items():
             cb.setText(t(f"toggle_{key}"))
+        if sc_label is not None and sc_combo is not None:
+            sc_label.setText(t("toggle_USE_STEAM_CONTROLLER"))
+            sc_combo.setItemText(0, t("profile_auto"))
+            sc_combo.setItemText(1, t("val_on"))
+            sc_combo.setItemText(2, t("val_off"))
         vrr_label.setText(t("vrr_cap_label"))
         vrr_edit.setPlaceholderText(t("vrr_cap_placeholder"))
         save_btn.setText(t("btn_save_profile"))
@@ -2877,11 +3119,20 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         f"SDK: {cur.get('upscaler_info', 'None detected')}",
                         max_x - split_x - 1,
                     )
-                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h", "t", "a", "r")
+                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h", "t", "a", "r", "e", "c")
                     for i, ((k, _label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
                         if 4 + i >= max_y - 2:
                             break
-                        val = t("val_on") if profile_cache.get(k, "0") == "1" else t("val_off")
+                        if k == "USE_STEAM_CONTROLLER":
+                            raw_sc = profile_cache.get(k, "auto")
+                            if raw_sc == "1":
+                                val = t("val_on")
+                            elif raw_sc == "0":
+                                val = t("val_off")
+                            else:
+                                val = t("profile_auto")
+                        else:
+                            val = t("val_on") if profile_cache.get(k, "0") == "1" else t("val_off")
                         stdscr.addnstr(4 + i, split_x, f"[{hk}] {val:<4} {t(f'toggle_{k}')}", max_x - split_x - 1)
                     base_y = 4 + len(PROFILE_TOGGLES)
                     if base_y < max_y - 2:
@@ -2891,7 +3142,12 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                             f"[v]VRR_CAP: {profile_cache.get('VRR_CAP') or 'Auto'} | [s]Save [p]DryRun [R]Reset",
                             max_x - split_x - 1,
                         )
-                    for j, oline in enumerate(output_lines[: max(0, max_y - base_y - 3)]):
+                    tui_lines = list(output_lines)
+                    if cur["appid"] == "594650":
+                        hunt_warn = backend.check_hunt_compat_tool().get("warning")
+                        if hunt_warn:
+                            tui_lines = [hunt_warn, *tui_lines]
+                    for j, oline in enumerate(tui_lines[: max(0, max_y - base_y - 3)]):
                         stdscr.addnstr(base_y + 1 + j, split_x, oline, max_x - split_x - 1)
 
             elif active_tab == 1:
@@ -2986,11 +3242,18 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         ord("t"): "USE_TRANSFER_QUEUE",
                         ord("a"): "USE_NATIVE_ANTILAG",
                         ord("r"): "USE_REFLEX_LAYER",
+                        ord("e"): "USE_BLEEDING_EDGE",
+                        ord("c"): "USE_STEAM_CONTROLLER",
                     }
                     if ch in hk_map:
                         k = hk_map[ch]
-                        profile_cache[k] = "0" if profile_cache.get(k, "0") == "1" else "1"
-                        profile_cache, warns = validate_profile(profile_cache, cur["class"])
+                        if k == "USE_STEAM_CONTROLLER":
+                            cur_sc = profile_cache.get(k, "auto")
+                            next_sc = {"auto": "1", "1": "0", "0": "auto"}.get(cur_sc, "auto")
+                            profile_cache[k] = next_sc
+                        else:
+                            profile_cache[k] = "0" if profile_cache.get(k, "0") == "1" else "1"
+                        profile_cache, warns = validate_profile(profile_cache, cur["class"], appid=cur["appid"])
                         status_msg = warns[0] if warns else f"Toggled {k}={profile_cache[k]}"
                     elif ch == ord("v"):
                         curses.echo()
@@ -2998,7 +3261,7 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         raw = stdscr.getstr(max_y - 1, 29, 10)
                         curses.noecho()
                         profile_cache["VRR_CAP"] = raw.decode("utf-8", errors="ignore").strip()
-                        profile_cache, warns = validate_profile(profile_cache, cur["class"])
+                        profile_cache, warns = validate_profile(profile_cache, cur["class"], appid=cur["appid"])
                         status_msg = warns[0] if warns else f"VRR_CAP={profile_cache['VRR_CAP'] or 'Auto'}"
                     elif ch == ord("s"):
                         path, warns = backend.save_profile(cur["appid"], profile_cache, cur["class"])

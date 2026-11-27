@@ -116,7 +116,41 @@ Environment overrides:
   NATIVE_ANTILAG=1  Use Mesa 26.3+/27.0 native RADV VK_AMD_anti_lag (no legacy layer)
   REFLEX_LAYER=1    Enable Reflex -> Anti-Lag 2 translation layer (off in anti-cheat/MLFG)
   VK_VIDEO_DECODE=1 Enable Mesa 27.0 Vulkan video decode (RADV_EXPERIMENTAL=video_decode)
+  BLEEDING_EDGE=1   Enable Ultra Bleeding-Edge experimental Mesa 27 / VKD3D / Proton 11 stack (non-anticheat)
+  USE_STEAM_CONTROLLER=auto|1|0
+                    Auto-route Steam Controller 2026 / Puck (28de:{1302,1304,1005,1007}) via XWayland + PROTON_USE_SDL=1
 EOF
+}
+
+USB_SYSFS_DIR="${SAP_USB_DIR:-/sys/bus/usb/devices}"
+UDEV_RULES_DIR="${SAP_UDEV_RULES_DIR:-/etc/udev/rules.d}"
+
+detect_steam_controller_2026_path() {
+    local dev_dir vid pid
+    [[ -d "$USB_SYSFS_DIR" ]] || return 0
+    for dev_dir in "$USB_SYSFS_DIR"/*; do
+        [[ -r "$dev_dir/idVendor" && -r "$dev_dir/idProduct" ]] || continue
+        vid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idVendor" 2>/dev/null | tr -d '[:space:]')"
+        pid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idProduct" 2>/dev/null | tr -d '[:space:]')"
+        if [[ "$vid" == "28de" ]]; then
+            case "$pid" in
+                1304|1302|1005|1007)
+                    printf '%s\n' "$dev_dir"
+                    return 0
+                    ;;
+            esac
+        fi
+    done
+    return 0
+}
+
+detect_steam_controller_2026() {
+    local dev_dir vid pid
+    dev_dir="$(detect_steam_controller_2026_path)"
+    [[ -n "$dev_dir" ]] || return 0
+    vid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idVendor" 2>/dev/null | tr -d '[:space:]')"
+    pid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idProduct" 2>/dev/null | tr -d '[:space:]')"
+    printf '%s:%s\n' "$vid" "$pid"
 }
 
 run_doctor() {
@@ -330,6 +364,125 @@ run_doctor() {
         echo "[WARN] Native Proton-CachyOS detected without proton-cachyos-slr: $native_name"
     fi
     (( found_proton == 1 )) || echo "[INFO] No community Proton compatibility tool directory was detected"
+
+    local steam_cfg_vdf=""
+    if [[ -n "${SAP_STEAM_CONFIG_VDF:-}" && -r "$SAP_STEAM_CONFIG_VDF" ]]; then
+        steam_cfg_vdf="$SAP_STEAM_CONFIG_VDF"
+    else
+        for cfg_candidate in \
+            "${HOME}/.local/share/Steam/config/config.vdf" \
+            "${HOME}/.steam/steam/config/config.vdf" \
+            "${HOME}/.var/app/com.valvesoftware.Steam/.local/share/Steam/config/config.vdf"; do
+            if [[ -r "$cfg_candidate" ]]; then
+                steam_cfg_vdf="$cfg_candidate"
+                break
+            fi
+        done
+    fi
+    if [[ -n "$steam_cfg_vdf" ]] && command -v python3 >/dev/null 2>&1; then
+        local hunt_tool=""
+        hunt_tool="$(python3 - "$steam_cfg_vdf" <<'PY' 2>/dev/null || true
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
+tokens = []
+i = 0
+n = len(text)
+while i < n:
+    c = text[i]
+    if c.isspace():
+        i += 1
+    elif c == "/" and i + 1 < n and text[i + 1] == "/":
+        nl = text.find("\n", i)
+        i = n if nl == -1 else nl + 1
+    elif c in "{}":
+        tokens.append(("B", c))
+        i += 1
+    elif c == '"':
+        j = i + 1
+        parts = []
+        while j < n:
+            if text[j] == "\\" and j + 1 < n:
+                parts.append(text[j + 1])
+                j += 2
+            elif text[j] == '"':
+                break
+            else:
+                parts.append(text[j])
+                j += 1
+        tokens.append(("S", "".join(parts)))
+        i = j + 1
+    else:
+        j = i
+        while j < n and not text[j].isspace() and text[j] not in '{}"':
+            j += 1
+        tokens.append(("S", text[i:j]))
+        i = j
+
+stack = []
+pending = None
+tool = ""
+for kind, val in tokens:
+    if kind == "S":
+        if pending is None:
+            pending = val
+        else:
+            if len(stack) >= 2 and stack[-2] == "compattoolmapping" and stack[-1] == "594650":
+                if pending.lower() == "name":
+                    tool = val.strip()
+                    break
+            pending = None
+    elif kind == "B" and val == "{":
+        stack.append((pending or "").lower())
+        pending = None
+    elif kind == "B" and val == "}":
+        if stack:
+            stack.pop()
+        pending = None
+print(tool)
+PY
+        )"
+        local hunt_tool_lower="${hunt_tool,,}"
+        if [[ -z "$hunt_tool" ]]; then
+            echo "[WARN] Hunt: Showdown 1896 (AppID 594650) CompatToolMapping is unset in config.vdf (proton-cachyos triggers late-2026 EAC launch/kick bug); set Hunt: Showdown 1896 -> Properties -> Compatibility to Valve's 'Proton 11.0-2' or 'Proton Hotfix'"
+        elif [[ "$hunt_tool_lower" == proton-cachyos* || "$hunt_tool_lower" == proton_cachyos* ]]; then
+            echo "[WARN] Hunt: Showdown 1896 (AppID 594650) is mapped to '$hunt_tool' in config.vdf (triggers late-2026 EAC launch/kick bug); set Hunt: Showdown 1896 -> Properties -> Compatibility to Valve's 'Proton 11.0-2' or 'Proton Hotfix'"
+        else
+            echo "[OK] Hunt: Showdown 1896 (AppID 594650) CompatToolMapping: $hunt_tool"
+        fi
+    fi
+
+    local sc_dev_path=""
+    sc_dev_path="$(detect_steam_controller_2026_path)"
+    local sc_rule="$UDEV_RULES_DIR/61-steam-controller-2026.rules"
+    if [[ -n "$sc_dev_path" ]]; then
+        local sc_vid sc_pid sc_pwr=""
+        sc_vid="$(tr '[:upper:]' '[:lower:]' < "$sc_dev_path/idVendor" 2>/dev/null | tr -d '[:space:]')"
+        sc_pid="$(tr '[:upper:]' '[:lower:]' < "$sc_dev_path/idProduct" 2>/dev/null | tr -d '[:space:]')"
+        echo "[INFO] Steam Controller 2026 / Puck detected: ${sc_vid}:${sc_pid} (auto Steam Input routing active)"
+        if [[ -r "$sc_dev_path/power/control" ]]; then
+            sc_pwr="$(tr -d '[:space:]' < "$sc_dev_path/power/control" 2>/dev/null || true)"
+            if [[ "$sc_pwr" == "on" ]]; then
+                echo "[OK] Steam Controller 2026 USB selective suspend disabled (power/control=on)"
+            elif [[ -n "$sc_pwr" ]]; then
+                echo "[WARN] Steam Controller 2026 USB power/control=$sc_pwr (may add wireless wake-up latency); run './install.sh --with-steam-controller'"
+            fi
+        fi
+    fi
+    if [[ -r "$sc_rule" ]]; then
+        if grep -q 'ID_MM_DEVICE_IGNORE' "$sc_rule" &&
+           grep -q 'SUBSYSTEM=="tty"' "$sc_rule" &&
+           grep -q 'power/control' "$sc_rule"; then
+            echo "[OK] Steam Controller 2026 udev rules installed: $sc_rule"
+        else
+            echo "[WARN] Steam Controller 2026 udev rules at $sc_rule are incomplete; re-run './install.sh --with-steam-controller'"
+        fi
+    elif [[ -n "$sc_dev_path" ]]; then
+        echo "[WARN] Steam Controller 2026 udev rules ($sc_rule) not installed; run './install.sh --with-steam-controller' for zero-latency and firmware-ready permissions"
+    else
+        echo "[INFO] Steam Controller 2026 udev rules ($sc_rule) not installed (optional: './install.sh --with-steam-controller')"
+    fi
 }
 
 CONFIGURE_ONLY=0
@@ -742,6 +895,18 @@ if [[ -n "${USE_VK_VIDEO_DECODE+x}" ]]; then
     ORIG_USE_VK_VIDEO_DECODE_SET=1
     ORIG_USE_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"
 fi
+ORIG_USE_BLEEDING_EDGE_SET=0
+ORIG_USE_BLEEDING_EDGE=""
+if [[ -n "${USE_BLEEDING_EDGE+x}" ]]; then
+    ORIG_USE_BLEEDING_EDGE_SET=1
+    ORIG_USE_BLEEDING_EDGE="$USE_BLEEDING_EDGE"
+fi
+ORIG_USE_STEAM_CONTROLLER_SET=0
+ORIG_USE_STEAM_CONTROLLER=""
+if [[ -n "${USE_STEAM_CONTROLLER+x}" ]]; then
+    ORIG_USE_STEAM_CONTROLLER_SET=1
+    ORIG_USE_STEAM_CONTROLLER="$USE_STEAM_CONTROLLER"
+fi
 
 USE_XWAYLAND=0
 USE_MLFG="${USE_MLFG:-0}"
@@ -761,6 +926,8 @@ USE_TRANSFER_QUEUE="${USE_TRANSFER_QUEUE:-0}"
 USE_NATIVE_ANTILAG="${USE_NATIVE_ANTILAG:-0}"
 USE_REFLEX_LAYER="${USE_REFLEX_LAYER:-0}"
 USE_VK_VIDEO_DECODE="${USE_VK_VIDEO_DECODE:-0}"
+USE_BLEEDING_EDGE="${USE_BLEEDING_EDGE:-0}"
+USE_STEAM_CONTROLLER="${USE_STEAM_CONTROLLER:-auto}"
 AUTO_HDR_SWITCH="${AUTO_HDR_SWITCH:-0}"
 BENCH="${BENCH:-0}"
 BENCH_DURATION="${BENCH_DURATION:-60}"
@@ -773,6 +940,10 @@ AUTO_OPTISCALER=0
 AUTO_SHARPEN=0
 AUTO_NET_OPT=0
 AUTO_CEF_FIX=0
+AUTO_XWAYLAND=0
+AUTO_SAFEDX12=0
+AUTO_NATIVE_AGS=1
+AUTO_BLEEDING_EDGE=0
 AUTO_REASON=""
 
 if [[ -n "$DETECT_BIN" ]]; then
@@ -785,6 +956,12 @@ USE_OPTISCALER="${AUTO_OPTISCALER:-0}"
 USE_SHARPEN="${AUTO_SHARPEN:-0}"
 USE_NET_OPT="${AUTO_NET_OPT:-0}"
 USE_CEF_FIX="${AUTO_CEF_FIX:-0}"
+USE_XWAYLAND="${AUTO_XWAYLAND:-0}"
+USE_SAFEDX12="${AUTO_SAFEDX12:-0}"
+USE_BLEEDING_EDGE="${AUTO_BLEEDING_EDGE:-0}"
+if [[ "${AUTO_NATIVE_AGS:-1}" -eq 0 ]]; then
+    export PROTON_NATIVE_AGS=0
+fi
 USE_VIVID=0
 [[ "${AUTO_PRESET:-}" == "vivid" ]] && USE_VIVID=1
 export USE_OPTISCALER USE_SHARPEN USE_NET_OPT USE_CEF_FIX USE_VIVID
@@ -833,6 +1010,12 @@ if [[ "$ORIG_USE_REFLEX_LAYER_SET" -eq 1 ]]; then
 fi
 if [[ "$ORIG_USE_VK_VIDEO_DECODE_SET" -eq 1 ]]; then
     USE_VK_VIDEO_DECODE="$ORIG_USE_VK_VIDEO_DECODE"
+fi
+if [[ "$ORIG_USE_BLEEDING_EDGE_SET" -eq 1 ]]; then
+    USE_BLEEDING_EDGE="$ORIG_USE_BLEEDING_EDGE"
+fi
+if [[ "$ORIG_USE_STEAM_CONTROLLER_SET" -eq 1 ]]; then
+    USE_STEAM_CONTROLLER="$ORIG_USE_STEAM_CONTROLLER"
 fi
 AUTO_VRR_CAP="$(detect_vrr_cap)"
 
@@ -986,8 +1169,48 @@ fi
 [[ "${NATIVE_ANTILAG:-0}" -eq 1 ]] && USE_NATIVE_ANTILAG=1
 [[ "${REFLEX_LAYER:-0}" -eq 1 ]] && USE_REFLEX_LAYER=1
 [[ "${VK_VIDEO_DECODE:-0}" -eq 1 ]] && USE_VK_VIDEO_DECODE=1
+[[ "${BLEEDING_EDGE:-0}" -eq 1 ]] && USE_BLEEDING_EDGE=1
+if [[ -n "${STEAM_CONTROLLER:-}" ]]; then
+    USE_STEAM_CONTROLLER="$STEAM_CONTROLLER"
+fi
 if [[ -z "${FSR4+x}" && -n "${USE_FSR4+x}" ]]; then
     FSR4="$USE_FSR4"
+fi
+
+DETECTED_STEAM_CONTROLLER="$(detect_steam_controller_2026)"
+STEAM_CONTROLLER_ACTIVE=0
+case "${USE_STEAM_CONTROLLER,,}" in
+    1|true|on|yes)
+        STEAM_CONTROLLER_ACTIVE=1
+        ;;
+    0|false|off|no)
+        STEAM_CONTROLLER_ACTIVE=0
+        ;;
+    auto|"")
+        [[ -n "$DETECTED_STEAM_CONTROLLER" ]] && STEAM_CONTROLLER_ACTIVE=1
+        ;;
+esac
+if [[ "$STEAM_CONTROLLER_ACTIVE" -eq 1 ]]; then
+    USE_XWAYLAND=1
+    export PROTON_USE_SDL=1
+fi
+
+# Built-in Per-AppID Compatibility Rule: Hunt: Showdown 1896 (AppID 594650)
+# Enforces CryEngine/EAC safe defaults and prevents Wine 11 Wayland focus/input lockup.
+if [[ "$APPID" == "594650" ]]; then
+    AUTO_CLASS="competitive-anticheat"
+    USE_XWAYLAND=1
+    USE_SAFEDX12=1
+    USE_MLFG=0
+    USE_BLEEDING_EDGE=0
+    USE_REFLEX_LAYER=0
+    USE_OPTISCALER=0
+    USE_SHARPEN=0
+    USE_NET_OPT=1
+    export PROTON_NATIVE_AGS=0
+    export LOW_LATENCY_LAYER=0
+    export LOW_LATENCY_LAYER_REFLEX=0
+    unset VKD3D_CONFIG VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL
 fi
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
@@ -995,6 +1218,7 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_MLFG=0
     USE_NO_DECORATION=0
     USE_REFLEX_LAYER=0
+    USE_BLEEDING_EDGE=0
     export PROTON_USE_OPTISCALER=0
     export LOW_LATENCY_LAYER=0
     export LOW_LATENCY_LAYER_REFLEX=0
@@ -1009,6 +1233,21 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     export WINE_NO_WM_DECORATION=0
     export PROTON_DXVK_LOWLATENCY=1
     export PROTON_VKD3D_LOWLATENCY=1
+fi
+
+# Ultra Bleeding-Edge / Unstable Experimental Mode (non-anticheat titles only)
+if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" ]]; then
+    USE_TRANSFER_QUEUE=1
+    USE_VK_VIDEO_DECODE=1
+    FSR4=1
+    export PROTON_FSR4_UPGRADE=1
+    unset PROTON_FSR4_RDNA3_UPGRADE
+    export PROTON_NATIVE_AGS=1
+    export PROTON_USE_WOW64=1
+    export PROTON_MEDIA_FORCE_GST=1
+    if [[ "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 ]]; then
+        export WAYLANDDRV_RAWINPUT="${WAYLANDDRV_RAWINPUT:-1}"
+    fi
 fi
 
 if [[ "$GAMESCOPE_SESSION" -eq 1 ]]; then
@@ -1114,7 +1353,10 @@ else
     fi
 fi
 
-if [[ "${FSR4:-1}" -eq 1 ]]; then
+if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" ]]; then
+    export PROTON_FSR4_UPGRADE=1
+    unset PROTON_FSR4_RDNA3_UPGRADE
+elif [[ "${FSR4:-1}" -eq 1 ]]; then
     if [[ "$AUTO_RDNA4" -eq 1 ]]; then
         export PROTON_FSR4_UPGRADE=1
         unset PROTON_FSR4_RDNA3_UPGRADE
@@ -1186,12 +1428,18 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
 fi
 if [[ "$USE_SAFEDX12" -eq 0 ]]; then
     export VKD3D_CONFIG="${VKD3D_CONFIG:-descriptor_heap,dxr12,force_bindless_texel_buffer}"
+    if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" ]]; then
+        export VKD3D_FEATURE_LEVEL="${VKD3D_FEATURE_LEVEL:-12_2}"
+        export VKD3D_SHADER_MODEL="${VKD3D_SHADER_MODEL:-6_8}"
+    fi
+else
+    unset VKD3D_CONFIG VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL
 fi
 
 COMPAT_TOKENS=()
 if [[ "$USE_XWAYLAND" -ne 1 ]]; then COMPAT_TOKENS+=("wayland"); fi
-if [[ "$GPU_VENDOR" == "amd" ]]; then COMPAT_TOKENS+=("nativeags"); fi
-if [[ "$USE_SDL" -eq 1 ]]; then COMPAT_TOKENS+=("sdlinput"); fi
+if [[ "$GPU_VENDOR" == "amd" && "${PROTON_NATIVE_AGS:-1}" != "0" ]]; then COMPAT_TOKENS+=("nativeags"); fi
+if [[ "$USE_SDL" -eq 1 || "$STEAM_CONTROLLER_ACTIVE" -eq 1 ]]; then COMPAT_TOKENS+=("sdlinput"); fi
 if [[ "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("noopwr"); fi
 if [[ "$USE_SAFEDX12" -eq 0 ]]; then COMPAT_TOKENS+=("vkd3dbindlesstb"); fi
 if [[ "${PROTON_LOCAL_SHADER_CACHE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("localshadercache"); fi
@@ -1200,6 +1448,7 @@ if [[ "${PROTON_DXVK_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("dxvklowlate
 if [[ "${PROTON_VKD3D_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkd3dlowlatency"); fi
 if [[ "$USE_MLFG" -eq 0 && "$USE_REFLEX_LAYER" -eq 1 && "${LOW_LATENCY_LAYER:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("lowlatencylayer"); fi
 if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 || "${PROTON_FSR4_RDNA3_UPGRADE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("fsr4"); fi
+if [[ "${PROTON_USE_WOW64:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("wow64"); fi
 if [[ "$USE_MLFG" -eq 1 ]]; then COMPAT_TOKENS+=("mlfg"); fi
 if [[ "$USE_MLFG" -eq 0 && "$GPU_VENDOR" == "nvidia" && "${DXVK_NVAPI_VKREFLEX:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkreflex"); fi
 if [[ "$USE_NO_NTSYNC" -eq 1 || "${PROTON_NO_NTSYNC:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("nontsync"); fi
@@ -1270,6 +1519,12 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "GPU: ${GPU_VENDOR}"
     echo "VRR cap: ${AUTO_VRR_CAP}"
     echo "Compat tokens: ${PROTON_ADD_CONFIG:-none}"
+    if [[ "$USE_BLEEDING_EDGE" -eq 1 ]]; then
+        echo "Bleeding-edge: enabled"
+    fi
+    if [[ "$STEAM_CONTROLLER_ACTIVE" -eq 1 ]]; then
+        echo "Steam Controller 2026: active (${DETECTED_STEAM_CONTROLLER:-forced})"
+    fi
     if [[ "${AUTO_HDR_SWITCH:-0}" -eq 1 ]]; then
         echo "HDR auto-switch: ${HDR_AUTO_TARGET:-unavailable} (state=${HDR_AUTO_STATE:-unknown})"
     fi

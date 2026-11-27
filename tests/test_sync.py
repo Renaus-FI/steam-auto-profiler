@@ -398,10 +398,22 @@ class SyncTests(unittest.TestCase):
         replacement, profile = module.sanitize_launch_option("361420", messy, profile_dir)
         self.assertEqual(replacement, "steam-auto-run %command% -dx12")
         self.assertEqual(profile.get("USE_BLEEDING_EDGE"), "1")
-        self.assertEqual(profile.get("USE_STEAM_CONTROLLER"), "1")
+        self.assertEqual(profile.get("USE_STEAM_CONTROLLER"), "wayland-hdr")
         written = (profile_dir / "361420.env").read_text(encoding="utf-8")
         self.assertIn("USE_BLEEDING_EDGE=1", written)
-        self.assertIn("USE_STEAM_CONTROLLER=1", written)
+        self.assertIn("USE_STEAM_CONTROLLER=wayland-hdr", written)
+
+        for raw_val, expected in (
+            ("auto", "auto"),
+            ("wayland-hdr", "wayland-hdr"),
+            ("xwayland", "xwayland"),
+            ("off", "off"),
+            ("0", "off"),
+        ):
+            _, prof_case = module.sanitize_launch_option(
+                "361421", f"USE_STEAM_CONTROLLER={raw_val} %command%", profile_dir, dry_run=True
+            )
+            self.assertEqual(prof_case.get("USE_STEAM_CONTROLLER"), expected)
 
 
 if __name__ == "__main__":
@@ -409,26 +421,29 @@ if __name__ == "__main__":
 
 
 _SAP_TEST_STATE_DIR = None
+_SAP_TEST_USB_DIR = None
 _SAP_ORIG_XDG_ENV = {}
 
 
 def setUpModule():
     import os as _os
     import tempfile as _tempfile
-    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_ENV
+    global _SAP_TEST_STATE_DIR, _SAP_TEST_USB_DIR, _SAP_ORIG_XDG_ENV
     _SAP_ORIG_XDG_ENV = {
         k: _os.environ.get(k)
-        for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+        for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "SAP_USB_DIR")
     }
     _os.environ.pop("XDG_CONFIG_HOME", None)
     _os.environ.pop("XDG_DATA_HOME", None)
     _SAP_TEST_STATE_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-state-")
+    _SAP_TEST_USB_DIR = _tempfile.TemporaryDirectory(prefix="sap-test-usb-")
     _os.environ["XDG_STATE_HOME"] = _SAP_TEST_STATE_DIR.name
+    _os.environ["SAP_USB_DIR"] = _SAP_TEST_USB_DIR.name
 
 
 def tearDownModule():
     import os as _os
-    global _SAP_TEST_STATE_DIR, _SAP_ORIG_XDG_ENV
+    global _SAP_TEST_STATE_DIR, _SAP_TEST_USB_DIR, _SAP_ORIG_XDG_ENV
     for k, val in _SAP_ORIG_XDG_ENV.items():
         if val is None:
             _os.environ.pop(k, None)
@@ -438,3 +453,6 @@ def tearDownModule():
     if _SAP_TEST_STATE_DIR is not None:
         _SAP_TEST_STATE_DIR.cleanup()
         _SAP_TEST_STATE_DIR = None
+    if _SAP_TEST_USB_DIR is not None:
+        _SAP_TEST_USB_DIR.cleanup()
+        _SAP_TEST_USB_DIR = None

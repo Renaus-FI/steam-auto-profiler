@@ -2,7 +2,7 @@
 
 > [English User Guide](../../USER_GUIDE.md) · [i18n Index](../README.md)
 
-Bu təlimat **Steam Auto-Profiler v2.0** üçün tam quraşdırma, ənənəvi ekran (flatscreen) və VR başlatma orkestrasiyası, `steam-auto-ui` İdarəetmə Mərkəzi, kitabxana sinxronizasiyası, performans testi (benchmarking) və problemlərin aradan qaldırılması proseslərini əhatə edir.
+Bu təlimat **Steam Auto-Profiler v2.1** üçün tam quraşdırma, ənənəvi ekran (flatscreen) və VR başlatma orkestrasiyası, `steam-auto-ui` İdarəetmə Mərkəzi, kitabxana sinxronizasiyası, performans testi (benchmarking) və problemlərin aradan qaldırılması proseslərini əhatə edir.
 
 Steam Auto-Profiler Linux üçün yüngül Bash/Python başlatıcısı və idarəetmə mərkəzidir: Steam AppID-ni (və ya qeyri-Steam qısayolunu) yoxlayır, ciddi drayver/miqyaslayıcı (upscaler)/anti-cheat qoruyucuları ilə kontekstə uyğun profil tətbiq edir və oyunun mövcud əmrini işə salır. O, heç vaxt üçüncü tərəf Proton mühitini paketləmir və ya yeritmir.
 
@@ -204,5 +204,16 @@ Profil faylları `~/.config/steam-auto-profiler/profiles/<APPID>.env` yolunda sa
 - **Steam başlatma seçimlərini geri qaytarır:** `steam-auto-sync` və ya `steam-auto-sync --sanitize` əmrlərini işə salmadan əvvəl Steam-i tamamilə bağlayın.
 - **Yanlış və ya çatışmayan VRR limiti:** `VRR_CAP=<fps>` dəyərini açıq təyin edin, söndürmək üçün `VRR_CAP=0`, `-6%` ehtiyat üçün isə `VRR_MINUS_MARGIN=1` istifadə edin. Gamescope-da yalnız açıq təyin edilmiş `VRR_CAP` DXVK/VKD3D limitlərini ixrac edir.
 - **Şəbəkə QoS yoxlaması:** `steam-net-boost status` əmrini icra edin (imtiyazsız, yalnız-oxuma). Avtomatik sessiya QoS-u istəyirsinizsə, root köməkçisini `./install.sh --with-net-boost` ilə quraşdırın.
+
+---
+
+## v2.1 yenilikləri (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650 və Steam Controller 2026)
+
+- **Mesa 27.0 / RDNA 4 bayraqları:** `TRANSFER_QUEUE=1` (RDNA 3/4 üçün təkrarsız `RADV_PERFTEST=sam,transfer_queue`), `NATIVE_ANTILAG=1` (yerli `VK_AMD_anti_lag`), `REFLEX_LAYER=1` (`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, anti-cheat və MLFG-də bloklanır) və `VK_VIDEO_DECODE=1` (`RADV_EXPERIMENTAL=video_decode`).
+- **Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`):** anti-cheatsiz oyunlar üçün eksperimental stek (`VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1` və `WAYLANDDRV_RAWINPUT=1` yalnız Gamescope xaricindəki yerli Wayland-da).
+- **Hunt: Showdown 1896 (`AppID 594650`) qoruması:** `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0`, `USE_NET_OPT=1` tətbiq edir; `--doctor` və `steam-auto-ui` `config.vdf` içində `Proton 11.0-2` / `Proton Hotfix` yoxlayır.
+- **Steam Controller 2026 / Wireless Puck (`28de:{1302,1304,1005,1007}`):** 4 rejim (`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`): `wayland-hdr` yerli Wayland + HDR10 (`PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`, `PROTON_USE_SDL=0`, `PROTON_NO_STEAMINPUT=0`) saxlayır, `steam://forceinputappid/<APPID>` və `udevadm` yenidən qoşulma izləyicisini işə salır, çıxışda `steam://forceinputappid/0` sıfırlayır. Əllə: `steam-auto-run --reapply-input <APPID|0>`; udev: `./install.sh --with-steam-controller`.
+
+---
 
 Dizayn detalları üçün [ARCHITECTURE.md](../../ARCHITECTURE.md), əsas ingiliscə təlimat üçün [English User Guide](../../USER_GUIDE.md) və bütün 27 tərcümə edilmiş bələdçi üçün [i18n Index](../README.md) səhifəsinə baxın.

@@ -2,7 +2,7 @@
 
 > [English User Guide](../../USER_GUIDE.md) | [i18n Index](../README.md)
 
-本指南涵盖 **Steam Auto-Profiler v2.0** 的完整安装、平面屏幕与 VR 启动编排、`steam-auto-ui` 控制中心、游戏库同步、基准测试以及故障排查流程。
+本指南涵盖 **Steam Auto-Profiler v2.1** 的完整安装、平面屏幕与 VR 启动编排、`steam-auto-ui` 控制中心、游戏库同步、基准测试以及故障排查流程。
 
 Steam Auto-Profiler 是一款面向 Linux 的轻量级 Bash/Python 启动器与控制中心：它会检测 Steam AppID（或非 Steam 快捷方式），应用带有严格驱动/超分辨率/反作弊保护护栏的上下文配置文件，然后启动原有游戏命令。它绝不捆绑或注入第三方 Proton 运行时。
 
@@ -204,5 +204,16 @@ steam-auto-sync --remove              # 移除 steam-auto-run 包装器
 - **Steam 还原了启动选项：** 在运行 `steam-auto-sync` 或 `steam-auto-sync --sanitize` 之前，务必彻底关闭 Steam。
 - **VRR 限帧不正确或缺失：** 显式设置 `VRR_CAP=<fps>`、设为 `VRR_CAP=0` 禁用，或使用 `VRR_MINUS_MARGIN=1` 保留 `-6%` 余量。在 Gamescope 中，仅显式设置的 `VRR_CAP` 会导出 DXVK/VKD3D 上限。
 - **检查网络 QoS：** 运行 `steam-net-boost status`（无需权限，只读）。如需自动会话级 QoS，请运行 `./install.sh --with-net-boost` 安装 root 助手。
+
+---
+
+## v2.1 新特性（Mesa 27.0 / RDNA 4、Ultra Bleeding-Edge、Hunt 594650 与 Steam Controller 2026）
+
+- **Mesa 27.0 / RDNA 4 选项：** `TRANSFER_QUEUE=1`（RDNA 3/4 去重后的 `RADV_PERFTEST=sam,transfer_queue`）、`NATIVE_ANTILAG=1`（原生 `VK_AMD_anti_lag`）、`REFLEX_LAYER=1`（`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`，反作弊与 MLFG 中禁用）以及 `VK_VIDEO_DECODE=1`（`RADV_EXPERIMENTAL=video_decode`）。
+- **Ultra Bleeding-Edge（`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`）：** 面向非反作弊游戏的实验栈（`VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer`、`VKD3D_FEATURE_LEVEL=12_2`、`VKD3D_SHADER_MODEL=6_8`、`PROTON_FSR4_UPGRADE=1`、`PROTON_NATIVE_AGS=1`、`PROTON_USE_WOW64=1`、`PROTON_MEDIA_FORCE_GST=1`，仅在 Gamescope 外的原生 Wayland 导出 `WAYLANDDRV_RAWINPUT=1`）。
+- **Hunt: Showdown 1896（`AppID 594650`）兼容保护：** 强制 `competitive-anticheat`、`USE_XWAYLAND=1`、`USE_SAFEDX12=1`、`PROTON_NATIVE_AGS=0`、`LOW_LATENCY_LAYER=0`、`USE_MLFG=0`、`USE_BLEEDING_EDGE=0`、`USE_NET_OPT=1`；`--doctor` 与 `steam-auto-ui` 会检查 `config.vdf` 并建议使用 Valve 的 `Proton 11.0-2` 或 `Proton Hotfix`。
+- **Steam Controller 2026 / Wireless Steam Puck（`28de:{1302,1304,1005,1007}`）：** 4 种路由模式（`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`）：`wayland-hdr` 保持原生 Wayland + HDR10（`PROTON_ENABLE_WAYLAND=1`、`DXVK_HDR=1`、`PROTON_USE_SDL=0`、`PROTON_NO_STEAMINPUT=0`，省略 `sdlinput`），自动调用 `steam://forceinputappid/<APPID>` 并通过 `udevadm` 监听游戏中休眠重连，退出时重置为 `steam://forceinputappid/0`。手动触发：`steam-auto-run --reapply-input <APPID|0>`；udev 规则：`./install.sh --with-steam-controller`。
+
+---
 
 内部架构详情请参阅 [ARCHITECTURE.md](../../ARCHITECTURE.md)，英文原版请查阅 [English User Guide](../../USER_GUIDE.md)，全部 27 种语言指南请参阅 [i18n Index](../README.md)。

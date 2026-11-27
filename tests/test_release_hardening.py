@@ -25,9 +25,12 @@ class ReleaseHardeningTests(unittest.TestCase):
             "VRR_MINUS_MARGIN",
         ):
             env.pop(key, None)
+        usb_empty = tmp_path / "usb-empty"
+        usb_empty.mkdir(parents=True, exist_ok=True)
         env["HOME"] = str(tmp_path)
         env["XDG_CONFIG_HOME"] = str(tmp_path / ".config")
         env["XDG_STATE_HOME"] = str(tmp_path / ".local" / "state")
+        env["SAP_USB_DIR"] = str(usb_empty)
         env["WAYLAND_DISPLAY"] = "wayland-0"
         env["NO_GUI"] = "1"
         if extra_path is not None:

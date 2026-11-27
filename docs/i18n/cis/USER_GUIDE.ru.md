@@ -2,7 +2,7 @@
 
 > Оригинальная документация: [English User Guide](../../USER_GUIDE.md) · Все языки: [i18n Index](../README.md)
 
-Это руководство охватывает полную установку, оркестрацию запуска плоских (flatscreen) и VR-игр, единый центр управления `steam-auto-ui`, синхронизацию библиотеки Steam, бенчмаркинг и устранение неполадок для **Steam Auto-Profiler v2.0**.
+Это руководство охватывает полную установку, оркестрацию запуска плоских (flatscreen) и VR-игр, единый центр управления `steam-auto-ui`, синхронизацию библиотеки Steam, бенчмаркинг и устранение неполадок для **Steam Auto-Profiler v2.1**.
 
 Steam Auto-Profiler — это лёгкий запускающий инструмент и центр управления на Bash/Python для Linux, который анализирует Steam AppID (или сторонний ярлык Non-Steam), применяет контекстно-зависимый профиль со строгими защитными ограничениями для драйверов, апскейлеров и античитов, а затем запускает исходную команду игры. Он никогда не поставляет и не внедряет сторонние среды выполнения Proton.
 
@@ -204,5 +204,19 @@ steam-auto-sync --remove              # Удалить обёртку steam-auto
 - **Steam сбрасывает параметры запуска:** полностью закройте Steam перед выполнением `steam-auto-sync` или `steam-auto-sync --sanitize`.
 - **Неверный или отсутствующий лимит VRR:** задайте `VRR_CAP=<fps>` явно, `VRR_CAP=0` для отключения или `VRR_MINUS_MARGIN=1` для запаса `-6%`. В Gamescope лимиты DXVK/VKD3D экспортируются только при явно заданном `VRR_CAP`.
 - **Проверка сетевого QoS:** выполните `steam-net-boost status` (без прав root, только чтение). Установите системный помощник командой `./install.sh --with-net-boost`, если нужен автоматический QoS для сессий.
+
+---
+
+## Новое в v2.1 (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650 и Steam Controller 2026)
+
+- **Флаги Mesa 27.0 / RDNA 4:** `TRANSFER_QUEUE=1` (дедуплицированный `RADV_PERFTEST=sam,transfer_queue` на RDNA 3/4), `NATIVE_ANTILAG=1` (нативный `VK_AMD_anti_lag` без устаревшего слоя), `REFLEX_LAYER=1` (`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, блокируется в античите и MLFG) и `VK_VIDEO_DECODE=1` (`RADV_EXPERIMENTAL=video_decode`).
+- **Режим Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`):** экспериментальный стек для игр без античита с дедупликацией RADV-токенов, `VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer`, `VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_FSR4_UPGRADE=1`, `PROTON_NATIVE_AGS=1`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1` и `WAYLANDDRV_RAWINPUT=1` (только в нативном Wayland вне Gamescope).
+- **Защита Hunt: Showdown 1896 (`AppID 594650`):** автоматически включает `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0` и `USE_NET_OPT=1`; `steam-auto-run --doctor` и `steam-auto-ui` проверяют `config/config.vdf` (`CompatToolMapping`) и рекомендуют официальный `Proton 11.0-2` или `Proton Hotfix`.
+- **Steam Controller 2026 (`Triton`/`Proteus`) и Wireless Steam Puck (`28de:{1302,1304,1005,1007}`):**
+  - 4 режима маршрутизации (`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`, доступны в `steam-auto-ui` и клавишей `c` в TUI): `auto` выбирает `wayland-hdr` в Wayland или `xwayland` в X11.
+  - `wayland-hdr` сохраняет нативный `winewayland.drv` + HDR10 (`USE_XWAYLAND=0`, `PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`) без лишнего `LD_PRELOAD`, экспортирует `PROTON_USE_SDL=0`, `PROTON_PREFER_SDL=0`, `PROTON_NO_STEAMINPUT=0` (без токена `sdlinput`), автоматически применяет `steam://forceinputappid/<APPID>` с фоновым отслеживанием переподключений через `udevadm` и сбрасывает раскладку (`steam://forceinputappid/0`) при выходе.
+  - Для ручного обновления раскладки используйте `steam-auto-run --reapply-input <APPID|0>`, а для установки udev-правил (`/etc/udev/rules.d/61-steam-controller-2026.rules`) — `./install.sh --with-steam-controller`.
+
+---
 
 См. также [English User Guide](../../USER_GUIDE.md), [ARCHITECTURE.md](../../ARCHITECTURE.md) (внутреннее устройство) и [i18n Index](../README.md) для всех 27 локализованных руководств.

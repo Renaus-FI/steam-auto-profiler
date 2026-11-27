@@ -1028,10 +1028,10 @@ class RunTests(unittest.TestCase):
             self.assertIn("ENABLE_VKBASALT=0", res.stdout)
             self.assertIn("wow64", res.stdout)
 
-            # With XWAYLAND=1, WAYLANDDRV_RAWINPUT is not exported
+            # With XWAYLAND=1, WAYLANDDRV_RAWINPUT is explicitly unset/omitted even if pre-set
             res_xway = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
-                env={**env, "USE_BLEEDING_EDGE": "1", "XWAYLAND": "1"},
+                env={**env, "USE_BLEEDING_EDGE": "1", "XWAYLAND": "1", "WAYLANDDRV_RAWINPUT": "1"},
                 text=True,
                 capture_output=True,
                 check=False,
@@ -1039,6 +1039,39 @@ class RunTests(unittest.TestCase):
             self.assertEqual(res_xway.returncode, 0, res_xway.stderr)
             self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_xway.stdout)
             self.assertIn("PROTON_USE_WOW64=1", res_xway.stdout)
+
+            # Under Gamescope, WAYLANDDRV_RAWINPUT is also explicitly unset/omitted even if pre-set
+            res_gs = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={
+                    **env,
+                    "USE_BLEEDING_EDGE": "1",
+                    "GAMESCOPE_WAYLAND_DISPLAY": "gamescope-0",
+                    "WAYLANDDRV_RAWINPUT": "1",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_gs.returncode, 0, res_gs.stderr)
+            self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_gs.stdout)
+
+            # Pre-set RADV_PERFTEST and RADV_EXPERIMENTAL tokens are cleanly deduplicated
+            res_dedupe = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={
+                    **env,
+                    "USE_BLEEDING_EDGE": "1",
+                    "RADV_PERFTEST": "sam,transfer_queue,sam,gpl,transfer_queue",
+                    "RADV_EXPERIMENTAL": "video_decode,video_decode",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_dedupe.returncode, 0, res_dedupe.stderr)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue,gpl\n", res_dedupe.stdout)
+            self.assertIn("RADV_EXPERIMENTAL=video_decode\n", res_dedupe.stdout)
 
             # With MLFG=1 also active, FPS caps and Anti-Lag remain disabled
             res_mlfg = subprocess.run(
@@ -1160,16 +1193,21 @@ class RunTests(unittest.TestCase):
             home = Path(temp)
             base_env = os.environ.copy()
             for key in (
-                "XWAYLAND", "SDL", "USE_SDL", "PROTON_USE_SDL", "PROTON_NO_STEAMINPUT",
-                "USE_STEAM_CONTROLLER", "STEAM_CONTROLLER", "GAMESCOPE_WAYLAND_DISPLAY",
+                "XWAYLAND", "SDL", "USE_SDL", "PROTON_USE_SDL", "PROTON_PREFER_SDL",
+                "PROTON_NO_STEAMINPUT", "USE_STEAM_CONTROLLER", "STEAM_CONTROLLER",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE",
+                "WAYLAND_DISPLAY", "PROTON_ADD_CONFIG", "STEAM_COMPAT_CONFIG",
+                "KEEP_OVERLAY", "USE_KEEP_OVERLAY",
             ):
                 base_env.pop(key, None)
             base_env.update({
                 "HOME": str(home),
                 "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
                 "NO_GUI": "1",
             })
 
+            # On Wayland, auto mode selects wayland-hdr for all 4 Valve 2026 USB PIDs
             for pid in ("1304", "1302", "1005", "1007"):
                 with self.subTest(usb_pid=pid):
                     usb_dir = home / f"usb-{pid}"
@@ -1181,44 +1219,163 @@ class RunTests(unittest.TestCase):
 
                     res_auto = subprocess.run(
                         [str(RUN), "--dry-run", "361420"],
-                        env={**base_env, "SAP_USB_DIR": str(usb_dir)},
+                        env={
+                            **base_env,
+                            "WAYLAND_DISPLAY": "wayland-0",
+                            "SAP_USB_DIR": str(usb_dir),
+                            "PROTON_ADD_CONFIG": "sdlinput",
+                        },
                         text=True,
                         capture_output=True,
                         check=False,
                     )
                     self.assertEqual(res_auto.returncode, 0, res_auto.stderr)
-                    self.assertIn("PROTON_ENABLE_WAYLAND=0", res_auto.stdout)
-                    self.assertIn("PROTON_USE_SDL=1", res_auto.stdout)
-                    self.assertIn("sdlinput", res_auto.stdout)
-                    self.assertNotIn("PROTON_NO_STEAMINPUT=1", res_auto.stdout)
+                    self.assertIn("Steam Controller 2026: wayland-hdr", res_auto.stdout)
+                    self.assertIn("steam://forceinputappid/361420", res_auto.stdout)
+                    self.assertIn("steam://forceinputappid/0", res_auto.stdout)
+                    self.assertIn("PROTON_ENABLE_WAYLAND=1", res_auto.stdout)
+                    self.assertIn("DXVK_HDR=1", res_auto.stdout)
+                    self.assertIn("PROTON_USE_SDL=0", res_auto.stdout)
+                    self.assertIn("PROTON_PREFER_SDL=0", res_auto.stdout)
+                    self.assertIn("PROTON_NO_STEAMINPUT=0", res_auto.stdout)
+                    self.assertNotIn("sdlinput", res_auto.stdout)
 
-            # USE_STEAM_CONTROLLER=0 disables auto override even when 28de:1304 is present
+            # On non-Wayland (X11), auto mode falls back to xwayland
             usb_1304 = home / "usb-1304"
-            res_off = subprocess.run(
+            res_x11_auto = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
-                env={**base_env, "SAP_USB_DIR": str(usb_1304), "USE_STEAM_CONTROLLER": "0"},
+                env={**base_env, "DISPLAY": ":0", "SAP_USB_DIR": str(usb_1304)},
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertEqual(res_off.returncode, 0, res_off.stderr)
-            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_off.stdout)
+            self.assertEqual(res_x11_auto.returncode, 0, res_x11_auto.stderr)
+            self.assertIn("Steam Controller 2026: xwayland", res_x11_auto.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_x11_auto.stdout)
+            self.assertIn("PROTON_USE_SDL=0", res_x11_auto.stdout)
+            self.assertIn("PROTON_NO_STEAMINPUT=0", res_x11_auto.stdout)
+            self.assertNotIn("sdlinput", res_x11_auto.stdout)
 
-            # USE_STEAM_CONTROLLER=1 forces routing even without USB hardware
+            # Explicit xwayland mode forces XWayland + LD_PRELOAD preservation + Steam Input
             empty_usb = home / "usb-empty"
             empty_usb.mkdir()
-            res_forced = subprocess.run(
-                [str(RUN), "--dry-run", "361420"],
-                env={**base_env, "SAP_USB_DIR": str(empty_usb), "USE_STEAM_CONTROLLER": "1"},
+            res_xway = subprocess.run(
+                [str(RUN), "/usr/bin/env"],
+                env={
+                    **base_env,
+                    "WAYLAND_DISPLAY": "wayland-0",
+                    "SAP_USB_DIR": str(empty_usb),
+                    "GAMEID": "361420",
+                    "USE_STEAM_CONTROLLER": "xwayland",
+                    "LD_PRELOAD": "/tmp/mock_overlay.so",
+                },
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertEqual(res_forced.returncode, 0, res_forced.stderr)
-            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_forced.stdout)
-            self.assertIn("PROTON_USE_SDL=1", res_forced.stdout)
+            self.assertEqual(res_xway.returncode, 0, res_xway.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_xway.stdout)
+            self.assertIn("PROTON_USE_SDL=0", res_xway.stdout)
+            self.assertIn("PROTON_NO_STEAMINPUT=0", res_xway.stdout)
+            self.assertIn("LD_PRELOAD=/tmp/mock_overlay.so", res_xway.stdout)
+            self.assertNotIn("sdlinput", res_xway.stdout)
 
-            # Doctor checks udev rule presence and USB power/control
+            # wayland-hdr does NOT force LD_PRELOAD unless KEEP_OVERLAY=1
+            res_whdr_ld = subprocess.run(
+                [str(RUN), "/usr/bin/env"],
+                env={
+                    **base_env,
+                    "WAYLAND_DISPLAY": "wayland-0",
+                    "SAP_USB_DIR": str(empty_usb),
+                    "GAMEID": "361420",
+                    "USE_STEAM_CONTROLLER": "wayland-hdr",
+                    "LD_PRELOAD": "/tmp/mock_overlay.so",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_whdr_ld.returncode, 0, res_whdr_ld.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_whdr_ld.stdout)
+            self.assertIn("DXVK_HDR=1", res_whdr_ld.stdout)
+            self.assertIn("LD_PRELOAD=\n", res_whdr_ld.stdout)
+
+            # USE_STEAM_CONTROLLER=off (and 0) disables all Steam Controller overrides
+            for off_val in ("off", "0"):
+                res_off = subprocess.run(
+                    [str(RUN), "--dry-run", "361420"],
+                    env={
+                        **base_env,
+                        "WAYLAND_DISPLAY": "wayland-0",
+                        "SAP_USB_DIR": str(usb_1304),
+                        "USE_STEAM_CONTROLLER": off_val,
+                    },
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(res_off.returncode, 0, res_off.stderr)
+                self.assertIn("PROTON_ENABLE_WAYLAND=1", res_off.stdout)
+                self.assertNotIn("Steam Controller 2026:", res_off.stdout)
+                self.assertNotIn("PROTON_USE_SDL=0", res_off.stdout)
+
+            # Legacy USE_STEAM_CONTROLLER=1 maps to wayland-hdr on Wayland and xwayland on X11
+            res_leg_wl = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={
+                    **base_env,
+                    "WAYLAND_DISPLAY": "wayland-0",
+                    "SAP_USB_DIR": str(empty_usb),
+                    "USE_STEAM_CONTROLLER": "1",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_leg_wl.returncode, 0, res_leg_wl.stderr)
+            self.assertIn("Steam Controller 2026: wayland-hdr", res_leg_wl.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_leg_wl.stdout)
+
+            res_leg_x11 = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={
+                    **base_env,
+                    "DISPLAY": ":0",
+                    "SAP_USB_DIR": str(empty_usb),
+                    "USE_STEAM_CONTROLLER": "1",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_leg_x11.returncode, 0, res_leg_x11.stderr)
+            self.assertIn("Steam Controller 2026: xwayland", res_leg_x11.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_leg_x11.stdout)
+
+            # AppID 594650 (Hunt: Showdown 1896) keeps CryEngine/EAC precedence over wayland-hdr
+            res_hunt = subprocess.run(
+                [str(RUN), "--dry-run", "594650"],
+                env={
+                    **base_env,
+                    "WAYLAND_DISPLAY": "wayland-0",
+                    "SAP_USB_DIR": str(usb_1304),
+                    "USE_STEAM_CONTROLLER": "wayland-hdr",
+                    "BLEEDING_EDGE": "1",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_hunt.returncode, 0, res_hunt.stderr)
+            self.assertIn("Class: competitive-anticheat", res_hunt.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_hunt.stdout)
+            self.assertIn("PROTON_NATIVE_AGS=0", res_hunt.stdout)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_hunt.stdout)
+            self.assertIn("PROTON_MLFG_UPGRADE=0", res_hunt.stdout)
+            self.assertNotIn("VKD3D_CONFIG=", res_hunt.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_hunt.stdout)
+
+            # Doctor checks udev rule presence, USB power/control, ModemManager ignore, and Vulkan RADV
             udev_dir = home / "udev"
             udev_dir.mkdir()
             doc_warn = subprocess.run(
@@ -1238,9 +1395,22 @@ class RunTests(unittest.TestCase):
                 'SUBSYSTEM=="tty", ENV{ID_MM_DEVICE_IGNORE}="1", ATTR{power/control}="on"\n',
                 encoding="utf-8",
             )
+            mock_vk_bin = home / "vk-bin"
+            mock_vk_bin.mkdir()
+            vk_mock = mock_vk_bin / "vulkaninfo"
+            vk_mock.write_text(
+                "#!/bin/sh\necho VK_AMD_anti_lag\necho VK_EXT_descriptor_heap\necho VK_KHR_maintenance12\n",
+                encoding="utf-8",
+            )
+            vk_mock.chmod(0o755)
             doc_ok = subprocess.run(
                 [str(RUN), "--doctor"],
-                env={**base_env, "SAP_USB_DIR": str(usb_1304), "SAP_UDEV_RULES_DIR": str(udev_dir)},
+                env={
+                    **base_env,
+                    "SAP_USB_DIR": str(usb_1304),
+                    "SAP_UDEV_RULES_DIR": str(udev_dir),
+                    "PATH": f"{mock_vk_bin}:{base_env.get('PATH', '/usr/bin:/bin')}",
+                },
                 text=True,
                 capture_output=True,
                 check=False,
@@ -1248,6 +1418,106 @@ class RunTests(unittest.TestCase):
             self.assertEqual(doc_ok.returncode, 0, doc_ok.stderr)
             self.assertIn("[OK] Steam Controller 2026 USB selective suspend disabled", doc_ok.stdout)
             self.assertIn("[OK] Steam Controller 2026 udev rules installed", doc_ok.stdout)
+            self.assertIn("[OK] ModemManager safely ignored for Steam Controller 2026", doc_ok.stdout)
+            self.assertIn("[OK] Vulkan RADV readiness: VK_AMD_anti_lag VK_EXT_descriptor_heap VK_KHR_maintenance12", doc_ok.stdout)
+
+    def test_steam_controller_wayland_hdr_forceinputappid_watcher_reconnect_and_reapply(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            steam_log = home / "steam.log"
+
+            pgrep_mock = mock_bin / "pgrep"
+            pgrep_mock.write_text(
+                "#!/bin/sh\n"
+                'if [ "$1" = "-x" ] && [ "$2" = "steam" ]; then exit 0; fi\n'
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            pgrep_mock.chmod(0o755)
+
+            steam_mock = mock_bin / "steam"
+            steam_mock.write_text(
+                "#!/bin/sh\n"
+                f'echo "$*" >> "{steam_log}"\n',
+                encoding="utf-8",
+            )
+            steam_mock.chmod(0o755)
+
+            udevadm_mock = mock_bin / "udevadm"
+            udevadm_mock.write_text(
+                "#!/bin/sh\n"
+                "sleep 0.2\n"
+                "echo 'UDEV  [100.1] add      /devices/pci0000:00/usb3/3-2/0003:28DE:1304.0002/hidraw/hidraw4 (hidraw)'\n"
+                "echo 'UDEV  [100.2] change   /devices/pci0000:00/usb3/3-2/0003:28DE:1304.0002/hidraw/hidraw4 (hidraw)'\n"
+                "sleep 10\n",
+                encoding="utf-8",
+            )
+            udevadm_mock.chmod(0o755)
+
+            mock_game = home / "mock-game.sh"
+            mock_game.write_text("#!/bin/sh\nsleep 0.6\n", encoding="utf-8")
+            mock_game.chmod(0o755)
+
+            env = os.environ.copy()
+            for key in ("GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XWAYLAND"):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "NO_GUI": "1",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "GAMEID": "361420",
+                "USE_STEAM_CONTROLLER": "wayland-hdr",
+                "SAP_FORCE_INPUT_DELAY1": "0",
+                "SAP_FORCE_INPUT_DELAY2": "0",
+                "SAP_FORCE_INPUT_DEBOUNCE": "2",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+
+            res = subprocess.run(
+                [str(RUN), str(mock_game)],
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            calls = steam_log.read_text(encoding="utf-8").splitlines()
+            # Expect initial launch trigger + debounced reconnect trigger + exit reset to 0
+            self.assertGreaterEqual(calls.count("steam://forceinputappid/361420"), 2, calls)
+            # Burst of 2 udev events within 2s debounce must NOT trigger 2 extra calls
+            self.assertEqual(calls.count("steam://forceinputappid/361420"), 2, calls)
+            self.assertEqual(calls[-1], "steam://forceinputappid/0", calls)
+
+            # Test manual --reapply-input <APPID> and --reapply-input 0
+            steam_log.unlink()
+            res_app = subprocess.run(
+                [str(RUN), "--reapply-input", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_app.returncode, 0, res_app.stderr)
+            self.assertIn("steam://forceinputappid/361420", res_app.stdout)
+
+            res_reset = subprocess.run(
+                [str(RUN), "--reapply-input", "0"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_reset.returncode, 0, res_reset.stderr)
+            self.assertIn("steam://forceinputappid/0", res_reset.stdout)
+            self.assertEqual(
+                steam_log.read_text(encoding="utf-8").splitlines(),
+                ["steam://forceinputappid/361420", "steam://forceinputappid/0"],
+            )
 
 
 if __name__ == "__main__":

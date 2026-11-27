@@ -82,6 +82,7 @@ AUTO_XWAYLAND=0
 AUTO_SAFEDX12=0
 AUTO_NATIVE_AGS=1
 AUTO_BLEEDING_EDGE=0
+AUTO_STEAM_CONTROLLER_MODE="off"
 AUTO_NATIVE_LINUX=0
 AUTO_IS_VR=0
 AUTO_HAS_DLSS=0
@@ -97,6 +98,26 @@ SHORTCUT_LAUNCH_OPTS=""
 AUTO_PROTON_ADD_CONFIG=""
 
 DRM_SYSFS_DIR="${SAP_DRM_DIR:-/sys/class/drm}"
+USB_SYSFS_DIR="${SAP_USB_DIR:-/sys/bus/usb/devices}"
+
+detect_steam_controller_2026() {
+    local dev_dir vid pid
+    [[ -d "$USB_SYSFS_DIR" ]] || return 0
+    for dev_dir in "$USB_SYSFS_DIR"/*; do
+        [[ -r "$dev_dir/idVendor" && -r "$dev_dir/idProduct" ]] || continue
+        vid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idVendor" 2>/dev/null | tr -d '[:space:]')"
+        pid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idProduct" 2>/dev/null | tr -d '[:space:]')"
+        if [[ "$vid" == "28de" ]]; then
+            case "$pid" in
+                1304|1302|1005|1007)
+                    printf '%s:%s\n' "$vid" "$pid"
+                    return 0
+                    ;;
+            esac
+        fi
+    done
+    return 0
+}
 
 detect_gpu_vendor() {
     local vendor_file found_intel=0
@@ -441,10 +462,54 @@ PY
 fi
 
 GPU_VENDOR="$(detect_gpu_vendor)"
+ORIG_USE_STEAM_CONTROLLER_SET=0
+ORIG_USE_STEAM_CONTROLLER=""
+if [[ -n "${USE_STEAM_CONTROLLER+x}" ]]; then
+    ORIG_USE_STEAM_CONTROLLER_SET=1
+    ORIG_USE_STEAM_CONTROLLER="$USE_STEAM_CONTROLLER"
+fi
 PROFILE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles/$APPID.env"
 if [[ -n "$APPID" && -f "$PROFILE_FILE" ]]; then
     load_profile_safe "$PROFILE_FILE"
 fi
+if [[ "$ORIG_USE_STEAM_CONTROLLER_SET" -eq 1 ]]; then
+    USE_STEAM_CONTROLLER="$ORIG_USE_STEAM_CONTROLLER"
+fi
+if [[ -n "${STEAM_CONTROLLER:-}" ]]; then
+    USE_STEAM_CONTROLLER="$STEAM_CONTROLLER"
+fi
+DETECTED_STEAM_CONTROLLER="$(detect_steam_controller_2026)"
+SC_FORCE_XWAYLAND=0
+case "${USE_STEAM_CONTROLLER:-auto}" in
+    wayland-hdr|wayland_hdr|waylandhdr|WAYLAND-HDR)
+        AUTO_STEAM_CONTROLLER_MODE="wayland-hdr"
+        ;;
+    xwayland|x11|XWAYLAND|X11)
+        AUTO_STEAM_CONTROLLER_MODE="xwayland"
+        SC_FORCE_XWAYLAND=1
+        ;;
+    1|true|TRUE|on|ON|yes|YES)
+        if [[ -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+            AUTO_STEAM_CONTROLLER_MODE="wayland-hdr"
+        else
+            AUTO_STEAM_CONTROLLER_MODE="xwayland"
+            SC_FORCE_XWAYLAND=1
+        fi
+        ;;
+    0|false|FALSE|off|OFF|no|NO)
+        AUTO_STEAM_CONTROLLER_MODE="off"
+        ;;
+    auto|AUTO|"")
+        if [[ -n "$DETECTED_STEAM_CONTROLLER" ]]; then
+            if [[ ( -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ) && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 ]]; then
+                AUTO_STEAM_CONTROLLER_MODE="wayland-hdr"
+            else
+                AUTO_STEAM_CONTROLLER_MODE="xwayland"
+                SC_FORCE_XWAYLAND=1
+            fi
+        fi
+        ;;
+esac
 if [[ "${BLEEDING_EDGE:-0}" -eq 1 || "${USE_BLEEDING_EDGE:-0}" -eq 1 ]]; then
     AUTO_BLEEDING_EDGE=1
 fi
@@ -462,12 +527,16 @@ if [[ "$APPID" == "594650" ]]; then
     AUTO_BLEEDING_EDGE=0
 fi
 COMPAT_TOKENS=()
-if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 ]]; then
+if [[ "$AUTO_STEAM_CONTROLLER_MODE" == "wayland-hdr" && "$APPID" != "594650" ]]; then
+    USE_XWAYLAND=0
+    SC_FORCE_XWAYLAND=0
+fi
+if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 && "$SC_FORCE_XWAYLAND" -ne 1 ]]; then
     COMPAT_TOKENS+=("wayland")
 fi
 if [[ -n "${WINE_DISABLE_VULKAN_OPWR:-}" && "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
-elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 ]]; then
+elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 && "$SC_FORCE_XWAYLAND" -ne 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
 fi
 if [[ "$GPU_VENDOR" == "amd" && "${AUTO_NATIVE_AGS:-1}" -eq 1 ]]; then
@@ -499,7 +568,7 @@ fi
 if [[ "$APPID" != "594650" && ( "${MLFG:-0}" -eq 1 || "${USE_MLFG:-0}" -eq 1 ) ]]; then
     COMPAT_TOKENS+=("mlfg")
 fi
-if [[ "${SDL:-0}" -eq 1 || "${USE_SDL:-0}" -eq 1 ]]; then
+if [[ "$AUTO_STEAM_CONTROLLER_MODE" == "off" && ( "${SDL:-0}" -eq 1 || "${USE_SDL:-0}" -eq 1 ) ]]; then
     COMPAT_TOKENS+=("sdlinput")
 fi
 if [[ "${NO_NTSYNC:-0}" -eq 1 || "${USE_NO_NTSYNC:-0}" -eq 1 ||
@@ -518,7 +587,8 @@ if [[ "$JSON_MODE" -eq 1 ]]; then
         "$AUTO_SHARPEN" "$AUTO_OPTISCALER" "$AUTO_REASON" \
         "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$NTFS_MOUNT" \
         "$AUTO_PROTON_ADD_CONFIG" "$AUTO_IS_VR" "$AUTO_SOURCE" "$AUTO_UPSCALER_INFO" \
-        "$AUTO_XWAYLAND" "$AUTO_SAFEDX12" "$AUTO_NATIVE_AGS" "$AUTO_BLEEDING_EDGE" <<'PY'
+        "$AUTO_XWAYLAND" "$AUTO_SAFEDX12" "$AUTO_NATIVE_AGS" "$AUTO_BLEEDING_EDGE" \
+        "$AUTO_STEAM_CONTROLLER_MODE" <<'PY'
 import json
 import sys
 
@@ -527,7 +597,8 @@ import sys
     net_opt, cef_fix, sharpen, optiscaler, reason,
     has_dlss, has_xess, has_fsr, ntfs_mount, proton_add_config, is_vr,
     source, upscaler_info, xwayland, safedx12, native_ags, bleeding_edge,
-) = sys.argv[1:24]
+    steam_controller_mode,
+) = sys.argv[1:25]
 
 print(json.dumps({
     "app_id": appid or None,
@@ -545,6 +616,7 @@ print(json.dumps({
     "safedx12": safedx12 == "1",
     "native_ags": native_ags == "1",
     "bleeding_edge": bleeding_edge == "1",
+    "steam_controller_mode": steam_controller_mode,
     "rationale": reason,
     "upscaler_info": upscaler_info,
     "has_dlss": has_dlss == "1",
@@ -572,6 +644,7 @@ CEF Fix      : $AUTO_CEF_FIX
 Sharpen Layer: $AUTO_SHARPEN
 OptiScaler   : $AUTO_OPTISCALER (optional plugin)
 Bleeding-Edge: $AUTO_BLEEDING_EDGE
+Steam Ctrl   : $AUTO_STEAM_CONTROLLER_MODE
 Upscaler SDK : $AUTO_UPSCALER_INFO
 DLSS DLL     : $AUTO_HAS_DLSS
 XeSS DLL     : $AUTO_HAS_XESS
@@ -591,6 +664,7 @@ else
     printf 'AUTO_SAFEDX12=%q\n' "$AUTO_SAFEDX12"
     printf 'AUTO_NATIVE_AGS=%q\n' "$AUTO_NATIVE_AGS"
     printf 'AUTO_BLEEDING_EDGE=%q\n' "$AUTO_BLEEDING_EDGE"
+    printf 'AUTO_STEAM_CONTROLLER_MODE=%q\n' "$AUTO_STEAM_CONTROLLER_MODE"
     printf 'AUTO_NATIVE_LINUX=%q\n' "$AUTO_NATIVE_LINUX"
     printf 'AUTO_IS_VR=%q\n' "$AUTO_IS_VR"
     printf 'AUTO_SOURCE=%q\n' "$AUTO_SOURCE"

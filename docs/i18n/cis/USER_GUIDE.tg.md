@@ -2,7 +2,7 @@
 
 > [English User Guide](../../USER_GUIDE.md) · [i18n Index](../README.md)
 
-Ин дастур насби пурра, идоракунии оғози бозиҳои экрани муқаррарӣ (flatscreen) ва VR, Маркази идоракунии `steam-auto-ui`, ҳамоҳангсозии китобхона, санҷиши самаранокӣ (benchmarking) ва бартараф кардани мушкилотро барои **Steam Auto-Profiler v2.0** фаро мегирад.
+Ин дастур насби пурра, идоракунии оғози бозиҳои экрани муқаррарӣ (flatscreen) ва VR, Маркази идоракунии `steam-auto-ui`, ҳамоҳангсозии китобхона, санҷиши самаранокӣ (benchmarking) ва бартараф кардани мушкилотро барои **Steam Auto-Profiler v2.1** фаро мегирад.
 
 Steam Auto-Profiler як оғозкунанда ва маркази идоракунии сабуки Bash/Python барои Linux мебошад, ки Steam AppID (ё миёнбури ғайри-Steam)-ро месанҷад, профили мувофиқи вазъро бо маҳдудиятҳои қатъии драйвер/миқёссоз (upscaler)/античит татбиқ мекунад ва фармони мавҷудаи бозиро иҷро менамояд. Он ҳеҷ гоҳ муҳити Proton-и тарафи сеюмро ворид ё ҳамроҳ намекунад.
 
@@ -204,5 +204,16 @@ steam-auto-sync --remove              # Бардоштани қабати steam-
 - **Steam имконоти оғозро бармегардонад:** Пеш аз иҷрои `steam-auto-sync` ё `steam-auto-sync --sanitize` Steam-ро пурра пӯшед.
 - **Маҳдудияти нодуруст ё набудаи VRR:** `VRR_CAP=<fps>`-ро ошкоро таъин кунед, `VRR_CAP=0` барои хомӯш кардан, ё `VRR_MINUS_MARGIN=1` барои захираи `-6%`. Дар Gamescope танҳо `VRR_CAP`-и ошкоро маҳдудиятҳои DXVK/VKD3D-ро содир мекунад.
 - **Санҷиши QoS-и шабака:** `steam-net-boost status`-ро иҷро кунед (беимтиёз, танҳо-хониш). Агар QoS-и худкори сессия лозим бошад, ёрдамчии root-ро бо `./install.sh --with-net-boost` насб намоед.
+
+---
+
+## Навгониҳои v2.1 (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650 ва Steam Controller 2026)
+
+- **Парчамҳои Mesa 27.0 / RDNA 4:** `TRANSFER_QUEUE=1` (`RADV_PERFTEST=sam,transfer_queue` бе такрор барои RDNA 3/4), `NATIVE_ANTILAG=1` (`VK_AMD_anti_lag`-и нативӣ), `REFLEX_LAYER=1` (`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, дар античит ва MLFG манъ аст) ва `VK_VIDEO_DECODE=1` (`RADV_EXPERIMENTAL=video_decode`).
+- **Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`):** стеки таҷрибавӣ барои бозиҳои бе античит (`VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1`, `WAYLANDDRV_RAWINPUT=1` танҳо дар Wayland берун аз Gamescope).
+- **Муҳофизати Hunt: Showdown 1896 (`AppID 594650`):** `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0`, `USE_NET_OPT=1`-ро татбиқ мекунад; `--doctor` ва `steam-auto-ui` дар `config.vdf` мавҷудияти `Proton 11.0-2` / `Proton Hotfix`-ро месанҷанд.
+- **Steam Controller 2026 / Wireless Puck (`28de:{1302,1304,1005,1007}`):** 4 режим (`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`): `wayland-hdr` Wayland + HDR10 (`PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`, `PROTON_USE_SDL=0`, `PROTON_NO_STEAMINPUT=0`)-ро нигоҳ медорад, `steam://forceinputappid/<APPID>` ва мушоҳидачии `udevadm`-ро фаъол месозад ва ҳангоми баромад `steam://forceinputappid/0` барқарор мекунад. Дастӣ: `steam-auto-run --reapply-input <APPID|0>`; udev: `./install.sh --with-steam-controller`.
+
+---
 
 Барои ҷузъиёти меъморӣ ба [ARCHITECTURE.md](../../ARCHITECTURE.md), барои дастури асосии англисӣ ба [English User Guide](../../USER_GUIDE.md) ва барои ҳамаи 27 дастури тарҷумашуда ба [i18n Index](../README.md) нигаред.

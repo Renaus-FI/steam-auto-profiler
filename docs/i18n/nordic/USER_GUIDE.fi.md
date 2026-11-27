@@ -2,7 +2,7 @@
 
 > [English User Guide](../../USER_GUIDE.md) · [i18n Index](../README.md)
 
-Tämä opas kattaa **Steam Auto-Profiler v2.0**:n täydellisen asennuksen, tasoruutu- ja VR-käynnistysorkestroinnin, `steam-auto-ui`-hallintakeskuksen, kirjastojen synkronoinnin, suorituskykytestauksen ja vianmäärityksen.
+Tämä opas kattaa **Steam Auto-Profiler v2.1**:n täydellisen asennuksen, tasoruutu- ja VR-käynnistysorkestroinnin, `steam-auto-ui`-hallintakeskuksen, kirjastojen synkronoinnin, suorituskykytestauksen ja vianmäärityksen.
 
 Steam Auto-Profiler on kevyt Bash/Python-käynnistin ja hallintakeskus Linuxille, joka tunnistaa Steam AppID:n (tai muun kuin Steamin pikakuvakkeen), soveltaa tilannekohtaisen profiilin tiukoilla ajuri-, skaalain- ja huijauksenestosuojauksilla ja käynnistää pelin olemassa olevan käynnistyskomennon. Se ei koskaan sisällytä tai injektoi kolmannen osapuolen Proton-ajonaikaa.
 
@@ -204,5 +204,19 @@ Profiilitiedostot sijaitsevat polussa `~/.config/steam-auto-profiler/profiles/<A
 - **Steam palauttaa vanhat käynnistysasetukset:** Sulje Steam kokonaan ennen komentojen `steam-auto-sync` tai `steam-auto-sync --sanitize` ajamista.
 - **Väärä tai puuttuva VRR-rajoitus:** Aseta `VRR_CAP=<fps>` suoraan, `VRR_CAP=0` rajoituksen poistamiseksi tai `VRR_MINUS_MARGIN=1` `-6%` marginaalille. Gamescopessa vain erikseen asetettu `VRR_CAP` vie DXVK/VKD3D-rajoitukset.
 - **Verkko-QoS:n tarkistus:** Aja `steam-net-boost status` (etuoikeudeton vain luku -tila). Asenna pääkäyttäjän apuri komennolla `./install.sh --with-net-boost`, jos haluat automaattisen istuntokohtaisen QoS:n.
+
+---
+
+## Uutta versiossa v2.1 (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650 ja Steam Controller 2026)
+
+- **Mesa 27.0 / RDNA 4 -asetukset:** `TRANSFER_QUEUE=1` (deduplikoitu `RADV_PERFTEST=sam,transfer_queue` RDNA 3/4 -näytönohjaimilla), `NATIVE_ANTILAG=1` (natiivi `VK_AMD_anti_lag` ilman vanhaa kerrosta), `REFLEX_LAYER=1` (`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, estetty huijauksenestopeleissä ja MLFG:ssä) sekä `VK_VIDEO_DECODE=1` (`RADV_EXPERIMENTAL=video_decode`).
+- **Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`):** Valinnainen kokeellinen tila (ei huijauksenestopeleille), joka aktivoi deduplikoitujen RADV-lippujen lisäksi asetukset `VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer`, `VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_FSR4_UPGRADE=1`, `PROTON_NATIVE_AGS=1`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1` ja `WAYLANDDRV_RAWINPUT=1` (vain natiivissa Waylandissa Gamescopen ulkopuolella).
+- **Hunt: Showdown 1896 (`AppID 594650`) -yhteensopivuussuoja:** Pakottaa automaattisesti tilan `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0` ja `USE_NET_OPT=1`. Komennot `steam-auto-run --doctor` ja `steam-auto-ui` tarkistavat lisäksi `config/config.vdf` `CompatToolMapping`-merkinnän (suositus: Valven `Proton 11.0-2` tai `Proton Hotfix`).
+- **Steam Controller 2026 (`Triton`/`Proteus`) & Wireless Steam Puck (`28de:{1302,1304,1005,1007}`):**
+  - Neljä reititystilaa (`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`, valittavissa myös `steam-auto-ui`:ssa ja TUI:n pikanäppäimellä `c`): `auto` valitsee Waylandissa oletuksena tilan `wayland-hdr` (ja X11:ssä `xwayland`).
+  - `wayland-hdr` säilyttää natiivin `winewayland.drv` + OLED HDR10 -tuen (`USE_XWAYLAND=0`, `PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`) ilman turhaa `LD_PRELOAD`-kuormaa, asettaa `PROTON_USE_SDL=0`, `PROTON_PREFER_SDL=0`, `PROTON_NO_STEAMINPUT=0` (ilman `sdlinput`-tunnistetta), lukitsee pelin Steam Input -profiilin komennolla `steam://forceinputappid/<APPID>` ja valvoo automaattisesti ohjaimen uudelleenyhdistämisiä (`udevadm monitor`) palauttaen työpöytäasettelun (`steam://forceinputappid/0`) pelin päättyessä.
+  - Käytä komentoa `steam-auto-run --reapply-input <APPID|0>` manuaaliseen uudelleenaktivointiin ja `./install.sh --with-steam-controller` udev-sääntöjen (`/etc/udev/rules.d/61-steam-controller-2026.rules`) asentamiseen.
+
+---
 
 Katso suunnittelun yksityiskohdat tiedostosta [ARCHITECTURE.md](../../ARCHITECTURE.md), englanninkielinen pääopas osoitteesta [English User Guide](../../USER_GUIDE.md) ja kaikki 27 kieliversiota hakemistosta [i18n Index](../README.md).

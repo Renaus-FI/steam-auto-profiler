@@ -2,7 +2,7 @@
 
 > [English User Guide](../../USER_GUIDE.md) | [i18n Index](../README.md)
 
-이 가이드는 **Steam Auto-Profiler v2.0**의 전체 설치, 일반 화면(flatscreen) 및 VR 실행 오케스트레이션, `steam-auto-ui` 제어 센터, 라이브러리 동기화, 벤치마킹 및 문제 해결 워크플로를 다룹니다.
+이 가이드는 **Steam Auto-Profiler v2.1**의 전체 설치, 일반 화면(flatscreen) 및 VR 실행 오케스트레이션, `steam-auto-ui` 제어 센터, 라이브러리 동기화, 벤치마킹 및 문제 해결 워크플로를 다룹니다.
 
 Steam Auto-Profiler는 Steam AppID(또는 비-Steam 바로가기)를 검사하고, 드라이버/업스케일러/안티치트에 대한 엄격한 안전장치(guardrail)가 적용된 상황별 프로파일을 설정한 뒤 기존 게임 명령을 실행하는 가벼운 리눅스용 Bash/Python 런처이자 제어 센터입니다. 서드파티 Proton 런타임을 번들링하거나 주입하지 않습니다.
 
@@ -204,5 +204,16 @@ steam-auto-sync --remove              # steam-auto-run 래퍼 제거
 - **Steam이 시작 옵션을 되돌림:** `steam-auto-sync` 또는 `steam-auto-sync --sanitize`를 실행하기 전에 Steam을 완전히 종료하세요.
 - **잘못되었거나 누락된 VRR 상한:** `VRR_CAP=<fps>`를 명시적으로 지정하거나 `VRR_CAP=0`으로 비활성화하고, `-6%` 여유가 필요하면 `VRR_MINUS_MARGIN=1`을 설정하세요. Gamescope에서는 명시적 `VRR_CAP`만 DXVK/VKD3D 상한을 내보냅니다.
 - **네트워크 QoS 점검:** `steam-net-boost status`(비권한 읽기 전용)를 실행하세요. 자동 세션 QoS를 원하면 `./install.sh --with-net-boost`로 root 도우미를 설치하세요.
+
+---
+
+## v2.1 새로운 기능 (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650, Steam Controller 2026)
+
+- **Mesa 27.0 / RDNA 4 플래그:** `TRANSFER_QUEUE=1`(RDNA 3/4 중복 제거 `RADV_PERFTEST=sam,transfer_queue`), `NATIVE_ANTILAG=1`(네이티브 `VK_AMD_anti_lag`), `REFLEX_LAYER=1`(`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, 안티치트/MLFG 차단), `VK_VIDEO_DECODE=1`(`RADV_EXPERIMENTAL=video_decode`).
+- **Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`):** 비안티치트 타이틀용 실험 스택(`VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer`, `VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_FSR4_UPGRADE=1`, `PROTON_NATIVE_AGS=1`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1`, Gamescope 외 네이티브 Wayland 전용 `WAYLANDDRV_RAWINPUT=1`).
+- **Hunt: Showdown 1896 (`AppID 594650`) 호환성 가드:** `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0`, `USE_NET_OPT=1`을 강제하며 `--doctor`와 `steam-auto-ui`에서 `config.vdf`(`Proton 11.0-2` / `Proton Hotfix`)를 점검합니다.
+- **Steam Controller 2026 / Wireless Steam Puck (`28de:{1302,1304,1005,1007}`):** 4가지 모드(`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`): `wayland-hdr`는 네이티브 Wayland + HDR10(`PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`, `PROTON_USE_SDL=0`, `PROTON_NO_STEAMINPUT=0`, `sdlinput` 제외)을 유지하고 `steam://forceinputappid/<APPID>` 및 `udevadm` 재연결 감시자를 실행하며 종료 시 `steam://forceinputappid/0`으로 복원합니다. 수동 재적용: `steam-auto-run --reapply-input <APPID|0>`; udev 규칙: `./install.sh --with-steam-controller`.
+
+---
 
 내부 설계는 [ARCHITECTURE.md](../../ARCHITECTURE.md), 공식 영문 가이드는 [English User Guide](../../USER_GUIDE.md), 27개 언어 가이드 목록은 [i18n Index](../README.md)를 참고하세요.

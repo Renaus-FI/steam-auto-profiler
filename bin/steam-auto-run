@@ -27,7 +27,7 @@ done
 if [[ $# -gt 0 ]]; then
     if [[ "${SteamAppId:-}" == "250820" || "${STEAM_COMPAT_APP_ID:-}" == "250820" ]]; then
         case "${1:-}" in
-            -h|--help|--inspect|-i|--doctor|--check-system|--reset|--list-profiles|--last-log|--configure|--dry-run|--ui)
+            -h|--help|--inspect|-i|--doctor|--check-system|--reset|--list-profiles|--last-log|--configure|--dry-run|--ui|--reapply-input)
                 ;;
             *)
                 exec "$@"
@@ -86,6 +86,8 @@ Options:
   --last-log [APPID] Show the bounded last-launch log
   --doctor, --check-system
                     Run a read-only CachyOS system readiness audit
+  --reapply-input <APPID|0>
+                    Re-apply Steam Input layout via steam://forceinputappid/<APPID> (0 resets to desktop)
   --ui              Launch the unified Qt6 GUI / curses TUI control center
 
 Environment overrides:
@@ -117,13 +119,42 @@ Environment overrides:
   REFLEX_LAYER=1    Enable Reflex -> Anti-Lag 2 translation layer (off in anti-cheat/MLFG)
   VK_VIDEO_DECODE=1 Enable Mesa 27.0 Vulkan video decode (RADV_EXPERIMENTAL=video_decode)
   BLEEDING_EDGE=1   Enable Ultra Bleeding-Edge experimental Mesa 27 / VKD3D / Proton 11 stack (non-anticheat)
-  USE_STEAM_CONTROLLER=auto|1|0
-                    Auto-route Steam Controller 2026 / Puck (28de:{1302,1304,1005,1007}) via XWayland + PROTON_USE_SDL=1
+  USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off
+                    Route Steam Controller 2026 / Puck (28de:{1302,1304,1005,1007}) via native Wayland+HDR + forceinputappid (default on Wayland), XWayland fallback, or off (legacy 1/0 supported)
 EOF
 }
 
 USB_SYSFS_DIR="${SAP_USB_DIR:-/sys/bus/usb/devices}"
 UDEV_RULES_DIR="${SAP_UDEV_RULES_DIR:-/etc/udev/rules.d}"
+
+is_wayland_session() {
+    [[ -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ]]
+}
+
+dedupe_csv_tokens() {
+    local input="$1"
+    local out="" tok
+    local -A seen=()
+    local -a parts=()
+    IFS=',' read -r -a parts <<<"$input"
+    for tok in "${parts[@]}"; do
+        tok="${tok#"${tok%%[![:space:]]*}"}"
+        tok="${tok%"${tok##*[![:space:]]}"}"
+        [[ -n "$tok" ]] || continue
+        if [[ -z "${seen[$tok]:-}" ]]; then
+            seen["$tok"]=1
+            out="${out:+${out},}${tok}"
+        fi
+    done
+    printf '%s' "$out"
+}
+
+send_steam_force_input_appid() {
+    local target_appid="$1"
+    [[ "$target_appid" =~ ^[0-9]+$ ]] || return 1
+    command -v steam >/dev/null 2>&1 || return 1
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH steam "steam://forceinputappid/${target_appid}" >/dev/null 2>&1 || true
+}
 
 detect_steam_controller_2026_path() {
     local dev_dir vid pid
@@ -453,14 +484,81 @@ PY
         fi
     fi
 
+    if command -v vulkaninfo >/dev/null 2>&1; then
+        local vk_out="" vk_ext=""
+        local -a vk_present=() vk_missing=()
+        vk_out="$(vulkaninfo 2>/dev/null || true)"
+        for vk_ext in VK_AMD_anti_lag VK_EXT_descriptor_heap VK_KHR_maintenance12; do
+            if grep -Fq "$vk_ext" <<<"$vk_out"; then
+                vk_present+=("$vk_ext")
+            else
+                vk_missing+=("$vk_ext")
+            fi
+        done
+        if (( ${#vk_present[@]} == 3 )); then
+            echo "[OK] Vulkan RADV readiness: ${vk_present[*]}"
+        elif (( ${#vk_present[@]} > 0 )); then
+            echo "[INFO] Vulkan RADV extensions present: ${vk_present[*]} (missing: ${vk_missing[*]})"
+        else
+            echo "[INFO] Vulkan RADV extensions (VK_AMD_anti_lag, VK_EXT_descriptor_heap, VK_KHR_maintenance12) not reported by vulkaninfo"
+        fi
+    else
+        echo "[INFO] vulkaninfo not found; skipping Vulkan RADV extension check"
+    fi
+
+    local scx_ops=""
+    if [[ -r /sys/kernel/sched_ext/root/ops ]]; then
+        scx_ops="$(tr -d '[:space:]' < /sys/kernel/sched_ext/root/ops 2>/dev/null || true)"
+    fi
+    if [[ "${scx_ops,,}" == *cake* ]]; then
+        echo "[OK] CachyOS 261122 stack: scx_cake active (${scx_ops})"
+    elif command -v scx_cake >/dev/null 2>&1; then
+        echo "[INFO] CachyOS 261122 stack: scx_cake installed (active ops: ${scx_ops:-none})"
+    else
+        echo "[INFO] CachyOS 261122 stack: scx_cake not detected (active ops: ${scx_ops:-none})"
+    fi
+
+    if command -v pacman >/dev/null 2>&1; then
+        local pkg_dump=""
+        pkg_dump="$(pacman -Q bpftune-gaming bpftune bpftune-git cachyos-drm-awaiter game-devices-udev 2>/dev/null || true)"
+        if grep -qE '^bpftune-gaming[[:space:]]' <<<"$pkg_dump"; then
+            echo "[OK] CachyOS stack: $(grep -m1 -E '^bpftune-gaming[[:space:]]' <<<"$pkg_dump")"
+        elif grep -qE '^bpftune(-git)?[[:space:]]' <<<"$pkg_dump"; then
+            echo "[INFO] CachyOS stack: $(grep -m1 -E '^bpftune(-git)?[[:space:]]' <<<"$pkg_dump") (optional upgrade: bpftune-gaming)"
+        else
+            echo "[INFO] CachyOS stack: bpftune / bpftune-gaming not installed"
+        fi
+        if grep -qE '^cachyos-drm-awaiter[[:space:]]' <<<"$pkg_dump"; then
+            echo "[OK] CachyOS stack: $(grep -m1 -E '^cachyos-drm-awaiter[[:space:]]' <<<"$pkg_dump")"
+        else
+            echo "[INFO] CachyOS stack: cachyos-drm-awaiter not installed (optional DRM module chain-loader)"
+        fi
+        if grep -qE '^game-devices-udev[[:space:]]' <<<"$pkg_dump"; then
+            echo "[OK] CachyOS stack: $(grep -m1 -E '^game-devices-udev[[:space:]]' <<<"$pkg_dump")"
+        else
+            echo "[INFO] CachyOS stack: game-devices-udev not installed"
+        fi
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet systemd-oomd.service 2>/dev/null; then
+            echo "[OK] CachyOS stack: systemd-oomd.service is active"
+        elif systemctl is-enabled --quiet systemd-oomd.service 2>/dev/null; then
+            echo "[OK] CachyOS stack: systemd-oomd.service is enabled"
+        else
+            echo "[INFO] CachyOS stack: systemd-oomd.service is inactive/disabled"
+        fi
+    fi
+
     local sc_dev_path=""
     sc_dev_path="$(detect_steam_controller_2026_path)"
     local sc_rule="$UDEV_RULES_DIR/61-steam-controller-2026.rules"
+    local sc_mm_ignored=0
     if [[ -n "$sc_dev_path" ]]; then
         local sc_vid sc_pid sc_pwr=""
         sc_vid="$(tr '[:upper:]' '[:lower:]' < "$sc_dev_path/idVendor" 2>/dev/null | tr -d '[:space:]')"
         sc_pid="$(tr '[:upper:]' '[:lower:]' < "$sc_dev_path/idProduct" 2>/dev/null | tr -d '[:space:]')"
-        echo "[INFO] Steam Controller 2026 / Puck detected: ${sc_vid}:${sc_pid} (auto Steam Input routing active)"
+        echo "[INFO] Steam Controller 2026 / Puck detected: ${sc_vid}:${sc_pid} (auto routing: wayland-hdr on Wayland / xwayland on X11)"
         if [[ -r "$sc_dev_path/power/control" ]]; then
             sc_pwr="$(tr -d '[:space:]' < "$sc_dev_path/power/control" 2>/dev/null || true)"
             if [[ "$sc_pwr" == "on" ]]; then
@@ -471,6 +569,9 @@ PY
         fi
     fi
     if [[ -r "$sc_rule" ]]; then
+        if grep -q 'ID_MM_DEVICE_IGNORE' "$sc_rule"; then
+            sc_mm_ignored=1
+        fi
         if grep -q 'ID_MM_DEVICE_IGNORE' "$sc_rule" &&
            grep -q 'SUBSYSTEM=="tty"' "$sc_rule" &&
            grep -q 'power/control' "$sc_rule"; then
@@ -482,6 +583,13 @@ PY
         echo "[WARN] Steam Controller 2026 udev rules ($sc_rule) not installed; run './install.sh --with-steam-controller' for zero-latency and firmware-ready permissions"
     else
         echo "[INFO] Steam Controller 2026 udev rules ($sc_rule) not installed (optional: './install.sh --with-steam-controller')"
+    fi
+    if [[ "$sc_mm_ignored" -eq 1 ]]; then
+        echo "[OK] ModemManager safely ignored for Steam Controller 2026 (ID_MM_DEVICE_IGNORE=1)"
+    elif command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ModemManager.service 2>/dev/null; then
+        echo "[WARN] ModemManager is active without ID_MM_DEVICE_IGNORE=1 for Steam Controller 2026; run './install.sh --with-steam-controller'"
+    else
+        echo "[INFO] ModemManager is inactive or not installed"
     fi
 }
 
@@ -502,6 +610,27 @@ case "${1:-}" in
         ;;
     --doctor|--check-system)
         run_doctor
+        exit 0
+        ;;
+    --reapply-input)
+        if [[ -z "${2:-}" || ! "${2:-}" =~ ^[0-9]+$ ]]; then
+            echo "Usage: steam-auto-run --reapply-input <APPID|0>" >&2
+            exit 2
+        fi
+        if ! command -v steam >/dev/null 2>&1; then
+            echo "Error: steam executable not found in PATH." >&2
+            exit 1
+        fi
+        if ! pgrep -x steam >/dev/null 2>&1; then
+            echo "Error: Steam is not running." >&2
+            exit 1
+        fi
+        send_steam_force_input_appid "$2"
+        if [[ "$2" == "0" ]]; then
+            echo "Reset Steam Input layout to desktop (steam://forceinputappid/0)."
+        else
+            echo "Applied Steam Input layout for AppID $2 (steam://forceinputappid/$2)."
+        fi
         exit 0
         ;;
     --ui)
@@ -1178,21 +1307,47 @@ if [[ -z "${FSR4+x}" && -n "${USE_FSR4+x}" ]]; then
 fi
 
 DETECTED_STEAM_CONTROLLER="$(detect_steam_controller_2026)"
-STEAM_CONTROLLER_ACTIVE=0
+STEAM_CONTROLLER_MODE="off"
 case "${USE_STEAM_CONTROLLER,,}" in
+    wayland-hdr|wayland_hdr|waylandhdr)
+        STEAM_CONTROLLER_MODE="wayland-hdr"
+        ;;
+    xwayland|x11)
+        STEAM_CONTROLLER_MODE="xwayland"
+        ;;
     1|true|on|yes)
-        STEAM_CONTROLLER_ACTIVE=1
+        if is_wayland_session; then
+            STEAM_CONTROLLER_MODE="wayland-hdr"
+        else
+            STEAM_CONTROLLER_MODE="xwayland"
+        fi
         ;;
     0|false|off|no)
-        STEAM_CONTROLLER_ACTIVE=0
+        STEAM_CONTROLLER_MODE="off"
         ;;
     auto|"")
-        [[ -n "$DETECTED_STEAM_CONTROLLER" ]] && STEAM_CONTROLLER_ACTIVE=1
+        if [[ -n "$DETECTED_STEAM_CONTROLLER" ]]; then
+            if is_wayland_session && [[ "$USE_XWAYLAND" -eq 0 ]]; then
+                STEAM_CONTROLLER_MODE="wayland-hdr"
+            else
+                STEAM_CONTROLLER_MODE="xwayland"
+            fi
+        fi
         ;;
 esac
-if [[ "$STEAM_CONTROLLER_ACTIVE" -eq 1 ]]; then
+if [[ "$STEAM_CONTROLLER_MODE" == "wayland-hdr" ]]; then
+    USE_XWAYLAND=0
+    USE_SDL=0
+    export PROTON_USE_SDL=0
+    export PROTON_PREFER_SDL=0
+    export PROTON_NO_STEAMINPUT=0
+elif [[ "$STEAM_CONTROLLER_MODE" == "xwayland" ]]; then
     USE_XWAYLAND=1
-    export PROTON_USE_SDL=1
+    USE_KEEP_OVERLAY=1
+    USE_SDL=0
+    export PROTON_USE_SDL=0
+    export PROTON_PREFER_SDL=0
+    export PROTON_NO_STEAMINPUT=0
 fi
 
 # Built-in Per-AppID Compatibility Rule: Hunt: Showdown 1896 (AppID 594650)
@@ -1247,12 +1402,16 @@ if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" ]];
     export PROTON_MEDIA_FORCE_GST=1
     if [[ "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 ]]; then
         export WAYLANDDRV_RAWINPUT="${WAYLANDDRV_RAWINPUT:-1}"
+    else
+        unset WAYLANDDRV_RAWINPUT
     fi
 fi
 
 if [[ "$GAMESCOPE_SESSION" -eq 1 ]]; then
+    unset WAYLANDDRV_RAWINPUT
     : # Gamescope owns display backend and window flags.
 elif [[ "$USE_XWAYLAND" -eq 1 ]]; then
+    unset WAYLANDDRV_RAWINPUT
     export PROTON_ENABLE_WAYLAND=0
     export SDL_VIDEODRIVER=x11
 else
@@ -1264,7 +1423,6 @@ else
     if [[ "${DXVK_NO_HDR:-0}" != "1" ]]; then
         export DXVK_HDR="${DXVK_HDR:-1}"
     fi
-
 fi
 
 # Gamescope applies its own pacing; do not export DXVK/VKD3D caps there.
@@ -1413,17 +1571,19 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
             [[ -n "$_radv_tok" && "$_radv_tok" != "video_decode" ]] || continue
             _radv_clean="${_radv_clean:+${_radv_clean},}${_radv_tok}"
         done
-        export RADV_PERFTEST="${_radv_clean:-sam}"
+        RADV_PERFTEST="${_radv_clean:-sam}"
     fi
     if [[ "$USE_TRANSFER_QUEUE" -eq 1 && ( "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ) ]]; then
-        if [[ ",${RADV_PERFTEST:-}," != *",transfer_queue,"* ]]; then
-            export RADV_PERFTEST="${RADV_PERFTEST:+${RADV_PERFTEST},}transfer_queue"
-        fi
+        RADV_PERFTEST="${RADV_PERFTEST:+${RADV_PERFTEST},}transfer_queue"
     fi
+    RADV_PERFTEST="$(dedupe_csv_tokens "${RADV_PERFTEST:-sam}")"
+    export RADV_PERFTEST="${RADV_PERFTEST:-sam}"
     if [[ "$USE_VK_VIDEO_DECODE" -eq 1 ]]; then
-        if [[ ",${RADV_EXPERIMENTAL:-}," != *",video_decode,"* ]]; then
-            export RADV_EXPERIMENTAL="${RADV_EXPERIMENTAL:+${RADV_EXPERIMENTAL},}video_decode"
-        fi
+        RADV_EXPERIMENTAL="${RADV_EXPERIMENTAL:+${RADV_EXPERIMENTAL},}video_decode"
+    fi
+    if [[ -n "${RADV_EXPERIMENTAL:-}" ]]; then
+        RADV_EXPERIMENTAL="$(dedupe_csv_tokens "${RADV_EXPERIMENTAL}")"
+        export RADV_EXPERIMENTAL
     fi
 fi
 if [[ "$USE_SAFEDX12" -eq 0 ]]; then
@@ -1439,7 +1599,7 @@ fi
 COMPAT_TOKENS=()
 if [[ "$USE_XWAYLAND" -ne 1 ]]; then COMPAT_TOKENS+=("wayland"); fi
 if [[ "$GPU_VENDOR" == "amd" && "${PROTON_NATIVE_AGS:-1}" != "0" ]]; then COMPAT_TOKENS+=("nativeags"); fi
-if [[ "$USE_SDL" -eq 1 || "$STEAM_CONTROLLER_ACTIVE" -eq 1 ]]; then COMPAT_TOKENS+=("sdlinput"); fi
+if [[ "$USE_SDL" -eq 1 && "$STEAM_CONTROLLER_MODE" == "off" ]]; then COMPAT_TOKENS+=("sdlinput"); fi
 if [[ "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("noopwr"); fi
 if [[ "$USE_SAFEDX12" -eq 0 ]]; then COMPAT_TOKENS+=("vkd3dbindlesstb"); fi
 if [[ "${PROTON_LOCAL_SHADER_CACHE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("localshadercache"); fi
@@ -1456,6 +1616,20 @@ if [[ "$USE_NO_DECORATION" -eq 1 ]]; then COMPAT_TOKENS+=("nowmdecoration"); fi
 
 # Preserve explicit user compat configuration and append profiler-managed tokens.
 if [[ -n "${PROTON_ADD_CONFIG:-}" || ${#COMPAT_TOKENS[@]} -gt 0 ]]; then
+    if [[ "$STEAM_CONTROLLER_MODE" != "off" ]]; then
+        _sc_strip_sdl() {
+            local raw="$1" cleaned="" tok
+            local -a items=()
+            IFS=',' read -r -a items <<<"$raw"
+            for tok in "${items[@]}"; do
+                [[ -n "$tok" && "$tok" != "sdlinput" ]] || continue
+                cleaned="${cleaned:+${cleaned},}${tok}"
+            done
+            printf '%s' "$cleaned"
+        }
+        PROTON_ADD_CONFIG="$(_sc_strip_sdl "${PROTON_ADD_CONFIG:-}")"
+        STEAM_COMPAT_CONFIG="$(_sc_strip_sdl "${STEAM_COMPAT_CONFIG:-}")"
+    fi
     export PROTON_ADD_CONFIG="${PROTON_ADD_CONFIG:-}"
     export STEAM_COMPAT_CONFIG="${STEAM_COMPAT_CONFIG:-}"
     for compat_token in "${COMPAT_TOKENS[@]}"; do
@@ -1522,8 +1696,12 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     if [[ "$USE_BLEEDING_EDGE" -eq 1 ]]; then
         echo "Bleeding-edge: enabled"
     fi
-    if [[ "$STEAM_CONTROLLER_ACTIVE" -eq 1 ]]; then
-        echo "Steam Controller 2026: active (${DETECTED_STEAM_CONTROLLER:-forced})"
+    if [[ "$STEAM_CONTROLLER_MODE" != "off" ]]; then
+        echo "Steam Controller 2026: ${STEAM_CONTROLLER_MODE} (${DETECTED_STEAM_CONTROLLER:-forced})"
+        if [[ "$STEAM_CONTROLLER_MODE" == "wayland-hdr" && "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 ]] &&
+           [[ "$APPID" =~ ^[0-9]+$ ]] && (( APPID > 0 )); then
+            echo "Steam Input hook: steam://forceinputappid/${APPID} (auto-reconnect watcher; reset steam://forceinputappid/0 on exit)"
+        fi
     fi
     if [[ "${AUTO_HDR_SWITCH:-0}" -eq 1 ]]; then
         echo "HDR auto-switch: ${HDR_AUTO_TARGET:-unavailable} (state=${HDR_AUTO_STATE:-unknown})"
@@ -1638,13 +1816,84 @@ done
 
 NET_BOOST_ACTIVE=0
 HDR_RESTORE_OUTPUT=""
+STEAM_INPUT_WATCHER_PID=""
+STEAM_INPUT_WATCHER_PGROUP=0
+STEAM_INPUT_FORCE_ACTIVE=0
 LAUNCH_HOOKS_CLEANED=0
+
+start_steam_input_watcher() {
+    local appid="$1"
+    local delay1="${SAP_FORCE_INPUT_DELAY1:-3}"
+    local delay2="${SAP_FORCE_INPUT_DELAY2:-5}"
+    local debounce="${SAP_FORCE_INPUT_DEBOUNCE:-2}"
+
+    # shellcheck disable=SC2016
+    local watcher_script='
+        appid="$1"
+        delay1="$2"
+        delay2="$3"
+        debounce="$4"
+
+        fire_force_input() {
+            env -u LD_PRELOAD -u LD_LIBRARY_PATH steam "steam://forceinputappid/${appid}" >/dev/null 2>&1 || true
+        }
+
+        if [[ "$delay1" != "0" ]]; then
+            sleep "$delay1"
+        fi
+        fire_force_input
+        if [[ "$delay2" != "0" ]]; then
+            sleep "$delay2"
+            fire_force_input
+        fi
+
+        command -v udevadm >/dev/null 2>&1 || exit 0
+        last_fire=0
+        while IFS= read -r line; do
+            case "$line" in
+                UDEV*add*|UDEV*bind*|UDEV*change*)
+                    lower_line="${line,,}"
+                    if [[ "$lower_line" == *"28de"* || "$lower_line" == *"hidraw"* ]]; then
+                        now="$(date +%s)"
+                        if (( now - last_fire >= debounce )); then
+                            last_fire="$now"
+                            fire_force_input
+                        fi
+                    fi
+                    ;;
+            esac
+        done < <(udevadm monitor --udev --subsystem-match=hidraw --subsystem-match=usb 2>/dev/null)
+    '
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid bash -c "$watcher_script" _ "$appid" "$delay1" "$delay2" "$debounce" </dev/null >/dev/null 2>&1 &
+        STEAM_INPUT_WATCHER_PID=$!
+        STEAM_INPUT_WATCHER_PGROUP=1
+    else
+        bash -c "$watcher_script" _ "$appid" "$delay1" "$delay2" "$debounce" </dev/null >/dev/null 2>&1 &
+        STEAM_INPUT_WATCHER_PID=$!
+        STEAM_INPUT_WATCHER_PGROUP=0
+    fi
+}
 
 # shellcheck disable=SC2317
 # shellcheck disable=SC2329
 cleanup_launch_hooks() {
     [[ "$LAUNCH_HOOKS_CLEANED" -eq 0 ]] || return 0
     LAUNCH_HOOKS_CLEANED=1
+    if [[ -n "$STEAM_INPUT_WATCHER_PID" ]]; then
+        if [[ "$STEAM_INPUT_WATCHER_PGROUP" -eq 1 ]]; then
+            kill -TERM -- "-$STEAM_INPUT_WATCHER_PID" 2>/dev/null || kill -TERM "$STEAM_INPUT_WATCHER_PID" 2>/dev/null || true
+        else
+            kill -TERM "$STEAM_INPUT_WATCHER_PID" 2>/dev/null || true
+        fi
+        wait "$STEAM_INPUT_WATCHER_PID" 2>/dev/null || true
+        STEAM_INPUT_WATCHER_PID=""
+    fi
+    if [[ "$STEAM_INPUT_FORCE_ACTIVE" -eq 1 ]]; then
+        STEAM_INPUT_FORCE_ACTIVE=0
+        send_steam_force_input_appid 0
+    fi
     if [[ "$NET_BOOST_ACTIVE" -eq 1 && -n "$NET_BOOST_BIN" ]]; then
         sudo -n "$NET_BOOST_BIN" off --pid "$$" >/dev/null 2>&1 || true
     fi
@@ -1663,6 +1912,15 @@ if [[ -n "$HDR_AUTO_TARGET" && "$HDR_AUTO_STATE" == "disabled" ]] && command -v 
     HDR_RESTORE_OUTPUT="$HDR_AUTO_TARGET"
     trap cleanup_launch_hooks EXIT INT TERM
     kscreen-doctor "output.${HDR_AUTO_TARGET}.hdr.enable" >/dev/null 2>&1 || true
+fi
+
+if [[ "$STEAM_CONTROLLER_MODE" == "wayland-hdr" && "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 ]] &&
+   [[ "$APPID" =~ ^[0-9]+$ ]] && (( APPID > 0 )) &&
+   command -v steam >/dev/null 2>&1 &&
+   pgrep -x steam >/dev/null 2>&1; then
+    STEAM_INPUT_FORCE_ACTIVE=1
+    trap cleanup_launch_hooks EXIT INT TERM
+    start_steam_input_watcher "$APPID"
 fi
 
 if [[ "$BENCH_ACTIVE" -eq 1 ]]; then

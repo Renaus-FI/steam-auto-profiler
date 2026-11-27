@@ -123,6 +123,7 @@ _I18N_KEYS: tuple[str, ...] = (
     "bcol_timestamp", "bcol_avg_fps", "bcol_low_1pct", "bcol_p99", "bcol_samples", "bcol_vrr_cap",
     "val_on", "val_off", "tui_status_help",
     "tip_lang_select", "tip_refresh_library", "tip_save_profile", "tip_dry_run", "tip_safe_mode",
+    "sc_mode_auto", "sc_mode_wayland_hdr", "sc_mode_xwayland", "sc_mode_off",
 )
 
 _I18N_PACKS: dict[str, tuple[str, ...]] = {
@@ -157,6 +158,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Timestamp", "Avg FPS", "1% Low FPS", "P99 (ms)", "Samples", "VRR Cap",
         "On", "Off", "Tabs: 1-5/Tab | L:Lang ({lang}) | q:Quit",
         "Switch interface language live", "Rescan Steam libraries and Non-Steam shortcuts.vdf", "Save validated profile to profiles/<APPID>.env", "Preview resolved launch environment without launching", "Save USE_XWAYLAND=1 and USE_SAFEDX12=1 for crash recovery",
+        "Auto", "Wayland + HDR", "XWayland", "Off",
     ),
     "fi": (
         "Steam Auto-Profiler -hallintakeskus", "Kieli:", "Valmis", "Ladataan kirjastoa ja telemetriaa...",
@@ -189,6 +191,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Aikaleima", "Keski-FPS", "1% Low FPS", "P99 (ms)", "Näytteet", "VRR-raja",
         "Päällä", "Pois", "Välilehdet: 1-5/Tab | L:Kieli ({lang}) | q:Lopeta",
         "Vaihda käyttöliittymän kieli lennossa", "Skannaa Steam-kirjastot ja shortcuts.vdf uudelleen", "Tallenna tarkistettu profiili tiedostoon profiles/<APPID>.env", "Esikatsele käynnistysmuuttujat käynnistämättä peliä", "Tallenna USE_XWAYLAND=1 ja USE_SAFEDX12=1 kaatumisesta palautumiseen",
+        "Auto", "Wayland + HDR", "XWayland", "Pois",
     ),
     "ru": (
         "Центр управления Steam Auto-Profiler", "Язык:", "Готово", "Загрузка библиотеки и телеметрии...",
@@ -221,6 +224,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Время", "Сред. FPS", "1% Low FPS", "P99 (мс)", "Сэмплы", "Лимит VRR",
         "Вкл", "Выкл", "Вкладки: 1-5/Tab | L:Язык ({lang}) | q:Выход",
         "Переключить язык интерфейса на лету", "Повторно просканировать библиотеки Steam и shortcuts.vdf", "Сохранить проверенный профиль в profiles/<APPID>.env", "Показать переменные окружения без запуска игры", "Сохранить USE_XWAYLAND=1 и USE_SAFEDX12=1 после сбоя запуска",
+        "Авто", "Wayland + HDR", "XWayland", "Выкл",
     ),
     "uk": (
         "Центр керування Steam Auto-Profiler", "Мова:", "Готово", "Завантаження бібліотеки та телеметрії...",
@@ -253,6 +257,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Час", "Серед. FPS", "1% Low FPS", "P99 (мс)", "Вибірка", "Ліміт VRR",
         "Увімк", "Вимк", "Вкладки: 1-5/Tab | L:Мова ({lang}) | q:Вихід",
         "Змінити мову інтерфейсу на льоту", "Повторно просканувати бібліотеки Steam і shortcuts.vdf", "Зберегти перевірений профіль у profiles/<APPID>.env", "Переглянути змінні запуску без запуску гри", "Зберегти USE_XWAYLAND=1 і USE_SAFEDX12=1 для відновлення після збою",
+        "Авто", "Wayland + HDR", "XWayland", "Вимк",
     ),
     "be": (
         "Цэнтр кіравання Steam Auto-Profiler", "Мова:", "Гатова", "Загрузка бібліятэкі і тэлеметрыі...",
@@ -285,6 +290,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Час", "Сярэд. FPS", "1% Low FPS", "P99 (мс)", "Выбарка", "Ліміт VRR",
         "Укл", "Выкл", "Укладкі: 1-5/Tab | L:Мова ({lang}) | q:Выхад",
         "Змяніць мову інтэрфейсу на ляту", "Паўторна прасканаваць бібліятэкі Steam і shortcuts.vdf", "Захаваць правераны профіль у profiles/<APPID>.env", "Паглядзець зменныя запуску без запуску гульні", "Захаваць USE_XWAYLAND=1 і USE_SAFEDX12=1 для аднаўлення пасля збою",
+        "Аўта", "Wayland + HDR", "XWayland", "Выкл",
     ),
     "kk": (
         "Steam Auto-Profiler басқару орталығы", "Тіл:", "Дайын", "Кітапхана мен телеметрия жүктелуде...",
@@ -317,6 +323,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Уақыт", "Орташа FPS", "1% Low FPS", "P99 (мс)", "Үлгілер", "VRR шегі",
         "Қосулы", "Өшірулі", "Қойындылар: 1-5/Tab | L:Тіл ({lang}) | q:Шығу",
         "Интерфейс тілін лезде ауыстыру", "Steam кітапханалары мен shortcuts.vdf қайта сканерлеу", "Тексерілген профильді profiles/<APPID>.env файлына сақтау", "Ойынды іске қоспай орта айнымалыларын қарау", "Іске қосу ақауынан кейін USE_XWAYLAND=1 және USE_SAFEDX12=1 сақтау",
+        "Авто", "Wayland + HDR", "XWayland", "Өшірулі",
     ),
     "uz": (
         "Steam Auto-Profiler boshqaruv markazi", "Til:", "Tayyor", "Kutubxona va telemetriya yuklanmoqda...",
@@ -349,6 +356,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Vaqt", "O'rt. FPS", "1% Low FPS", "P99 (ms)", "Namunalar", "VRR cheki",
         "Yoqiq", "O'chiq", "Varaqlar: 1-5/Tab | L:Til ({lang}) | q:Chiqish",
         "Interfeys tilini darhol almashtirish", "Steam kutubxonalari va shortcuts.vdfni qayta skanerlash", "Tekshirilgan profilni profiles/<APPID>.env ga saqlash", "O'yinni ochmasdan muhit o'zgaruvchilarini ko'rish", "Nosozlikdan tiklash uchun USE_XWAYLAND=1 va USE_SAFEDX12=1 saqlash",
+        "Avto", "Wayland + HDR", "XWayland", "O'chiq",
     ),
     "hy": (
         "Steam Auto-Profiler կառավարման կենտրոն", "Լեզու՝", "Պատրաստ է", "Բեռնվում են գրադարանը և տելեմետրիան...",
@@ -381,6 +389,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Ժամանակ", "Միջին FPS", "1% Low FPS", "P99 (մվ)", "Նմուշներ", "VRR սահման",
         "Միացված", "Անջատված", "Ներդիրներ՝ 1-5/Tab | L:Լեզու ({lang}) | q:Ելք",
         "Փոխել միջերեսի լեզուն անմիջապես", "Կրկին սկանավորել Steam գրադարանները և shortcuts.vdf-ը", "Պահպանել ստուգված պրոֆիլը profiles/<APPID>.env-ում", "Դիտել գործարկման փոփոխականները առանց խաղը բացելու", "Պահպանել USE_XWAYLAND=1 և USE_SAFEDX12=1՝ խափանումից վերականգնելու համար",
+        "Ավտո", "Wayland + HDR", "XWayland", "Անջատված",
     ),
     "az": (
         "Steam Auto-Profiler İdarəetmə Mərkəzi", "Dil:", "Hazırdır", "Kitabxana və telemetriya yüklənir...",
@@ -413,6 +422,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Vaxt", "Orta FPS", "1% Low FPS", "P99 (ms)", "Nümunələr", "VRR limiti",
         "Açıq", "Qapalı", "Tablar: 1-5/Tab | L:Dil ({lang}) | q:Çıxış",
         "İnterfeys dilini canlı dəyişdir", "Steam kitabxanalarını və shortcuts.vdf faylını yenidən skan et", "Yoxlanılmış profili profiles/<APPID>.env faylına yaz", "Oyunu başlatmadan mühit dəyişənlərinə bax", "Qəza bərpası üçün USE_XWAYLAND=1 və USE_SAFEDX12=1 saxla",
+        "Avto", "Wayland + HDR", "XWayland", "Qapalı",
     ),
     "ky": (
         "Steam Auto-Profiler башкаруу борбору", "Тил:", "Даяр", "Китепкана жана телеметрия жүктөлүүдө...",
@@ -445,6 +455,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Убакыт", "Орточо FPS", "1% Low FPS", "P99 (мс)", "Үлгүлөр", "VRR чеги",
         "Күйүк", "Өчүк", "Өтмөктөр: 1-5/Tab | L:Тил ({lang}) | q:Чыгуу",
         "Интерфейс тилин дароо алмаштыруу", "Steam китепканаларын жана shortcuts.vdf кайра сканерлөө", "Текшерилген профилди profiles/<APPID>.env ичине сактоо", "Оюнду ачпай чөйрө өзгөрмөлөрүн көрүү", "Катадан калыбына келтирүү үчүн USE_XWAYLAND=1 жана USE_SAFEDX12=1 сактоо",
+        "Авто", "Wayland + HDR", "XWayland", "Өчүк",
     ),
     "tg": (
         "Маркази идоракунии Steam Auto-Profiler", "Забон:", "Омода", "Китобхона ва телеметрия бор мешавад...",
@@ -477,6 +488,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Вақт", "Миёна FPS", "1% Low FPS", "P99 (мс)", "Намунаҳо", "Ҳадди VRR",
         "Фаъол", "Хомӯш", "Варақҳо: 1-5/Tab | L:Забон ({lang}) | q:Баромад",
         "Иваз кардани забони интерфейс фавран", "Бозскан кардани китобхонаҳои Steam ва shortcuts.vdf", "Сабти профили тасдиқшуда дар profiles/<APPID>.env", "Дидани тағйирёбандаҳои муҳит бе оғози бозӣ", "Сабти USE_XWAYLAND=1 ва USE_SAFEDX12=1 барои барқарорсозӣ",
+        "Авто", "Wayland + HDR", "XWayland", "Хомӯш",
     ),
     "pl": (
         "Centrum sterowania Steam Auto-Profiler", "Język:", "Gotowe", "Wczytywanie biblioteki i telemetrii...",
@@ -509,6 +521,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Znacznik czasu", "Śr. FPS", "1% Low FPS", "P99 (ms)", "Próbki", "Limit VRR",
         "Wł", "Wył", "Karty: 1-5/Tab | L:Język ({lang}) | q:Wyjście",
         "Zmień język interfejsu na żywo", "Przeskanuj ponownie biblioteki Steam i shortcuts.vdf", "Zapisz zweryfikowany profil do profiles/<APPID>.env", "Podgląd zmiennych uruchomieniowych bez włączania gry", "Zapisz USE_XWAYLAND=1 i USE_SAFEDX12=1 do odzyskiwania po awarii",
+        "Auto", "Wayland + HDR", "XWayland", "Wył",
     ),
     "cs": (
         "Ovládací centrum Steam Auto-Profiler", "Jazyk:", "Připraveno", "Načítání knihovny a telemetrie...",
@@ -541,6 +554,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Čas", "Prům. FPS", "1% Low FPS", "P99 (ms)", "Vzorky", "Limit VRR",
         "Zap", "Vyp", "Karty: 1-5/Tab | L:Jazyk ({lang}) | q:Konec",
         "Okamžitě přepnout jazyk rozhraní", "Znovu prohledat knihovny Steam a shortcuts.vdf", "Uložit ověřený profil do profiles/<APPID>.env", "Zobrazit proměnné prostředí bez spuštění hry", "Uložit USE_XWAYLAND=1 a USE_SAFEDX12=1 pro obnovu po pádu",
+        "Auto", "Wayland + HDR", "XWayland", "Vyp",
     ),
     "sk": (
         "Ovládacie centrum Steam Auto-Profiler", "Jazyk:", "Pripravené", "Načítavam knižnicu a telemetriu...",
@@ -573,6 +587,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Čas", "Priem. FPS", "1% Low FPS", "P99 (ms)", "Vzorky", "Limit VRR",
         "Zap", "Vyp", "Karty: 1-5/Tab | L:Jazyk ({lang}) | q:Koniec",
         "Okamžite prepnúť jazyk rozhrania", "Znovu preskenovať knižnice Steam a shortcuts.vdf", "Uložiť overený profil do profiles/<APPID>.env", "Zobraziť premenné prostredia bez spustenia hry", "Uložiť USE_XWAYLAND=1 a USE_SAFEDX12=1 na obnovu po páde",
+        "Auto", "Wayland + HDR", "XWayland", "Vyp",
     ),
     "bg": (
         "Контролен център на Steam Auto-Profiler", "Език:", "Готово", "Зареждане на библиотеката и телеметрията...",
@@ -605,6 +620,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Време", "Сред. FPS", "1% Low FPS", "P99 (мс)", "Проби", "VRR лимит",
         "Вкл", "Изкл", "Раздели: 1-5/Tab | L:Език ({lang}) | q:Изход",
         "Смяна на езика на интерфейса в реално време", "Повторно сканиране на Steam библиотеки и shortcuts.vdf", "Запази валидирания профил в profiles/<APPID>.env", "Преглед на променливите без стартиране на играта", "Запази USE_XWAYLAND=1 и USE_SAFEDX12=1 за възстановяване след срив",
+        "Авто", "Wayland + HDR", "XWayland", "Изкл",
     ),
     "sr": (
         "Контролни центар Steam Auto-Profiler", "Језик:", "Спремно", "Учитавање библиотеке и телеметрије...",
@@ -637,6 +653,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Време", "Прос. FPS", "1% Low FPS", "P99 (мс)", "Узорци", "VRR лимит",
         "Укљ", "Искљ", "Картице: 1-5/Tab | L:Језик ({lang}) | q:Излаз",
         "Промените језик интерфејса уживо", "Поново скенирај Steam библиотеке и shortcuts.vdf", "Сачувај проверен профил у profiles/<APPID>.env", "Прегледај променљиве окружења без покретања игре", "Сачувај USE_XWAYLAND=1 и USE_SAFEDX12=1 за опоравак после пада",
+        "Ауто", "Wayland + HDR", "XWayland", "Искљ",
     ),
     "hr": (
         "Kontrolni centar Steam Auto-Profiler", "Jezik:", "Spremno", "Učitavanje biblioteke i telemetrije...",
@@ -669,6 +686,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Vrijeme", "Prosj. FPS", "1% Low FPS", "P99 (ms)", "Uzorci", "VRR granica",
         "Uklj", "Isklj", "Kartice: 1-5/Tab | L:Jezik ({lang}) | q:Izlaz",
         "Promijeni jezik sučelja uživo", "Ponovno skeniraj Steam biblioteke i shortcuts.vdf", "Spremi provjereni profil u profiles/<APPID>.env", "Pregledaj varijable okruženja bez pokretanja igre", "Spremi USE_XWAYLAND=1 i USE_SAFEDX12=1 za oporavak nakon rušenja",
+        "Auto", "Wayland + HDR", "XWayland", "Isklj",
     ),
     "sl": (
         "Nadzorni center Steam Auto-Profiler", "Jezik:", "Pripravljeno", "Nalaganje knjižnice in telemetrije...",
@@ -701,6 +719,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Čas", "Povpr. FPS", "1% Low FPS", "P99 (ms)", "Vzorci", "Omejitev VRR",
         "Vkl", "Izkl", "Zavihki: 1-5/Tab | L:Jezik ({lang}) | q:Izhod",
         "Preklopi jezik vmesnika v živo", "Ponovno preglej knjižnice Steam in shortcuts.vdf", "Shrani preverjen profil v profiles/<APPID>.env", "Predogled spremenljivk okolja brez zagona igre", "Shrani USE_XWAYLAND=1 in USE_SAFEDX12=1 za obnovitev po sesutju",
+        "Samod.", "Wayland + HDR", "XWayland", "Izkl",
     ),
     "de": (
         "Steam Auto-Profiler Kontrollzentrum", "Sprache:", "Bereit", "Bibliothek und Telemetrie werden geladen...",
@@ -733,6 +752,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Zeitstempel", "Ø FPS", "1% Low FPS", "P99 (ms)", "Messpunkte", "VRR-Limit",
         "Ein", "Aus", "Tabs: 1-5/Tab | L:Sprache ({lang}) | q:Beenden",
         "Oberflächensprache live wechseln", "Steam-Bibliotheken und shortcuts.vdf neu scannen", "Geprüftes Profil in profiles/<APPID>.env speichern", "Startumgebung anzeigen ohne das Spiel zu starten", "USE_XWAYLAND=1 und USE_SAFEDX12=1 zur Absturzwiederherstellung speichern",
+        "Auto", "Wayland + HDR", "XWayland", "Aus",
     ),
     "fr": (
         "Centre de contrôle Steam Auto-Profiler", "Langue :", "Prêt", "Chargement de la bibliothèque et de la télémétrie...",
@@ -765,6 +785,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Horodatage", "FPS moy.", "1% Low FPS", "P99 (ms)", "Échantillons", "Limite VRR",
         "Activé", "Désactivé", "Onglets : 1-5/Tab | L:Langue ({lang}) | q:Quitter",
         "Changer la langue de l'interface à chaud", "Réanalyser les bibliothèques Steam et shortcuts.vdf", "Enregistrer le profil validé dans profiles/<APPID>.env", "Prévisualiser les variables d'environnement sans lancer le jeu", "Enregistrer USE_XWAYLAND=1 et USE_SAFEDX12=1 après un crash",
+        "Auto", "Wayland + HDR", "XWayland", "Désactivé",
     ),
     "es": (
         "Centro de control de Steam Auto-Profiler", "Idioma:", "Listo", "Cargando biblioteca y telemetría...",
@@ -797,6 +818,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Fecha/hora", "FPS prom.", "1% Low FPS", "P99 (ms)", "Muestras", "Límite VRR",
         "Sí", "No", "Pestañas: 1-5/Tab | L:Idioma ({lang}) | q:Salir",
         "Cambiar el idioma de la interfaz al instante", "Volver a escanear bibliotecas de Steam y shortcuts.vdf", "Guardar perfil validado en profiles/<APPID>.env", "Previsualizar variables de entorno sin iniciar el juego", "Guardar USE_XWAYLAND=1 y USE_SAFEDX12=1 para recuperarse de cierres",
+        "Auto", "Wayland + HDR", "XWayland", "Desactivado",
     ),
     "pt": (
         "Central de Controle Steam Auto-Profiler", "Idioma:", "Pronto", "Carregando biblioteca e telemetria...",
@@ -829,6 +851,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Data/hora", "FPS méd.", "1% Low FPS", "P99 (ms)", "Amostras", "Limite VRR",
         "Lig", "Desl", "Abas: 1-5/Tab | L:Idioma ({lang}) | q:Sair",
         "Alternar o idioma da interface em tempo real", "Reescanear bibliotecas Steam e shortcuts.vdf", "Salvar perfil validado em profiles/<APPID>.env", "Visualizar variáveis de ambiente sem abrir o jogo", "Salvar USE_XWAYLAND=1 e USE_SAFEDX12=1 para recuperação de falhas",
+        "Auto", "Wayland + HDR", "XWayland", "Desligado",
     ),
     "it": (
         "Centro di controllo Steam Auto-Profiler", "Lingua:", "Pronto", "Caricamento libreria e telemetria...",
@@ -861,6 +884,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Data/ora", "FPS medi", "1% Low FPS", "P99 (ms)", "Campioni", "Limite VRR",
         "On", "Off", "Schede: 1-5/Tab | L:Lingua ({lang}) | q:Esci",
         "Cambia lingua dell'interfaccia in tempo reale", "Riscansiona librerie Steam e shortcuts.vdf", "Salva il profilo validato in profiles/<APPID>.env", "Visualizza le variabili di avvio senza lanciare il gioco", "Salva USE_XWAYLAND=1 e USE_SAFEDX12=1 per il ripristino da crash",
+        "Auto", "Wayland + HDR", "XWayland", "Disattivo",
     ),
     "ja": (
         "Steam Auto-Profiler コントロールセンター", "言語:", "準備完了", "ライブラリとテレメトリを読み込み中...",
@@ -893,6 +917,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "日時", "平均 FPS", "1% Low FPS", "P99 (ms)", "サンプル数", "VRR上限",
         "オン", "オフ", "タブ: 1-5/Tab | L:言語 ({lang}) | q:終了",
         "UI言語をリアルタイムで切り替え", "Steamライブラリとshortcuts.vdfを再スキャン", "検証済みプロファイルを profiles/<APPID>.env に保存", "ゲームを起動せずに環境変数をプレビュー", "起動クラッシュ復旧用に USE_XWAYLAND=1 と USE_SAFEDX12=1 を保存",
+        "自動", "Wayland + HDR", "XWayland", "オフ",
     ),
     "ko": (
         "Steam Auto-Profiler 제어 센터", "언어:", "준비됨", "라이브러리 및 텔레메트리 불러오는 중...",
@@ -925,6 +950,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "시간", "평균 FPS", "1% Low FPS", "P99 (ms)", "샘플", "VRR 제한",
         "켜짐", "꺼짐", "탭: 1-5/Tab | L:언어 ({lang}) | q:종료",
         "인터페이스 언어 실시간 전환", "Steam 라이브러리 및 shortcuts.vdf 다시 스캔", "검증된 프로필을 profiles/<APPID>.env에 저장", "게임을 시작하지 않고 실행 환경 변수 미리보기", "충돌 복구용 USE_XWAYLAND=1 및 USE_SAFEDX12=1 저장",
+        "자동", "Wayland + HDR", "XWayland", "꺼짐",
     ),
     "zh-CN": (
         "Steam Auto-Profiler 控制中心", "语言：", "就绪", "正在加载游戏库与遥测数据...",
@@ -957,6 +983,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "时间", "平均 FPS", "1% Low FPS", "P99 (ms)", "采样数", "VRR 上限",
         "开", "关", "标签页: 1-5/Tab | L:语言 ({lang}) | q:退出",
         "实时切换界面语言", "重新扫描 Steam 库与 shortcuts.vdf", "将校验后的配置保存到 profiles/<APPID>.env", "不启动游戏预览最终环境变量", "保存 USE_XWAYLAND=1 与 USE_SAFEDX12=1 用于崩溃恢复",
+        "自动", "Wayland + HDR", "XWayland", "关闭",
     ),
     "tr": (
         "Steam Auto-Profiler Kontrol Merkezi", "Dil:", "Hazır", "Kütüphane ve telemetri yükleniyor...",
@@ -989,6 +1016,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Zaman", "Ort. FPS", "1% Low FPS", "P99 (ms)", "Örnekler", "VRR Sınırı",
         "Açık", "Kapalı", "Sekmeler: 1-5/Tab | L:Dil ({lang}) | q:Çıkış",
         "Arayüz dilini anında değiştir", "Steam kütüphanelerini ve shortcuts.vdf dosyasını yeniden tara", "Doğrulanmış profili profiles/<APPID>.env konumuna kaydet", "Oyunu başlatmadan ortam değişkenlerini önizle", "Çökme kurtarma için USE_XWAYLAND=1 ve USE_SAFEDX12=1 kaydet",
+        "Oto", "Wayland + HDR", "XWayland", "Kapalı",
     ),
 }
 
@@ -1263,10 +1291,12 @@ def validate_profile(
     for key, _ in PROFILE_TOGGLES:
         if key == "USE_STEAM_CONTROLLER":
             raw_sc = str(norm.get(key, "auto")).strip().lower()
-            if raw_sc in ("1", "true", "yes", "on"):
-                norm[key] = "1"
+            if raw_sc in ("wayland-hdr", "wayland_hdr", "waylandhdr", "1", "true", "yes", "on"):
+                norm[key] = "wayland-hdr"
+            elif raw_sc in ("xwayland", "x11"):
+                norm[key] = "xwayland"
             elif raw_sc in ("0", "false", "no", "off"):
-                norm[key] = "0"
+                norm[key] = "off"
             else:
                 norm[key] = "auto"
             continue
@@ -1689,6 +1719,16 @@ class ProfilerBackend:
             value = value.strip().strip("'\"")
             if key == "USE_RCAS":
                 key = "USE_SHARPEN"
+            elif key == "USE_STEAM_CONTROLLER":
+                low_sc = value.strip().lower()
+                if low_sc in ("wayland-hdr", "wayland_hdr", "waylandhdr", "1", "true", "yes", "on"):
+                    value = "wayland-hdr"
+                elif low_sc in ("xwayland", "x11"):
+                    value = "xwayland"
+                elif low_sc in ("0", "false", "no", "off"):
+                    value = "off"
+                else:
+                    value = "auto"
             profile[key] = value
         return profile
 
@@ -2225,13 +2265,17 @@ def run_self_check(backend: ProfilerBackend, lang: str = "en") -> int:
     assert len(ac_warns) >= 2
 
     be_norm, be_warns = validate_profile(
-        {"USE_BLEEDING_EDGE": "1", "USE_FSR4": "0", "USE_SHARPEN": "1", "USE_STEAM_CONTROLLER": "auto"},
+        {"USE_BLEEDING_EDGE": "1", "USE_FSR4": "0", "USE_SHARPEN": "1", "USE_STEAM_CONTROLLER": "wayland-hdr"},
         "standard",
     )
     assert be_norm["USE_BLEEDING_EDGE"] == "1"
     assert be_norm["USE_SHARPEN"] == "0"
-    assert be_norm["USE_STEAM_CONTROLLER"] == "auto"
+    assert be_norm["USE_STEAM_CONTROLLER"] == "wayland-hdr"
     assert len(be_warns) >= 1
+    assert validate_profile({"USE_STEAM_CONTROLLER": "xwayland"}, "standard")[0]["USE_STEAM_CONTROLLER"] == "xwayland"
+    assert validate_profile({"USE_STEAM_CONTROLLER": "off"}, "standard")[0]["USE_STEAM_CONTROLLER"] == "off"
+    assert validate_profile({"USE_STEAM_CONTROLLER": "1"}, "standard")[0]["USE_STEAM_CONTROLLER"] == "wayland-hdr"
+    assert validate_profile({"USE_STEAM_CONTROLLER": "0"}, "standard")[0]["USE_STEAM_CONTROLLER"] == "off"
 
     hunt_norm, _ = validate_profile(
         {"USE_XWAYLAND": "0", "USE_SAFEDX12": "0", "USE_BLEEDING_EDGE": "1", "USE_MLFG": "1"},
@@ -2385,9 +2429,10 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
             sc_row = QtWidgets.QHBoxLayout()
             sc_label = QtWidgets.QLabel(t("toggle_USE_STEAM_CONTROLLER"))
             sc_combo = QtWidgets.QComboBox()
-            sc_combo.addItem(t("profile_auto"), "auto")
-            sc_combo.addItem(t("val_on"), "1")
-            sc_combo.addItem(t("val_off"), "0")
+            sc_combo.addItem(t("sc_mode_auto"), "auto")
+            sc_combo.addItem(t("sc_mode_wayland_hdr"), "wayland-hdr")
+            sc_combo.addItem(t("sc_mode_xwayland"), "xwayland")
+            sc_combo.addItem(t("sc_mode_off"), "off")
             sc_row.addWidget(sc_label)
             sc_row.addWidget(sc_combo)
             editor_layout.addLayout(sc_row)
@@ -2906,9 +2951,10 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
             cb.setText(t(f"toggle_{key}"))
         if sc_label is not None and sc_combo is not None:
             sc_label.setText(t("toggle_USE_STEAM_CONTROLLER"))
-            sc_combo.setItemText(0, t("profile_auto"))
-            sc_combo.setItemText(1, t("val_on"))
-            sc_combo.setItemText(2, t("val_off"))
+            sc_combo.setItemText(0, t("sc_mode_auto"))
+            sc_combo.setItemText(1, t("sc_mode_wayland_hdr"))
+            sc_combo.setItemText(2, t("sc_mode_xwayland"))
+            sc_combo.setItemText(3, t("sc_mode_off"))
         vrr_label.setText(t("vrr_cap_label"))
         vrr_edit.setPlaceholderText(t("vrr_cap_placeholder"))
         save_btn.setText(t("btn_save_profile"))
@@ -3125,12 +3171,14 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                             break
                         if k == "USE_STEAM_CONTROLLER":
                             raw_sc = profile_cache.get(k, "auto")
-                            if raw_sc == "1":
-                                val = t("val_on")
-                            elif raw_sc == "0":
-                                val = t("val_off")
+                            if raw_sc in ("wayland-hdr", "1"):
+                                val = t("sc_mode_wayland_hdr")
+                            elif raw_sc == "xwayland":
+                                val = t("sc_mode_xwayland")
+                            elif raw_sc in ("off", "0"):
+                                val = t("sc_mode_off")
                             else:
-                                val = t("profile_auto")
+                                val = t("sc_mode_auto")
                         else:
                             val = t("val_on") if profile_cache.get(k, "0") == "1" else t("val_off")
                         stdscr.addnstr(4 + i, split_x, f"[{hk}] {val:<4} {t(f'toggle_{k}')}", max_x - split_x - 1)
@@ -3249,7 +3297,14 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         k = hk_map[ch]
                         if k == "USE_STEAM_CONTROLLER":
                             cur_sc = profile_cache.get(k, "auto")
-                            next_sc = {"auto": "1", "1": "0", "0": "auto"}.get(cur_sc, "auto")
+                            next_sc = {
+                                "auto": "wayland-hdr",
+                                "wayland-hdr": "xwayland",
+                                "xwayland": "off",
+                                "off": "auto",
+                                "1": "xwayland",
+                                "0": "auto",
+                            }.get(cur_sc, "auto")
                             profile_cache[k] = next_sc
                         else:
                             profile_cache[k] = "0" if profile_cache.get(k, "0") == "1" else "1"

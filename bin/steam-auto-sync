@@ -374,10 +374,12 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
             low_val = value.strip().lower()
             if low_val in ("auto", ""):
                 profile["USE_STEAM_CONTROLLER"] = "auto"
-            elif low_val in ("1", "true", "on", "yes"):
-                profile["USE_STEAM_CONTROLLER"] = "1"
+            elif low_val in ("wayland-hdr", "wayland_hdr", "waylandhdr", "1", "true", "on", "yes"):
+                profile["USE_STEAM_CONTROLLER"] = "wayland-hdr"
+            elif low_val in ("xwayland", "x11"):
+                profile["USE_STEAM_CONTROLLER"] = "xwayland"
             elif low_val in ("0", "false", "off", "no"):
-                profile["USE_STEAM_CONTROLLER"] = "0"
+                profile["USE_STEAM_CONTROLLER"] = "off"
 
     if wayland_enabled:
         profile.pop("USE_XWAYLAND", None)

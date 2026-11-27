@@ -123,8 +123,27 @@ class UiTests(unittest.TestCase):
         )
         self.assertEqual(be_std["USE_BLEEDING_EDGE"], "1")
         self.assertEqual(be_std["USE_SHARPEN"], "0")
-        self.assertEqual(be_std["USE_STEAM_CONTROLLER"], "1")
+        self.assertEqual(be_std["USE_STEAM_CONTROLLER"], "wayland-hdr")
         self.assertTrue(any("vkBasalt" in w for w in be_warns))
+
+        # 4-mode Steam Controller 2026 normalization + legacy 1/0 compatibility
+        for raw_val, expected in (
+            ("auto", "auto"),
+            ("wayland-hdr", "wayland-hdr"),
+            ("xwayland", "xwayland"),
+            ("off", "off"),
+            ("1", "wayland-hdr"),
+            ("0", "off"),
+        ):
+            sc_norm, _ = ui.validate_profile({"USE_STEAM_CONTROLLER": raw_val}, "standard")
+            self.assertEqual(sc_norm["USE_STEAM_CONTROLLER"], expected)
+
+        # Verify all 4 Steam Controller mode labels exist in all 27 UI languages
+        for sc_key in ("sc_mode_auto", "sc_mode_wayland_hdr", "sc_mode_xwayland", "sc_mode_off"):
+            for lang_code, _ in ui.SUPPORTED_LANGUAGES:
+                val = ui.tr(lang_code, sc_key)
+                self.assertNotEqual(val, sc_key)
+                self.assertTrue(val.strip())
 
         be_ac, be_ac_warns = ui.validate_profile({"USE_BLEEDING_EDGE": "1"}, "competitive-anticheat")
         self.assertEqual(be_ac["USE_BLEEDING_EDGE"], "0")
@@ -672,7 +691,11 @@ class UiTests(unittest.TestCase):
             self.assertTrue(guide.is_file(), f"Missing doc: {guide}")
             content = guide.read_text(encoding="utf-8")
             self.assertGreaterEqual(len(content.splitlines()), 100, f"Guide looks like a stub: {guide}")
-            for token in ("steam-auto-run", "vr-run", "steam-auto-ui", "PROTON_ADD_CONFIG", "AUTO_HDR_SWITCH=1", "BENCH=1"):
+            for token in (
+                "steam-auto-run", "vr-run", "steam-auto-ui", "PROTON_ADD_CONFIG",
+                "AUTO_HDR_SWITCH=1", "BENCH=1", "BLEEDING_EDGE=1", "USE_STEAM_CONTROLLER=",
+                "594650", "forceinputappid", "--with-steam-controller",
+            ):
                 self.assertIn(token, content, f"Missing token {token} in {guide}")
 
         # Verify all relative markdown links in README and i18n index files resolve cleanly

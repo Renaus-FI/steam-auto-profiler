@@ -40,6 +40,7 @@ class InstallTests(unittest.TestCase):
                 "XDG_DATA_HOME": str(data_home),
                 "STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR": str(tmp_path / "sys-bin"),
                 "STEAM_AUTO_PROFILER_SUDOERS_DIR": str(tmp_path / "sudoers.d"),
+                "STEAM_AUTO_PROFILER_UDEV_DIR": str(tmp_path / "udev.d"),
             }
             res_install = subprocess.run(
                 [str(ROOT / "install.sh")],

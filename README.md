@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/Renaus-FI/steam-auto-profiler/security/code-scanning)
-[![Release](https://img.shields.io/badge/Release-v2.0.0-brightgreen.svg)](https://github.com/Renaus-FI/steam-auto-profiler/releases/tag/v2.0.0)
+[![Release](https://img.shields.io/badge/Release-v2.1.0-brightgreen.svg)](https://github.com/Renaus-FI/steam-auto-profiler/releases/tag/v2.1.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Context-aware heuristic game classifier, VR/flatscreen pre-launch orchestrator, and unified Qt6/TUI control center for Steam on Linux.**
@@ -132,11 +132,13 @@ Key built-in mutual-exclusion rules:
   - `NATIVE_ANTILAG=1` (`USE_NATIVE_ANTILAG=1`): relies on Mesa 26.3+/27.0 RADV driver-native `VK_AMD_anti_lag` while disabling the legacy external `ENABLE_LAYER_MESA_ANTI_LAG=0` layer.
   - `REFLEX_LAYER=1` (`USE_REFLEX_LAYER=1`): enables Proton-CachyOS `LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1` (translates NVIDIA Reflex `VK_NV_low_latency2` into native `VK_AMD_anti_lag`), forces `ENABLE_LAYER_MESA_ANTI_LAG=0` so latency layers never stack, is disabled when `MLFG=1`, and is hard-blocked (`=0`) in `competitive-anticheat` titles.
   - `VK_VIDEO_DECODE=1` (`USE_VK_VIDEO_DECODE=1`): exports Mesa 27.0 `RADV_EXPERIMENTAL=video_decode` (and automatically migrates legacy `RADV_PERFTEST=video_decode`).
-  - `BLEEDING_EDGE=1` (`USE_BLEEDING_EDGE=1`): **Ultra Bleeding-Edge (Experimental)** mode for non-anticheat titles activating `RADV_PERFTEST="sam,transfer_queue"` (RDNA 3/4), `RADV_EXPERIMENTAL="video_decode"`, `VKD3D_CONFIG="descriptor_heap,dxr12,force_bindless_texel_buffer"`, `VKD3D_FEATURE_LEVEL="12_2"`, `VKD3D_SHADER_MODEL="6_8"`, `PROTON_FSR4_UPGRADE=1`, `PROTON_NATIVE_AGS=1`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1`, and `WAYLANDDRV_RAWINPUT=1` (when `USE_XWAYLAND=0`) while preserving all mutual-exclusion guards.
+  - `BLEEDING_EDGE=1` (`USE_BLEEDING_EDGE=1`): **Ultra Bleeding-Edge (Experimental)** mode for non-anticheat titles activating deduplicated `RADV_PERFTEST="sam,transfer_queue"` (RDNA 3/4), `RADV_EXPERIMENTAL="video_decode"`, `VKD3D_CONFIG="descriptor_heap,dxr12,force_bindless_texel_buffer"`, `VKD3D_FEATURE_LEVEL="12_2"`, `VKD3D_SHADER_MODEL="6_8"`, `PROTON_FSR4_UPGRADE=1`, `PROTON_NATIVE_AGS=1`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1`, and `WAYLANDDRV_RAWINPUT=1` (strictly scoped to native Wayland outside Gamescope) while preserving all mutual-exclusion guards.
 - **Hunt: Showdown 1896 (`AppID 594650`) Compatibility Guard & Diagnostics:** Automatically enforces `competitive-anticheat`, `USE_XWAYLAND=1` (`PROTON_ENABLE_WAYLAND=0`), `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0`, and `USE_NET_OPT=1`; `--doctor` and `steam-auto-ui` also inspect Steam `config/config.vdf` `CompatToolMapping` for `594650` and warn when unset or mapped to `proton-cachyos*` (advising Valve's `Proton 11.0-2` or `Proton Hotfix`).
-- **Steam Controller (2026) & Wireless Steam Puck (`28de:{1302,1304,1005,1007}`) Optimization:** `USE_STEAM_CONTROLLER=auto` (default, or `1`/`0` in `steam-auto-ui`) auto-detects connected Valve 2026 controller/puck hardware via `/sys/bus/usb/devices/*` and automatically routes through `USE_XWAYLAND=1` (`PROTON_ENABLE_WAYLAND=0`) + `PROTON_USE_SDL=1` (`sdlinput`) so Steam Input (`controller_triton`) never falls back to desktop lizard-mode.
+- **Steam Controller (2026, `Triton`/`Proteus`) & Wireless Steam Puck (`28de:{1302,1304,1005,1007}`) Next-Gen Routing:**
+  - `USE_STEAM_CONTROLLER=auto` (default; selectable across `Auto`, `Wayland + HDR`, `XWayland`, and `Off` in `steam-auto-ui` across all 27 languages, with legacy `1`/`0` compatibility) detects connected Valve 2026 hardware via `/sys/bus/usb/devices/*` and selects **`wayland-hdr`** on Wayland sessions (or `xwayland` on X11).
+  - **`wayland-hdr`** keeps native `winewayland.drv` + OLED HDR10 (`USE_XWAYLAND=0`, `PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`) without forcing `LD_PRELOAD` overlay overhead, explicitly exports `PROTON_USE_SDL=0`, `PROTON_PREFER_SDL=0`, `PROTON_NO_STEAMINPUT=0` (omitting `sdlinput`), automatically runs `steam steam://forceinputappid/<APPID>` with a background `udevadm` mid-game sleep/reconnect watcher so full Steam Input layouts (paddles L4/R4/L5/R5, trackpads, gyro) stay locked, and resets to desktop layout (`steam://forceinputappid/0`) on exit. Use `steam-auto-run --reapply-input <APPID|0>` for manual re-triggering, or `xwayland` as a fallback for engines requiring XWayland Steam Input.
 - **Modern DX12 vs Safe DX12:** Exports `PROTON_NATIVE_AGS=1` on AMD and `VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer` by default; `SAFEDX12=1` omits experimental VKD3D flags and `vkd3dbindlesstb`.
-- **Compat-Token Mapping & Retired Flag Purge:** Maps managed features into both `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG` (`wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `lowlatencylayer`, `localshadercache`, `pipewire`, `fsr4`, `mlfg`, `vkreflex`, `nontsync`, `nowmdecoration`) while purging retired Proton/Wine variables (`PROTON_ENABLE_HDR`, `PROTON_VKREFLEX`, `PROTON_MEDIA_USE_GST`, `PROTON_FSR3_UPGRADE`, `PROTON_VKD3D_HEAP`, `WINEPULSE_FAST_POLLING`).
+- **Compat-Token Mapping & Retired Flag Purge:** Maps managed features into both `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG` (`wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `lowlatencylayer`, `localshadercache`, `pipewire`, `fsr4`, `wow64`, `mlfg`, `vkreflex`, `nontsync`, `nowmdecoration`) while purging retired Proton/Wine variables (`PROTON_ENABLE_HDR`, `PROTON_VKREFLEX`, `PROTON_MEDIA_USE_GST`, `PROTON_FSR3_UPGRADE`, `PROTON_VKD3D_HEAP`, `WINEPULSE_FAST_POLLING`).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full technical specification.
 
@@ -144,7 +146,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/USER_GUIDE.md](docs/U
 
 ## Languages & Documentation
 
-All guides are complete, up-to-date practical references covering every v2.0 feature, and `steam-auto-ui` supports all 27 languages natively via `--lang <code>` or the in-app language switcher.
+All guides are complete, up-to-date practical references covering every v2.1 feature, and `steam-auto-ui` supports all 27 languages natively via `--lang <code>` or the in-app language switcher.
 
 | Region / Group | Languages | Index / Guides |
 | --- | --- | --- |

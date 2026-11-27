@@ -2,7 +2,7 @@
 
 > Asl hujjat: [English User Guide](../../USER_GUIDE.md) · Barcha tillar: [i18n Index](../README.md)
 
-Ushbu qo'llanma **Steam Auto-Profiler v2.0** uchun to'liq o'rnatish, oddiy (flatscreen) va VR o'yinlarni ishga tushirish orkestratsiyasi, `steam-auto-ui` yagona boshqaruv markazi, Steam kutubxonasini sinxronlash, benchmark o'lchash hamda muammolarni bartaraf etish jarayonlarini qamrab oladi.
+Ushbu qo'llanma **Steam Auto-Profiler v2.1** uchun to'liq o'rnatish, oddiy (flatscreen) va VR o'yinlarni ishga tushirish orkestratsiyasi, `steam-auto-ui` yagona boshqaruv markazi, Steam kutubxonasini sinxronlash, benchmark o'lchash hamda muammolarni bartaraf etish jarayonlarini qamrab oladi.
 
 Steam Auto-Profiler — Linux uchun yengil Bash/Python ishga tushirgich va boshqaruv markazi bo'lib, Steam AppID (yoki Non-Steam yorlig'i) ni tahlil qiladi, drayver, upscaler va anti-cheat himoya cheklovlariga qat'iy rioya qilgan holda kontekstga mos profilni qo'llaydi hamda mavjud o'yin buyrug'ini ishga tushiradi. U hech qachon uchinchi tomon Proton muhitini o'zi bilan qo'shib bermaydi yoki kiritmaydi.
 
@@ -204,5 +204,16 @@ Profil fayllari `~/.config/steam-auto-profiler/profiles/<APPID>.env` manzilida s
 - **Steam ishga tushirish parametrlarini qaytarib qo'ymoqda:** `steam-auto-sync` yoki `steam-auto-sync --sanitize` ni ishga tushirishdan oldin Steam ni to'liq yoping.
 - **Noto'g'ri yoki yo'q VRR cheklovi:** `VRR_CAP=<fps>` ni aniq ko'rsating, o'chirish uchun `VRR_CAP=0` yoki `-6%` zaxira uchun `VRR_MINUS_MARGIN=1` qo'ying. Gamescope da DXVK/VKD3D cheklovlari faqat aniq `VRR_CAP` berilgandagina eksport qilinadi.
 - **Tarmoq QoS tekshiruvi:** `steam-net-boost status` ni bajaring (imtiyozsiz, faqat o'qish). Avtomatik sessiya QoS kerak bo'lsa, `./install.sh --with-net-boost` bilan tizim yordamchisini o'rnating.
+
+---
+
+## v2.1 yangiliklari (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650 va Steam Controller 2026)
+
+- **Mesa 27.0 / RDNA 4 bayroqlari:** `TRANSFER_QUEUE=1` (RDNA 3/4 uchun takrorlanmas `RADV_PERFTEST=sam,transfer_queue`), `NATIVE_ANTILAG=1` (nativ `VK_AMD_anti_lag`), `REFLEX_LAYER=1` (`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, anti-cheat va MLFG da bloklanadi) hamda `VK_VIDEO_DECODE=1` (`RADV_EXPERIMENTAL=video_decode`).
+- **Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`):** anti-cheatsiz o'yinlar uchun eksperimental stek (`VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1` va `WAYLANDDRV_RAWINPUT=1` faqat Gamescope tashqarisidagi nativ Waylandda).
+- **Hunt: Showdown 1896 (`AppID 594650`) himoyasi:** `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0`, `USE_NET_OPT=1` majburlaydi; `--doctor` va `steam-auto-ui` `config.vdf` da `Proton 11.0-2` / `Proton Hotfix` ni tekshiradi.
+- **Steam Controller 2026 / Wireless Puck (`28de:{1302,1304,1005,1007}`):** 4 rejim (`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`): `wayland-hdr` nativ Wayland + HDR10 (`PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`, `PROTON_USE_SDL=0`, `PROTON_NO_STEAMINPUT=0`) ni saqlaydi, `steam://forceinputappid/<APPID>` va `udevadm` qayta ulanish kuzatuvchisini ishga tushiradi va chiqishda `steam://forceinputappid/0` ga qaytaradi. Qo'lda: `steam-auto-run --reapply-input <APPID|0>`; udev: `./install.sh --with-steam-controller`.
+
+---
 
 Shuningdek, [English User Guide](../../USER_GUIDE.md), [ARCHITECTURE.md](../../ARCHITECTURE.md) (ichki arxitektura) va barcha 27 ta mahalliylashtirilgan qo'llanmalar uchun [i18n Index](../README.md) ga qarang.

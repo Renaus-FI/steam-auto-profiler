@@ -2,7 +2,7 @@
 
 > [English User Guide](../../USER_GUIDE.md) · [i18n Index](../README.md)
 
-Այս ուղեցույցն ընդգրկում է **Steam Auto-Profiler v2.0**-ի ամբողջական տեղադրումը, սովորական էկրանի (flatscreen) և VR խաղերի գործարկման կազմակերպումը, `steam-auto-ui` կառավարման կենտրոնը, գրադարանի համաժամեցումը, արտադրողականության չափումը և անսարքությունների վերացումը։
+Այս ուղեցույցն ընդգրկում է **Steam Auto-Profiler v2.1**-ի ամբողջական տեղադրումը, սովորական էկրանի (flatscreen) և VR խաղերի գործարկման կազմակերպումը, `steam-auto-ui` կառավարման կենտրոնը, գրադարանի համաժամեցումը, արտադրողականության չափումը և անսարքությունների վերացումը։
 
 Steam Auto-Profiler-ը Linux-ի համար նախատեսված թեթև Bash/Python գործարկիչ և կառավարման կենտրոն է, որը ստուգում է Steam AppID-ն (կամ ոչ Steam դյուրանցումը), կիրառում է համատեքստից կախված պրոֆիլ՝ դրայվերի, մասշտաբավորման (upscaler) և հակախաբեության (anti-cheat) խիստ պաշտպանիչ մեխանիզմներով, և գործարկում խաղի առկա հրամանը։ Այն երբեք չի ներառում կամ ներարկում երրորդ կողմի Proton միջավայր։
 
@@ -204,5 +204,16 @@ steam-auto-sync --remove              # Հեռացնել steam-auto-run փաթա
 - **Steam-ը հետ է բերում գործարկման ընտրանքները․** Ամբողջությամբ փակեք Steam-ը նախքան `steam-auto-sync` կամ `steam-auto-sync --sanitize` գործարկելը։
 - **Սխալ կամ բացակայող VRR սահմանափակում․** Բացահայտ սահմանեք `VRR_CAP=<fps>`, `VRR_CAP=0`՝ անջատելու համար, կամ `VRR_MINUS_MARGIN=1`՝ `-6%` պաշարի համար։ Gamescope-ում միայն բացահայտ `VRR_CAP`-ն է արտահանում DXVK/VKD3D սահմանափակումները։
 - **Ցանցային QoS-ի ստուգում․** Գործարկեք `steam-net-boost status` (առանց արտոնությունների, միայն ընթերցում)։ Եթե ցանկանում եք ավտոմատ սեսիայի QoS, տեղադրեք root օգնականը `./install.sh --with-net-boost` հրամանով։
+
+---
+
+## Նորույթներ v2.1-ում (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650 և Steam Controller 2026)
+
+- **Mesa 27.0 / RDNA 4 դրոշակներ.** `TRANSFER_QUEUE=1` (առանց կրկնության `RADV_PERFTEST=sam,transfer_queue` RDNA 3/4-ում), `NATIVE_ANTILAG=1` (բնիկ `VK_AMD_anti_lag`), `REFLEX_LAYER=1` (`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, արգելափակված է անտիչիթում և MLFG-ում) և `VK_VIDEO_DECODE=1` (`RADV_EXPERIMENTAL=video_decode`):
+- **Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`).** փորձարարական ռեժիմ առանց անտիչիթ խաղերի համար (`VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1`, `WAYLANDDRV_RAWINPUT=1` միայն բնիկ Wayland-ում Gamescope-ից դուրս):
+- **Hunt: Showdown 1896 (`AppID 594650`) պաշտպանություն.** պարտադրում է `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0`, `USE_NET_OPT=1`; `--doctor`-ը և `steam-auto-ui`-ը ստուգում են `config.vdf`-ում `Proton 11.0-2` / `Proton Hotfix`:
+- **Steam Controller 2026 / Wireless Puck (`28de:{1302,1304,1005,1007}`).** 4 ռեժիմ (`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`). `wayland-hdr`-ը պահպանում է Wayland + HDR10 (`PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`, `PROTON_USE_SDL=0`, `PROTON_NO_STEAMINPUT=0`), կիրառում է `steam://forceinputappid/<APPID>` + `udevadm` վերամիացման դիտարկիչ և ելքի ժամանակ վերադարձնում `steam://forceinputappid/0`: Ձեռքով՝ `steam-auto-run --reapply-input <APPID|0>`, udev՝ `./install.sh --with-steam-controller`:
+
+---
 
 Ճարտարապետության մանրամասների համար տես [ARCHITECTURE.md](../../ARCHITECTURE.md), անգլերեն հիմնական ուղեցույցի համար՝ [English User Guide](../../USER_GUIDE.md), իսկ բոլոր 27 լեզուների համար՝ [i18n Index](../README.md)։

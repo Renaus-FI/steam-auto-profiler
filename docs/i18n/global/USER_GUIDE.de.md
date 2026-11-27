@@ -2,7 +2,7 @@
 
 > [English User Guide](../../USER_GUIDE.md) | [i18n Index](../README.md)
 
-Dieses Handbuch behandelt die vollständige Installation, Flatscreen- und VR-Start-Orchestrierung, das Kontrollzentrum `steam-auto-ui`, die Bibliothekssynchronisierung, Benchmarking und die Fehlerbehebung für **Steam Auto-Profiler v2.0**.
+Dieses Handbuch behandelt die vollständige Installation, Flatscreen- und VR-Start-Orchestrierung, das Kontrollzentrum `steam-auto-ui`, die Bibliothekssynchronisierung, Benchmarking und die Fehlerbehebung für **Steam Auto-Profiler v2.1**.
 
 Steam Auto-Profiler ist ein schlanker Bash/Python-Launcher samt Kontrollzentrum für Linux, der eine Steam-AppID (oder eine Non-Steam-Verknüpfung) analysiert, ein kontextbewusstes Profil mit strengen Treiber-, Upscaler- und Anti-Cheat-Schutzmechanismen anwendet und anschließend den bestehenden Spielbefehl startet. Es bündelt oder injiziert niemals eine Drittanbieter-Proton-Runtime.
 
@@ -204,5 +204,16 @@ Profildateien liegen unter `~/.config/steam-auto-profiler/profiles/<APPID>.env` 
 - **Steam setzt Startoptionen zurück:** Beende Steam vollständig, bevor du `steam-auto-sync` oder `steam-auto-sync --sanitize` ausführst.
 - **Falsches oder fehlendes VRR-Limit:** Setze `VRR_CAP=<fps>` explizit, `VRR_CAP=0` zum Deaktivieren oder `VRR_MINUS_MARGIN=1` für `-6%` Reserve. Unter Gamescope exportiert nur ein explizites `VRR_CAP` DXVK/VKD3D-Limits.
 - **Netzwerk-QoS prüfen:** Führe `steam-net-boost status` aus (unprivilegiert, schreibgeschützt). Installiere den Root-Helfer mit `./install.sh --with-net-boost`, wenn automatisches Sitzungs-QoS gewünscht ist.
+
+---
+
+## Neu in v2.1 (Mesa 27.0 / RDNA 4, Ultra Bleeding-Edge, Hunt 594650 & Steam Controller 2026)
+
+- **Mesa 27.0 / RDNA 4 Flags:** `TRANSFER_QUEUE=1` (dedupliziertes `RADV_PERFTEST=sam,transfer_queue` auf RDNA 3/4), `NATIVE_ANTILAG=1` (natives `VK_AMD_anti_lag`), `REFLEX_LAYER=1` (`LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1`, bei Anti-Cheat/MLFG blockiert) und `VK_VIDEO_DECODE=1` (`RADV_EXPERIMENTAL=video_decode`).
+- **Ultra Bleeding-Edge (`BLEEDING_EDGE=1` / `USE_BLEEDING_EDGE=1`):** experimenteller Stack für Nicht-Anti-Cheat-Spiele (`VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer`, `VKD3D_FEATURE_LEVEL=12_2`, `VKD3D_SHADER_MODEL=6_8`, `PROTON_FSR4_UPGRADE=1`, `PROTON_NATIVE_AGS=1`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1`, `WAYLANDDRV_RAWINPUT=1` nur unter nativem Wayland außerhalb von Gamescope).
+- **Hunt: Showdown 1896 (`AppID 594650`) Schutzregel:** erzwingt `competitive-anticheat`, `USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0` und `USE_NET_OPT=1`; `--doctor` und `steam-auto-ui` prüfen `config.vdf` (`CompatToolMapping`) auf `Proton 11.0-2` / `Proton Hotfix`.
+- **Steam Controller 2026 (`Triton`/`Proteus`) & Wireless Steam Puck (`28de:{1302,1304,1005,1007}`):** 4 Modi (`USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off`): `wayland-hdr` behält natives Wayland + HDR10 (`PROTON_ENABLE_WAYLAND=1`, `DXVK_HDR=1`, `PROTON_USE_SDL=0`, `PROTON_NO_STEAMINPUT=0`, ohne `sdlinput`), wendet `steam://forceinputappid/<APPID>` inkl. `udevadm`-Reconnect-Watcher automatisch an und setzt beim Beenden `steam://forceinputappid/0` zurück. Manuell: `steam-auto-run --reapply-input <APPID|0>`; udev-Regeln: `./install.sh --with-steam-controller`.
+
+---
 
 Weitere Architekturdetails findest du in [ARCHITECTURE.md](../../ARCHITECTURE.md), das englische Original im [English User Guide](../../USER_GUIDE.md) und alle 27 Sprachversionen im [i18n Index](../README.md).

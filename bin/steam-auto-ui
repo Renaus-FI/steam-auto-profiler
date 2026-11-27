@@ -1,0 +1,1228 @@
+#!/usr/bin/env python3
+"""Unified lightweight Qt6 GUI + stdlib curses TUI control center for Steam Auto-Profiler."""
+
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+import curses
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from typing import Any
+
+
+SKIP_TITLE_RE = re.compile(
+    r"^(Proton\b|Steam Linux Runtime|Steamworks Common Redistributables|"
+    r"Wallpaper Engine|Lossless Scaling|SteamVR\b)",
+    re.I,
+)
+IGNORED_APPIDS = {"228980", "250820"}
+
+VENDOR_NAMES = {
+    "0x1002": "AMD",
+    "0x10de": "NVIDIA",
+    "0x8086": "Intel",
+}
+
+PROFILE_TOGGLES = (
+    ("USE_XWAYLAND", "Use XWayland (disable Wayland)"),
+    ("USE_FSR4", "FSR 4 Driver Upgrade"),
+    ("USE_MLFG", "Frame Generation (MLFG)"),
+    ("USE_SHARPEN", "vkBasalt Sharpening"),
+    ("USE_SAFEDX12", "Safe DX12 (disable experimental VKD3D)"),
+    ("USE_NET_OPT", "Session Network QoS"),
+    ("USE_SDL", "Prefer SDL / Steam Input"),
+    ("USE_KEEP_OVERLAY", "Keep Steam Overlay (LD_PRELOAD)"),
+    ("USE_OPTISCALER", "OptiScaler Bridge"),
+)
+
+
+def parse_tc_qdisc_stats(raw_tc: str) -> dict[str, Any]:
+    """Parse `tc -s qdisc show` output for LAN (10:) vs WAN (20:/root) CAKE stats."""
+    blocks: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    for line in raw_tc.splitlines():
+        qmatch = re.match(
+            r"^\s*qdisc\s+(\S+)\s+(\S+)\s+(?:dev\s+\S+\s+)?(root|parent\s+\S+)(.*)$",
+            line,
+        )
+        if qmatch:
+            if current is not None:
+                blocks.append(current)
+            qdisc_type, handle, attach, rest = qmatch.groups()
+            role = "other"
+            if handle == "10:" or "parent 1:10" in attach:
+                role = "lan"
+            elif handle == "20:" or "parent 1:20" in attach:
+                role = "wan"
+            elif qdisc_type == "cake" and attach == "root":
+                role = "wan"
+            current = {
+                "type": qdisc_type,
+                "handle": handle,
+                "attach": attach,
+                "role": role,
+                "params": rest.strip(),
+                "sent_bytes": None,
+                "sent_pkts": None,
+                "dropped": None,
+                "av_delay": [],
+                "pk_delay": [],
+                "sp_delay": [],
+            }
+            continue
+
+        if current is None:
+            continue
+
+        sent_match = re.search(
+            r"Sent\s+(\d+)\s+bytes\s+(\d+)\s+pkt\s*\(dropped\s+(\d+)",
+            line,
+        )
+        if sent_match:
+            current["sent_bytes"] = int(sent_match.group(1))
+            current["sent_pkts"] = int(sent_match.group(2))
+            current["dropped"] = int(sent_match.group(3))
+            continue
+
+        for key in ("pk_delay", "av_delay", "sp_delay"):
+            m = re.match(rf"^\s*{key}\s+(.+)$", line)
+            if m:
+                current[key] = m.group(1).split()
+
+    if current is not None:
+        blocks.append(current)
+
+    lan = next((b for b in blocks if b["role"] == "lan"), None)
+    wan = next((b for b in blocks if b["role"] == "wan"), None)
+    return {
+        "lan": lan,
+        "wan": wan,
+        "blocks": blocks,
+    }
+
+
+def format_bytes(num: int | None) -> str:
+    if num is None:
+        return "n/a"
+    value = float(num)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024.0 or unit == "TiB":
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{num} B"
+
+
+def validate_profile(profile: dict[str, str], game_class: str = "standard") -> tuple[dict[str, str], list[str]]:
+    """Apply Steam Auto-Profiler mutual-exclusion guards and return (normalized, warnings)."""
+    norm = dict(profile)
+    warnings: list[str] = []
+
+    for key, _ in PROFILE_TOGGLES:
+        default = "1" if key == "USE_FSR4" else "0"
+        val = str(norm.get(key, default)).strip()
+        norm[key] = "1" if val in ("1", "true", "TRUE", "yes") else "0"
+
+    vrr_raw = str(norm.get("VRR_CAP", "")).strip()
+    if vrr_raw and not vrr_raw.isdigit():
+        warnings.append(f"Invalid VRR_CAP '{vrr_raw}'; cleared to Auto.")
+        vrr_raw = ""
+    norm["VRR_CAP"] = vrr_raw
+
+    if game_class == "competitive-anticheat":
+        if norm["USE_MLFG"] == "1":
+            norm["USE_MLFG"] = "0"
+            warnings.append("MLFG disabled automatically for competitive-anticheat titles.")
+        if norm["USE_OPTISCALER"] == "1":
+            norm["USE_OPTISCALER"] = "0"
+            warnings.append("OptiScaler disabled automatically for competitive-anticheat titles.")
+        if norm["USE_SHARPEN"] == "1":
+            norm["USE_SHARPEN"] = "0"
+            warnings.append("vkBasalt sharpening disabled automatically for competitive-anticheat titles.")
+
+    if norm["USE_SHARPEN"] == "1" and (norm["USE_FSR4"] == "1" or norm["USE_OPTISCALER"] == "1"):
+        norm["USE_SHARPEN"] = "0"
+        warnings.append("vkBasalt disabled: mutually exclusive with FSR 4 / OptiScaler (prevents HDR10 clipping).")
+
+    if norm["USE_MLFG"] == "1" and norm["VRR_CAP"] and int(norm["VRR_CAP"]) > 0:
+        norm["VRR_CAP"] = ""
+        warnings.append("VRR_CAP cleared: MLFG disables frame caps and Anti-Lag to avoid frame-pacing stutter.")
+
+    return norm, warnings
+
+
+class ProfilerBackend:
+    """Shared backend used by both the Qt6 GUI and curses TUI."""
+
+    def __init__(self, home: Path | None = None):
+        self.home = home or Path.home()
+        self.script_dir = Path(__file__).resolve().parent
+        xdg_cfg = os.environ.get("XDG_CONFIG_HOME")
+        xdg_state = os.environ.get("XDG_STATE_HOME")
+        self.config_dir = (Path(xdg_cfg) if xdg_cfg else self.home / ".config") / "steam-auto-profiler"
+        self.profile_dir = self.config_dir / "profiles"
+        self.state_dir = (Path(xdg_state) if xdg_state else self.home / ".local/state") / "steam-auto-profiler"
+
+    def find_tool(self, name: str) -> str | None:
+        for candidate in (
+            self.script_dir / name,
+            self.home / ".local/bin" / name,
+            Path("/usr/local/bin") / name,
+        ):
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+        return shutil.which(name)
+
+    def _run_cmd(self, cmd: list[str], env: dict[str, str] | None = None, timeout: int = 15) -> tuple[int, str]:
+        try:
+            proc = subprocess.run(
+                cmd,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+            out = proc.stdout
+            if proc.stderr:
+                out = f"{out}\n{proc.stderr}" if out else proc.stderr
+            return proc.returncode, out.strip()
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return 1, f"Error running {' '.join(cmd)}: {exc}"
+
+    def discover_steam_libraries(self) -> list[Path]:
+        candidates = [
+            self.home / ".local/share/Steam",
+            self.home / ".steam/steam",
+            self.home / ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+        ]
+        roots: list[Path] = []
+        seen: set[Path] = set()
+        for candidate in candidates:
+            if not (candidate / "steamapps").is_dir():
+                continue
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            roots.append(candidate)
+            vdf = candidate / "steamapps/libraryfolders.vdf"
+            if vdf.exists():
+                text = vdf.read_text(encoding="utf-8", errors="ignore")
+                for match in re.finditer(r'"path"\s+"([^"]+)"', text):
+                    lib = Path(match.group(1))
+                    if (lib / "steamapps").is_dir():
+                        lib_res = lib.resolve()
+                        if lib_res not in seen:
+                            seen.add(lib_res)
+                            roots.append(lib)
+        return roots
+
+    def _read_synced_map(self, roots: list[Path]) -> dict[str, str]:
+        synced: dict[str, str] = {}
+        app_block_re = re.compile(r'"(\d+)"\s*\{[^{}]*?"LaunchOptions"\s+"([^"]*)"', re.S | re.I)
+        for root in roots:
+            userdata = root / "userdata"
+            if not userdata.is_dir():
+                continue
+            for cfg in userdata.glob("*/config/localconfig.vdf"):
+                raw = cfg.read_text(encoding="utf-8", errors="ignore")
+                for match in app_block_re.finditer(raw):
+                    appid, opts = match.group(1), match.group(2)
+                    if re.search(r"(?:^|\s)(?:\S*/)?vr-run(?:\s|$)", opts):
+                        synced[appid] = "VR"
+                    elif "steam-auto-run" in opts:
+                        synced[appid] = "Yes"
+        return synced
+
+    def discover_games(self) -> list[dict[str, Any]]:
+        roots = self.discover_steam_libraries()
+        games_map: dict[str, str] = {}
+        for lib in roots:
+            steamapps = lib / "steamapps"
+            if not steamapps.is_dir():
+                continue
+            for acf in steamapps.glob("appmanifest_*.acf"):
+                text = acf.read_text(encoding="utf-8", errors="ignore")
+                appid_m = re.search(r'"appid"\s+"(\d+)"', text)
+                name_m = re.search(r'"name"\s+"([^"]+)"', text)
+                if not appid_m:
+                    continue
+                appid = appid_m.group(1)
+                name = name_m.group(1) if name_m else appid
+                if appid in IGNORED_APPIDS or SKIP_TITLE_RE.search(name):
+                    continue
+                games_map[appid] = name
+
+        synced_map = self._read_synced_map(roots)
+        detect_bin = self.find_tool("steam-auto-detect")
+
+        def classify(item: tuple[str, str]) -> dict[str, Any]:
+            appid, name = item
+            info: dict[str, Any] = {
+                "appid": appid,
+                "name": name,
+                "class": "standard",
+                "is_vr": False,
+                "synced": synced_map.get(appid, "No"),
+                "has_profile": (self.profile_dir / f"{appid}.env").is_file(),
+                "rationale": "",
+                "compat_tokens": "",
+            }
+            if detect_bin:
+                rc, out = self._run_cmd([detect_bin, "--json", appid], timeout=10)
+                if rc == 0 and out:
+                    try:
+                        data = json.loads(out)
+                        info["class"] = data.get("class", "standard")
+                        info["is_vr"] = bool(data.get("is_vr", False))
+                        info["rationale"] = data.get("rationale", "")
+                        info["compat_tokens"] = data.get("proton_add_config", "")
+                    except json.JSONDecodeError:
+                        pass
+            return info
+
+        items = sorted(games_map.items(), key=lambda kv: kv[1].lower())
+        if not items:
+            return []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            return list(pool.map(classify, items))
+
+    def load_profile(self, appid: str) -> dict[str, str]:
+        profile: dict[str, str] = {key: ("1" if key == "USE_FSR4" else "0") for key, _ in PROFILE_TOGGLES}
+        profile["VRR_CAP"] = ""
+        path = self.profile_dir / f"{appid}.env"
+        if not path.is_file():
+            return profile
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("'\"")
+            if key == "USE_RCAS":
+                key = "USE_SHARPEN"
+            profile[key] = value
+        return profile
+
+    def save_profile(self, appid: str, profile: dict[str, str], game_class: str = "standard") -> tuple[Path, list[str]]:
+        norm, warnings = validate_profile(profile, game_class)
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        path = self.profile_dir / f"{appid}.env"
+        lines = [f"{key}={norm[key]}" for key, _ in PROFILE_TOGGLES]
+        lines.append(f"VRR_CAP={norm.get('VRR_CAP', '')}")
+        # Preserve extra user keys if present
+        managed = {key for key, _ in PROFILE_TOGGLES} | {"VRR_CAP", "PARTIAL_PROFILE"}
+        for key, value in sorted(norm.items()):
+            if key not in managed and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                lines.append(f"{key}={value}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return path, warnings
+
+    def reset_profile(self, appid: str) -> str:
+        path = self.profile_dir / f"{appid}.env"
+        if path.exists():
+            path.unlink()
+            return f"Removed profile {path}"
+        return f"No saved profile for AppID {appid}"
+
+    def apply_safe_mode(self, appid: str) -> tuple[Path, list[str]]:
+        profile = self.load_profile(appid)
+        profile["USE_XWAYLAND"] = "1"
+        profile["USE_SAFEDX12"] = "1"
+        return self.save_profile(appid, profile)
+
+    def dry_run(self, appid: str, is_vr: bool = False) -> str:
+        env = os.environ.copy()
+        env["NO_GUI"] = "1"
+        if is_vr:
+            vr_bin = self.find_tool("vr-run")
+            if not vr_bin:
+                return "vr-run not found."
+            _, out = self._run_cmd([vr_bin, "--dry-run"], env=env)
+            return out
+        run_bin = self.find_tool("steam-auto-run")
+        if not run_bin:
+            return "steam-auto-run not found."
+        _, out = self._run_cmd([run_bin, "--dry-run", appid], env=env)
+        return out
+
+    def read_gpu_telemetry(self, drm_dir: Path | None = None) -> list[dict[str, Any]]:
+        drm = drm_dir or Path("/sys/class/drm")
+        gpus: list[dict[str, Any]] = []
+        if not drm.is_dir():
+            return gpus
+        for card in sorted(drm.glob("card[0-9]*")):
+            dev = card / "device"
+            if not (dev / "vendor").is_file():
+                continue
+            vendor_id = (dev / "vendor").read_text(encoding="utf-8", errors="ignore").strip().lower()
+            device_id = (dev / "device").read_text(encoding="utf-8", errors="ignore").strip().lower() if (dev / "device").is_file() else ""
+            vram_used = None
+            vram_total = None
+            busy = None
+            temp_c = None
+            if (dev / "mem_info_vram_used").is_file():
+                try:
+                    vram_used = int((dev / "mem_info_vram_used").read_text().strip())
+                except ValueError:
+                    pass
+            if (dev / "mem_info_vram_total").is_file():
+                try:
+                    vram_total = int((dev / "mem_info_vram_total").read_text().strip())
+                except ValueError:
+                    pass
+            if (dev / "gpu_busy_percent").is_file():
+                try:
+                    busy = int((dev / "gpu_busy_percent").read_text().strip())
+                except ValueError:
+                    pass
+            for hw in sorted((dev / "hwmon").glob("hwmon*/temp1_input")) if (dev / "hwmon").is_dir() else []:
+                try:
+                    temp_c = round(int(hw.read_text().strip()) / 1000.0, 1)
+                    break
+                except ValueError:
+                    pass
+            gpus.append({
+                "card": card.name,
+                "vendor": VENDOR_NAMES.get(vendor_id, vendor_id),
+                "pci_id": f"{vendor_id.removeprefix('0x')}:{device_id.removeprefix('0x')}",
+                "vram_used": vram_used,
+                "vram_total": vram_total,
+                "busy_percent": busy,
+                "temp_c": temp_c,
+            })
+        return gpus
+
+    def collect_telemetry(self) -> dict[str, Any]:
+        run_bin = self.find_tool("steam-auto-run")
+        doctor_out = self._run_cmd([run_bin, "--doctor"])[1] if run_bin else "steam-auto-run not found."
+
+        scx_out = "unavailable"
+        scxctl = self.find_tool("scxctl")
+        if scxctl:
+            rc, out = self._run_cmd([scxctl, "get"])
+            if rc == 0 and out:
+                scx_out = out
+        if scx_out == "unavailable":
+            state_p = Path("/sys/kernel/sched_ext/state")
+            ops_p = Path("/sys/kernel/sched_ext/root/ops")
+            if state_p.is_file():
+                st = state_p.read_text(encoding="utf-8", errors="ignore").strip()
+                ops = ops_p.read_text(encoding="utf-8", errors="ignore").strip() if ops_p.is_file() else "none"
+                scx_out = f"{st} ({ops})"
+
+        iface = ""
+        ip_bin = self.find_tool("ip")
+        if ip_bin:
+            rc, out = self._run_cmd([ip_bin, "-o", "-4", "route", "show", "to", "default"])
+            if rc == 0 and out:
+                parts = out.splitlines()[0].split()
+                if len(parts) >= 5:
+                    iface = parts[4]
+
+        raw_tc = ""
+        tc_bin = self.find_tool("tc")
+        if iface and tc_bin:
+            _, raw_tc = self._run_cmd([tc_bin, "-s", "qdisc", "show", "dev", iface])
+        tc_parsed = parse_tc_qdisc_stats(raw_tc)
+
+        vr_mode_bin = self.find_tool("vr-mode")
+        vr_mode_out = self._run_cmd([vr_mode_bin, "status"])[1] if vr_mode_bin else "vr-mode not installed"
+
+        return {
+            "doctor": doctor_out,
+            "scheduler": scx_out,
+            "gpus": self.read_gpu_telemetry(),
+            "iface": iface or "unknown",
+            "tc_raw": raw_tc or "No qdisc telemetry available.",
+            "tc_parsed": tc_parsed,
+            "vr_mode": vr_mode_out,
+        }
+
+    def format_telemetry_text(self, telemetry: dict[str, Any]) -> str:
+        lines = ["=== System & Network Live Telemetry ==="]
+        lines.append(f"Scheduler (sched-ext): {telemetry['scheduler']}")
+        lines.append("")
+        lines.append("--- GPU Telemetry ---")
+        if telemetry["gpus"]:
+            for gpu in telemetry["gpus"]:
+                vram = (
+                    f"{format_bytes(gpu['vram_used'])} / {format_bytes(gpu['vram_total'])}"
+                    if gpu["vram_total"] is not None
+                    else "shared/unknown"
+                )
+                busy = f"{gpu['busy_percent']}%" if gpu["busy_percent"] is not None else "n/a"
+                temp = f"{gpu['temp_c']} C" if gpu["temp_c"] is not None else "n/a"
+                lines.append(
+                    f"  {gpu['card']} ({gpu['vendor']} {gpu['pci_id']}): "
+                    f"VRAM {vram} | Util {busy} | Temp {temp}"
+                )
+        else:
+            lines.append("  No DRM GPU sysfs telemetry available.")
+
+        lines.append("")
+        lines.append(f"--- Network QoS ({telemetry['iface']}) ---")
+        parsed = telemetry["tc_parsed"]
+        for label, key in (("LAN (cake/qdisc 10:)", "lan"), ("WAN (cake 20:/root)", "wan")):
+            blk = parsed.get(key)
+            if blk:
+                av = " ".join(blk["av_delay"]) if blk["av_delay"] else "n/a"
+                lines.append(
+                    f"  {label}: {blk['type']} {blk['handle']} | "
+                    f"Sent {format_bytes(blk['sent_bytes'])} ({blk['sent_pkts']} pkt, drops {blk['dropped']}) | "
+                    f"av_delay: {av}"
+                )
+            else:
+                lines.append(f"  {label}: not detected")
+
+        lines.append("")
+        lines.append("--- VR Mode ---")
+        lines.append(telemetry["vr_mode"])
+        lines.append("")
+        lines.append("--- System Doctor ---")
+        lines.append(telemetry["doctor"])
+        return "\n".join(lines)
+
+    def is_steam_running(self) -> bool:
+        pgrep = shutil.which("pgrep")
+        if not pgrep:
+            return False
+        rc, _ = self._run_cmd([pgrep, "-x", "steam"], timeout=5)
+        return rc == 0
+
+    def run_sync(self, mode: str) -> tuple[int, str]:
+        sync_bin = self.find_tool("steam-auto-sync")
+        if not sync_bin:
+            return 1, "steam-auto-sync not found."
+        mapping = {
+            "report": ["--report"],
+            "sanitize_dry": ["--sanitize", "--dry-run"],
+            "sanitize": ["--sanitize"],
+            "migrate": ["--migrate-cachy-run"],
+        }
+        args = mapping.get(mode)
+        if args is None:
+            return 2, f"Unknown sync mode: {mode}"
+        return self._run_cmd([sync_bin, *args], timeout=60)
+
+    def list_logs(self) -> list[Path]:
+        if not self.state_dir.is_dir():
+            return []
+        logs = sorted(self.state_dir.glob("last-*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+        return logs
+
+    def read_log(self, path: Path) -> dict[str, Any]:
+        text = path.read_text(encoding="utf-8", errors="ignore") if path.is_file() else ""
+        meta: dict[str, str] = {}
+        for line in text.splitlines():
+            if "=" in line and not line.startswith(" "):
+                k, v = line.split("=", 1)
+                if k in ("appid", "class", "exit_code", "duration_sec", "crash_hint", "crash_recovery"):
+                    meta[k] = v.strip()
+        return {
+            "path": str(path),
+            "name": path.name,
+            "text": text,
+            "appid": meta.get("appid", ""),
+            "exit_code": meta.get("exit_code", ""),
+            "duration_sec": meta.get("duration_sec", ""),
+            "crash_hint": meta.get("crash_hint", ""),
+            "crash_recovery": meta.get("crash_recovery", ""),
+        }
+
+
+def detect_qt_binding() -> tuple[str | None, Any]:
+    for name in ("PySide6", "PyQt6"):
+        try:
+            qtwidgets = __import__(f"{name}.QtWidgets", fromlist=["QtWidgets"])
+            qtcore = __import__(f"{name}.QtCore", fromlist=["QtCore"])
+            return name, (qtwidgets, qtcore)
+        except Exception:
+            continue
+    return None, None
+
+
+def run_self_check(backend: ProfilerBackend) -> int:
+    """Headless CI self-test verifying backend, validators, parsers, and UI bindings."""
+    sample_tc = (
+        "qdisc htb 1: root refcnt 2 r2q 10 default 0x20\n"
+        " Sent 1048576 bytes 800 pkt (dropped 0, overlimits 0 requeues 0)\n"
+        "qdisc cake 10: parent 1:10 bandwidth unlimited diffserv4\n"
+        " Sent 524288 bytes 400 pkt (dropped 0, overlimits 0 requeues 0)\n"
+        "  av_delay        12us        8us        4us        2us\n"
+        "qdisc cake 20: parent 1:20 bandwidth 450Mbit diffserv4\n"
+        " Sent 524288 bytes 400 pkt (dropped 1, overlimits 0 requeues 0)\n"
+        "  av_delay       850us      240us      110us       45us\n"
+    )
+    parsed_tc = parse_tc_qdisc_stats(sample_tc)
+    assert parsed_tc["lan"] is not None and parsed_tc["lan"]["handle"] == "10:"
+    assert parsed_tc["wan"] is not None and parsed_tc["wan"]["handle"] == "20:"
+    assert parsed_tc["wan"]["av_delay"][0] == "850us"
+
+    norm, warns = validate_profile(
+        {"USE_FSR4": "1", "USE_SHARPEN": "1", "USE_MLFG": "1", "VRR_CAP": "144"},
+        "standard",
+    )
+    assert norm["USE_SHARPEN"] == "0"
+    assert norm["VRR_CAP"] == ""
+    assert len(warns) >= 2
+
+    qt_name, _ = detect_qt_binding()
+    tools = {
+        name: backend.find_tool(name)
+        for name in ("steam-auto-detect", "steam-auto-run", "steam-auto-sync", "vr-run", "steam-net-boost", "vr-mode")
+    }
+    report = {
+        "status": "ok",
+        "qt_binding": qt_name or "unavailable",
+        "curses_available": True,
+        "tools": tools,
+        "tc_parser_verified": True,
+        "mutual_exclusion_verified": True,
+        "gpus_detected": len(backend.read_gpu_telemetry()),
+        "logs_found": len(backend.list_logs()),
+    }
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+def run_qt_gui(backend: ProfilerBackend) -> int:
+    binding, mods = detect_qt_binding()
+    if binding is None or mods is None:
+        print("Error: Neither PySide6 nor PyQt6 is installed. Use --tui for terminal mode.", file=sys.stderr)
+        return 1
+    QtWidgets, QtCore = mods
+
+    app = QtWidgets.QApplication(sys.argv)
+    app.setApplicationName("Steam Auto-Profiler")
+
+    win = QtWidgets.QMainWindow()
+    win.setWindowTitle(f"Steam Auto-Profiler Control Center ({binding})")
+    win.resize(1120, 740)
+
+    tabs = QtWidgets.QTabWidget()
+    win.setCentralWidget(tabs)
+    status_bar = win.statusBar()
+    status_bar.showMessage("Ready")
+
+    # --- Tab 1: Games & Profiles ---
+    tab_games = QtWidgets.QWidget()
+    games_layout = QtWidgets.QVBoxLayout(tab_games)
+
+    top_bar = QtWidgets.QHBoxLayout()
+    search_edit = QtWidgets.QLineEdit()
+    search_edit.setPlaceholderText("Filter by AppID, game name, or class...")
+    refresh_games_btn = QtWidgets.QPushButton("Refresh Library")
+    top_bar.addWidget(search_edit)
+    top_bar.addWidget(refresh_games_btn)
+    games_layout.addLayout(top_bar)
+
+    splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+    games_layout.addWidget(splitter, 1)
+
+    table = QtWidgets.QTableWidget(0, 5)
+    table.setHorizontalHeaderLabels(["AppID", "Game Name", "Auto Class", "Synced", "Profile"])
+    table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+    table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+    table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.horizontalHeader().setStretchLastSection(True)
+    splitter.addWidget(table)
+
+    editor_widget = QtWidgets.QWidget()
+    editor_layout = QtWidgets.QVBoxLayout(editor_widget)
+    selected_label = QtWidgets.QLabel("Select a game to edit its profile")
+    selected_label.setWordWrap(True)
+    editor_layout.addWidget(selected_label)
+
+    warning_label = QtWidgets.QLabel("")
+    warning_label.setWordWrap(True)
+    warning_label.setStyleSheet("color: #d97706; font-weight: bold;")
+    editor_layout.addWidget(warning_label)
+
+    checkboxes: dict[str, Any] = {}
+    for key, label in PROFILE_TOGGLES:
+        cb = QtWidgets.QCheckBox(label)
+        checkboxes[key] = cb
+        editor_layout.addWidget(cb)
+
+    vrr_row = QtWidgets.QHBoxLayout()
+    vrr_row.addWidget(QtWidgets.QLabel("VRR_CAP (empty=Auto, 0=Off):"))
+    vrr_edit = QtWidgets.QLineEdit()
+    vrr_edit.setPlaceholderText("Auto")
+    vrr_row.addWidget(vrr_edit)
+    editor_layout.addLayout(vrr_row)
+
+    btn_row = QtWidgets.QHBoxLayout()
+    save_btn = QtWidgets.QPushButton("Save Profile")
+    dry_run_btn = QtWidgets.QPushButton("Dry-Run Preview")
+    reset_btn = QtWidgets.QPushButton("Reset Profile")
+    btn_row.addWidget(save_btn)
+    btn_row.addWidget(dry_run_btn)
+    btn_row.addWidget(reset_btn)
+    editor_layout.addLayout(btn_row)
+
+    dry_run_box = QtWidgets.QPlainTextEdit()
+    dry_run_box.setReadOnly(True)
+    dry_run_box.setPlaceholderText("Dry-run environment output appears here...")
+    editor_layout.addWidget(dry_run_box, 1)
+    splitter.addWidget(editor_widget)
+    splitter.setSizes([640, 460])
+
+    games_cache: list[dict[str, Any]] = []
+    filtered_games: list[dict[str, Any]] = []
+    current_game: dict[str, Any] = {}
+    updating_ui = False
+
+    def collect_editor_profile() -> dict[str, str]:
+        prof = {key: ("1" if cb.isChecked() else "0") for key, cb in checkboxes.items()}
+        prof["VRR_CAP"] = vrr_edit.text().strip()
+        return prof
+
+    def apply_editor_profile(prof: dict[str, str], warns: list[str]) -> None:
+        nonlocal updating_ui
+        updating_ui = True
+        try:
+            for key, cb in checkboxes.items():
+                cb.setChecked(prof.get(key, "0") == "1")
+            vrr_edit.setText(prof.get("VRR_CAP", ""))
+            warning_label.setText("\n".join(warns))
+        finally:
+            updating_ui = False
+
+    def on_toggle_changed() -> None:
+        if updating_ui or not current_game:
+            return
+        norm, warns = validate_profile(collect_editor_profile(), current_game.get("class", "standard"))
+        apply_editor_profile(norm, warns)
+
+    for cb in checkboxes.values():
+        cb.stateChanged.connect(lambda _state: on_toggle_changed())
+    vrr_edit.editingFinished.connect(on_toggle_changed)
+
+    def populate_table() -> None:
+        nonlocal filtered_games
+        query = search_edit.text().strip().lower()
+        filtered_games = [
+            g for g in games_cache
+            if not query or query in g["appid"].lower() or query in g["name"].lower() or query in g["class"].lower()
+        ]
+        table.setRowCount(len(filtered_games))
+        for row, g in enumerate(filtered_games):
+            values = (
+                g["appid"],
+                g["name"],
+                g["class"],
+                g["synced"],
+                "Saved" if g["has_profile"] else "Auto",
+            )
+            for col, val in enumerate(values):
+                table.setItem(row, col, QtWidgets.QTableWidgetItem(val))
+        table.resizeColumnsToContents()
+
+    def reload_games() -> None:
+        nonlocal games_cache
+        status_bar.showMessage("Scanning Steam libraries...")
+        app.processEvents()
+        games_cache = backend.discover_games()
+        populate_table()
+        status_bar.showMessage(f"Loaded {len(games_cache)} installed Steam title(s).")
+
+    def on_row_selected() -> None:
+        nonlocal current_game
+        rows = table.selectionModel().selectedRows()
+        if not rows:
+            return
+        idx = rows[0].row()
+        if idx < 0 or idx >= len(filtered_games):
+            return
+        current_game = filtered_games[idx]
+        selected_label.setText(
+            f"{current_game['name']} (AppID {current_game['appid']}) — "
+            f"Class: {current_game['class']} | Synced: {current_game['synced']}"
+        )
+        prof = backend.load_profile(current_game["appid"])
+        norm, warns = validate_profile(prof, current_game.get("class", "standard"))
+        apply_editor_profile(norm, warns)
+        dry_run_box.setPlainText(current_game.get("rationale", ""))
+
+    def on_save_profile() -> None:
+        if not current_game:
+            return
+        path, warns = backend.save_profile(
+            current_game["appid"],
+            collect_editor_profile(),
+            current_game.get("class", "standard"),
+        )
+        current_game["has_profile"] = True
+        populate_table()
+        warning_label.setText("\n".join(warns))
+        status_bar.showMessage(f"Saved {path}")
+
+    def on_dry_run() -> None:
+        if not current_game:
+            return
+        status_bar.showMessage(f"Running dry-run for AppID {current_game['appid']}...")
+        app.processEvents()
+        out = backend.dry_run(current_game["appid"], is_vr=bool(current_game.get("is_vr")))
+        dry_run_box.setPlainText(out)
+        status_bar.showMessage("Dry-run complete.")
+
+    def on_reset_profile() -> None:
+        if not current_game:
+            return
+        msg = backend.reset_profile(current_game["appid"])
+        current_game["has_profile"] = False
+        populate_table()
+        prof = backend.load_profile(current_game["appid"])
+        apply_editor_profile(prof, [])
+        status_bar.showMessage(msg)
+
+    search_edit.textChanged.connect(lambda _txt: populate_table())
+    refresh_games_btn.clicked.connect(reload_games)
+    table.itemSelectionChanged.connect(on_row_selected)
+    save_btn.clicked.connect(on_save_profile)
+    dry_run_btn.clicked.connect(on_dry_run)
+    reset_btn.clicked.connect(on_reset_profile)
+    tabs.addTab(tab_games, "1. Games & Profiles")
+
+    # --- Tab 2: System & Network Live Telemetry ---
+    tab_tel = QtWidgets.QWidget()
+    tel_layout = QtWidgets.QVBoxLayout(tab_tel)
+    tel_bar = QtWidgets.QHBoxLayout()
+    tel_refresh_btn = QtWidgets.QPushButton("Refresh Telemetry")
+    tel_auto_cb = QtWidgets.QCheckBox("Auto-refresh (3s)")
+    tel_bar.addWidget(tel_refresh_btn)
+    tel_bar.addWidget(tel_auto_cb)
+    tel_bar.addStretch(1)
+    tel_layout.addLayout(tel_bar)
+
+    tel_box = QtWidgets.QPlainTextEdit()
+    tel_box.setReadOnly(True)
+    tel_layout.addWidget(tel_box, 1)
+
+    def refresh_telemetry() -> None:
+        telemetry = backend.collect_telemetry()
+        tel_box.setPlainText(backend.format_telemetry_text(telemetry))
+        status_bar.showMessage("Telemetry updated.")
+
+    tel_timer = QtCore.QTimer(win)
+    tel_timer.setInterval(3000)
+    tel_timer.timeout.connect(refresh_telemetry)
+    tel_refresh_btn.clicked.connect(refresh_telemetry)
+    tel_auto_cb.stateChanged.connect(lambda _s: tel_timer.start() if tel_auto_cb.isChecked() else tel_timer.stop())
+    tabs.addTab(tab_tel, "2. System & Telemetry")
+
+    # --- Tab 3: Library Sync & Maintenance ---
+    tab_sync = QtWidgets.QWidget()
+    sync_layout = QtWidgets.QVBoxLayout(tab_sync)
+    steam_banner = QtWidgets.QLabel("")
+    steam_banner.setWordWrap(True)
+    sync_layout.addWidget(steam_banner)
+
+    sync_btns = QtWidgets.QHBoxLayout()
+    btn_report = QtWidgets.QPushButton("Sync Report (--report)")
+    btn_san_dry = QtWidgets.QPushButton("Sanitize Preview (--sanitize --dry-run)")
+    btn_san_apply = QtWidgets.QPushButton("Apply Sanitize (--sanitize)")
+    btn_migrate = QtWidgets.QPushButton("Migrate cachy-run Profiles")
+    for b in (btn_report, btn_san_dry, btn_san_apply, btn_migrate):
+        sync_btns.addWidget(b)
+    sync_layout.addLayout(sync_btns)
+
+    sync_out = QtWidgets.QPlainTextEdit()
+    sync_out.setReadOnly(True)
+    sync_layout.addWidget(sync_out, 1)
+
+    def update_steam_banner() -> bool:
+        running = backend.is_steam_running()
+        if running:
+            steam_banner.setText("WARNING: Steam is currently running. Close Steam before running write operations (--sanitize).")
+            steam_banner.setStyleSheet("color: #dc2626; font-weight: bold;")
+        else:
+            steam_banner.setText("Steam is closed. Safe to run library sync and sanitize operations.")
+            steam_banner.setStyleSheet("color: #16a34a; font-weight: bold;")
+        return running
+
+    def trigger_sync(mode: str, needs_closed_steam: bool = False) -> None:
+        running = update_steam_banner()
+        if needs_closed_steam and running:
+            QtWidgets.QMessageBox.warning(
+                win,
+                "Steam Is Running",
+                "Close Steam completely before modifying localconfig.vdf.",
+            )
+            return
+        status_bar.showMessage(f"Running steam-auto-sync ({mode})...")
+        app.processEvents()
+        rc, out = backend.run_sync(mode)
+        sync_out.setPlainText(out or f"(completed with exit code {rc})")
+        status_bar.showMessage(f"Sync ({mode}) finished with exit code {rc}.")
+
+    btn_report.clicked.connect(lambda: trigger_sync("report", False))
+    btn_san_dry.clicked.connect(lambda: trigger_sync("sanitize_dry", False))
+    btn_san_apply.clicked.connect(lambda: trigger_sync("sanitize", True))
+    btn_migrate.clicked.connect(lambda: trigger_sync("migrate", False))
+    tabs.addTab(tab_sync, "3. Library Sync")
+
+    # --- Tab 4: Last Launch Log & Crash Recovery ---
+    tab_logs = QtWidgets.QWidget()
+    logs_layout = QtWidgets.QVBoxLayout(tab_logs)
+    logs_bar = QtWidgets.QHBoxLayout()
+    log_combo = QtWidgets.QComboBox()
+    logs_refresh_btn = QtWidgets.QPushButton("Refresh Logs")
+    safe_appid_edit = QtWidgets.QLineEdit()
+    safe_appid_edit.setPlaceholderText("AppID")
+    safe_appid_edit.setMaximumWidth(120)
+    safe_mode_btn = QtWidgets.QPushButton("Apply Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1)")
+    logs_bar.addWidget(log_combo, 1)
+    logs_bar.addWidget(logs_refresh_btn)
+    logs_bar.addWidget(QtWidgets.QLabel("Target AppID:"))
+    logs_bar.addWidget(safe_appid_edit)
+    logs_bar.addWidget(safe_mode_btn)
+    logs_layout.addLayout(logs_bar)
+
+    crash_banner = QtWidgets.QLabel("")
+    crash_banner.setWordWrap(True)
+    crash_banner.setStyleSheet("color: #dc2626; font-weight: bold;")
+    logs_layout.addWidget(crash_banner)
+
+    log_view = QtWidgets.QPlainTextEdit()
+    log_view.setReadOnly(True)
+    logs_layout.addWidget(log_view, 1)
+
+    log_paths: list[Path] = []
+
+    def display_selected_log() -> None:
+        idx = log_combo.currentIndex()
+        if idx < 0 or idx >= len(log_paths):
+            log_view.setPlainText("No last-launch logs found.")
+            crash_banner.setText("")
+            return
+        data = backend.read_log(log_paths[idx])
+        log_view.setPlainText(data["text"])
+        if data["appid"] and data["appid"].isdigit():
+            safe_appid_edit.setText(data["appid"])
+        if data["crash_hint"]:
+            crash_banner.setText(f"Crash Hint: {data['crash_hint']}")
+        else:
+            crash_banner.setText("")
+
+    def refresh_logs() -> None:
+        nonlocal log_paths
+        log_paths = backend.list_logs()
+        log_combo.blockSignals(True)
+        log_combo.clear()
+        for p in log_paths:
+            log_combo.addItem(p.name)
+        log_combo.blockSignals(False)
+        display_selected_log()
+
+    def on_apply_safe_mode() -> None:
+        appid = safe_appid_edit.text().strip()
+        if not appid.isdigit():
+            QtWidgets.QMessageBox.warning(win, "Invalid AppID", "Enter a numeric Steam AppID first.")
+            return
+        path, _ = backend.apply_safe_mode(appid)
+        status_bar.showMessage(f"Applied Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1) to {path}")
+        QtWidgets.QMessageBox.information(
+            win,
+            "Safe Mode Saved",
+            f"Saved USE_XWAYLAND=1 and USE_SAFEDX12=1 for AppID {appid} ({path}).",
+        )
+        reload_games()
+
+    log_combo.currentIndexChanged.connect(lambda _i: display_selected_log())
+    logs_refresh_btn.clicked.connect(refresh_logs)
+    safe_mode_btn.clicked.connect(on_apply_safe_mode)
+    tabs.addTab(tab_logs, "4. Logs & Recovery")
+
+    reload_games()
+    refresh_telemetry()
+    update_steam_banner()
+    refresh_logs()
+
+    win.show()
+    return int(app.exec())
+
+
+def run_curses_tui(backend: ProfilerBackend) -> int:
+    """Zero-dependency stdlib curses 4-view TUI."""
+
+    def _main(stdscr: Any) -> int:
+        curses.curs_set(0)
+        stdscr.nodelay(False)
+        stdscr.keypad(True)
+
+        active_tab = 0
+        tab_names = ("1:Games", "2:Telemetry", "3:Sync", "4:Logs")
+        games = backend.discover_games()
+        search_query = ""
+        selected_idx = 0
+        scroll = 0
+        status_msg = "Tabs: 1-4/Tab | q:Quit"
+        profile_cache: dict[str, str] = {}
+        last_appid = ""
+        output_lines: list[str] = []
+        telemetry_lines = backend.format_telemetry_text(backend.collect_telemetry()).splitlines()
+        sync_lines = ["Press [a] Report, [d] Sanitize Dry-Run, [s] Apply Sanitize, [m] Migrate cachy-run"]
+        logs = backend.list_logs()
+        log_idx = 0
+
+        def get_filtered() -> list[dict[str, Any]]:
+            q = search_query.lower()
+            return [
+                g for g in games
+                if not q or q in g["appid"].lower() or q in g["name"].lower() or q in g["class"].lower()
+            ]
+
+        while True:
+            stdscr.erase()
+            max_y, max_x = stdscr.getmaxyx()
+            header = " Steam Auto-Profiler TUI  |  " + "  ".join(
+                f"[{t}]" if i == active_tab else f" {t} " for i, t in enumerate(tab_names)
+            )
+            stdscr.addnstr(0, 0, header.ljust(max_x), max_x - 1, curses.A_REVERSE)
+
+            body_h = max(1, max_y - 3)
+            if active_tab == 0:
+                filtered = get_filtered()
+                if filtered:
+                    selected_idx = max(0, min(selected_idx, len(filtered) - 1))
+                    cur = filtered[selected_idx]
+                    if cur["appid"] != last_appid:
+                        profile_cache = backend.load_profile(cur["appid"])
+                        last_appid = cur["appid"]
+                else:
+                    cur = None
+
+                stdscr.addnstr(1, 0, f"Filter (/): {search_query or '(all)'} | Count: {len(filtered)}", max_x - 1)
+                split_x = max(36, min(max_x // 2, 62))
+                for row_i in range(body_h - 1):
+                    idx = row_i + max(0, selected_idx - (body_h - 3))
+                    if idx >= len(filtered):
+                        break
+                    g = filtered[idx]
+                    mark = "*" if g["has_profile"] else " "
+                    line = f"{mark}{g['appid']:>7} {g['name'][:22]:<22} [{g['class'][:10]}] {g['synced']}"
+                    attr = curses.A_REVERSE if idx == selected_idx else curses.A_NORMAL
+                    stdscr.addnstr(2 + row_i, 0, line, split_x - 1, attr)
+
+                if cur is not None and max_x > split_x + 10:
+                    stdscr.addnstr(2, split_x, f"AppID: {cur['appid']} ({cur['class']})", max_x - split_x - 1, curses.A_BOLD)
+                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u")
+                    for i, ((k, label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
+                        if 3 + i >= max_y - 2:
+                            break
+                        val = "ON " if profile_cache.get(k, "0") == "1" else "OFF"
+                        stdscr.addnstr(3 + i, split_x, f"[{hk}] {val} {label}", max_x - split_x - 1)
+                    base_y = 3 + len(PROFILE_TOGGLES)
+                    if base_y < max_y - 2:
+                        stdscr.addnstr(
+                            base_y,
+                            split_x,
+                            f"[v]VRR_CAP: {profile_cache.get('VRR_CAP') or 'Auto'} | [s]Save [p]DryRun [R]Reset",
+                            max_x - split_x - 1,
+                        )
+                    for j, oline in enumerate(output_lines[: max(0, max_y - base_y - 3)]):
+                        stdscr.addnstr(base_y + 1 + j, split_x, oline, max_x - split_x - 1)
+
+            elif active_tab == 1:
+                for row_i in range(body_h):
+                    idx = scroll + row_i
+                    if idx >= len(telemetry_lines):
+                        break
+                    stdscr.addnstr(1 + row_i, 0, telemetry_lines[idx], max_x - 1)
+
+            elif active_tab == 2:
+                steam_warn = "WARNING: Steam is running!" if backend.is_steam_running() else "Steam is closed (safe to sync)."
+                stdscr.addnstr(1, 0, f"{steam_warn}  [a]Report [d]Sanitize Dry [s]Apply Sanitize [m]Migrate", max_x - 1, curses.A_BOLD)
+                for row_i in range(body_h - 1):
+                    idx = scroll + row_i
+                    if idx >= len(sync_lines):
+                        break
+                    stdscr.addnstr(2 + row_i, 0, sync_lines[idx], max_x - 1)
+
+            elif active_tab == 3:
+                if logs:
+                    log_idx = max(0, min(log_idx, len(logs) - 1))
+                    ldata = backend.read_log(logs[log_idx])
+                    hdr = f"Log ({log_idx + 1}/{len(logs)}): {ldata['name']} | AppID={ldata['appid']} | [n/p]Switch [S]Apply Safe Mode"
+                    stdscr.addnstr(1, 0, hdr, max_x - 1, curses.A_BOLD)
+                    log_lines = ldata["text"].splitlines()
+                    if ldata["crash_hint"]:
+                        log_lines = [f"!!! {ldata['crash_hint']} !!!", ""] + log_lines
+                    for row_i in range(body_h - 1):
+                        idx = scroll + row_i
+                        if idx >= len(log_lines):
+                            break
+                        stdscr.addnstr(2 + row_i, 0, log_lines[idx], max_x - 1)
+                else:
+                    stdscr.addnstr(2, 0, "No launch logs found in state directory.", max_x - 1)
+
+            stdscr.addnstr(max_y - 1, 0, status_msg.ljust(max_x), max_x - 1, curses.A_REVERSE)
+            stdscr.refresh()
+
+            ch = stdscr.getch()
+            if ch in (ord("q"), ord("Q")):
+                return 0
+            if ch in (ord("1"), ord("2"), ord("3"), ord("4")):
+                active_tab = ch - ord("1")
+                scroll = 0
+                continue
+            if ch == 9:  # Tab
+                active_tab = (active_tab + 1) % 4
+                scroll = 0
+                continue
+
+            if active_tab == 0:
+                filtered = get_filtered()
+                if ch in (curses.KEY_DOWN, ord("j")) and filtered:
+                    selected_idx = min(len(filtered) - 1, selected_idx + 1)
+                elif ch in (curses.KEY_UP, ord("k")) and filtered:
+                    selected_idx = max(0, selected_idx - 1)
+                elif ch == ord("/"):
+                    curses.echo()
+                    stdscr.addnstr(max_y - 1, 0, "Filter: ".ljust(max_x), max_x - 1, curses.A_REVERSE)
+                    raw = stdscr.getstr(max_y - 1, 8, 40)
+                    curses.noecho()
+                    search_query = raw.decode("utf-8", errors="ignore").strip()
+                    selected_idx = 0
+                elif filtered:
+                    cur = filtered[selected_idx]
+                    hk_map = {
+                        ord("x"): "USE_XWAYLAND",
+                        ord("f"): "USE_FSR4",
+                        ord("m"): "USE_MLFG",
+                        ord("b"): "USE_SHARPEN",
+                        ord("d"): "USE_SAFEDX12",
+                        ord("n"): "USE_NET_OPT",
+                        ord("l"): "USE_SDL",
+                        ord("o"): "USE_KEEP_OVERLAY",
+                        ord("u"): "USE_OPTISCALER",
+                    }
+                    if ch in hk_map:
+                        k = hk_map[ch]
+                        profile_cache[k] = "0" if profile_cache.get(k, "0") == "1" else "1"
+                        profile_cache, warns = validate_profile(profile_cache, cur["class"])
+                        status_msg = warns[0] if warns else f"Toggled {k}={profile_cache[k]}"
+                    elif ch == ord("v"):
+                        curses.echo()
+                        stdscr.addnstr(max_y - 1, 0, "VRR_CAP (blank=Auto, 0=Off): ".ljust(max_x), max_x - 1, curses.A_REVERSE)
+                        raw = stdscr.getstr(max_y - 1, 29, 10)
+                        curses.noecho()
+                        profile_cache["VRR_CAP"] = raw.decode("utf-8", errors="ignore").strip()
+                        profile_cache, warns = validate_profile(profile_cache, cur["class"])
+                        status_msg = warns[0] if warns else f"VRR_CAP={profile_cache['VRR_CAP'] or 'Auto'}"
+                    elif ch == ord("s"):
+                        path, warns = backend.save_profile(cur["appid"], profile_cache, cur["class"])
+                        cur["has_profile"] = True
+                        status_msg = f"Saved {path}" + (f" ({warns[0]})" if warns else "")
+                    elif ch == ord("p"):
+                        output_lines = backend.dry_run(cur["appid"], is_vr=cur["is_vr"]).splitlines()
+                        status_msg = f"Dry-run refreshed for {cur['appid']}"
+                    elif ch == ord("R"):
+                        status_msg = backend.reset_profile(cur["appid"])
+                        cur["has_profile"] = False
+                        profile_cache = backend.load_profile(cur["appid"])
+
+            elif active_tab == 1:
+                if ch in (curses.KEY_DOWN, ord("j")):
+                    scroll = min(max(0, len(telemetry_lines) - 1), scroll + 1)
+                elif ch in (curses.KEY_UP, ord("k")):
+                    scroll = max(0, scroll - 1)
+                elif ch == ord("r"):
+                    telemetry_lines = backend.format_telemetry_text(backend.collect_telemetry()).splitlines()
+                    scroll = 0
+                    status_msg = "Telemetry refreshed."
+
+            elif active_tab == 2:
+                if ch in (curses.KEY_DOWN, ord("j")):
+                    scroll = min(max(0, len(sync_lines) - 1), scroll + 1)
+                elif ch in (curses.KEY_UP, ord("k")):
+                    scroll = max(0, scroll - 1)
+                elif ch == ord("a"):
+                    _, out = backend.run_sync("report")
+                    sync_lines = out.splitlines() or ["(no output)"]
+                    scroll = 0
+                elif ch == ord("d"):
+                    _, out = backend.run_sync("sanitize_dry")
+                    sync_lines = out.splitlines() or ["(no output)"]
+                    scroll = 0
+                elif ch == ord("s"):
+                    if backend.is_steam_running():
+                        status_msg = "Refused: close Steam before running --sanitize."
+                    else:
+                        _, out = backend.run_sync("sanitize")
+                        sync_lines = out.splitlines() or ["(no output)"]
+                        scroll = 0
+                elif ch == ord("m"):
+                    _, out = backend.run_sync("migrate")
+                    sync_lines = out.splitlines() or ["(no output)"]
+                    scroll = 0
+
+            elif active_tab == 3:
+                if ch in (curses.KEY_DOWN, ord("j")):
+                    scroll += 1
+                elif ch in (curses.KEY_UP, ord("k")):
+                    scroll = max(0, scroll - 1)
+                elif ch == ord("n") and logs:
+                    log_idx = (log_idx + 1) % len(logs)
+                    scroll = 0
+                elif ch == ord("p") and logs:
+                    log_idx = (log_idx - 1) % len(logs)
+                    scroll = 0
+                elif ch == ord("r"):
+                    logs = backend.list_logs()
+                    scroll = 0
+                elif ch == ord("S") and logs:
+                    ldata = backend.read_log(logs[log_idx])
+                    if ldata["appid"].isdigit():
+                        path, _ = backend.apply_safe_mode(ldata["appid"])
+                        status_msg = f"Applied Safe Mode for AppID {ldata['appid']} ({path})"
+                    else:
+                        status_msg = "Selected log has no numeric AppID."
+
+    return curses.wrapper(_main)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Unified Qt6 GUI + curses TUI control center for Steam Auto-Profiler."
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--gui", action="store_true", help="Launch native Qt6 GUI (PySide6/PyQt6)")
+    mode.add_argument("--tui", action="store_true", help="Launch terminal curses TUI")
+    mode.add_argument("--check", action="store_true", help="Run headless CI self-check and exit")
+    args = parser.parse_args()
+
+    backend = ProfilerBackend()
+
+    if args.check:
+        return run_self_check(backend)
+    if args.gui:
+        return run_qt_gui(backend)
+    if args.tui:
+        return run_curses_tui(backend)
+
+    qt_name, _ = detect_qt_binding()
+    has_display = bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
+    if qt_name and has_display:
+        return run_qt_gui(backend)
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        return run_curses_tui(backend)
+    print(
+        "No graphical display or interactive TTY detected. Run with --check, --tui, or --gui.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

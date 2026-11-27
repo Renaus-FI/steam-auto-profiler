@@ -505,6 +505,94 @@ class RunTests(unittest.TestCase):
         self.assertEqual(res_flag.returncode, 0, res_flag.stderr)
         self.assertEqual(res_flag.stdout.strip(), "-vr vr-direct")
 
+    def test_fast_crash_logs_hint_and_offers_safe_mode_prompt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            state_dir = home / ".local" / "state" / "steam-auto-profiler"
+            profile_dir = home / ".config" / "steam-auto-profiler" / "profiles"
+            env = os.environ.copy()
+            env.pop("SAFEDX12", None)
+            env.pop("XWAYLAND", None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "NO_GUI": "1",
+                "GAMEID": "361420",
+            })
+
+            # Headless fast crash records duration_sec and crash_hint in logs
+            res_crash = subprocess.run(
+                [str(RUN), "/bin/false"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(res_crash.returncode, 0)
+            last_log = (state_dir / "last-launch.log").read_text(encoding="utf-8")
+            self.assertIn("duration_sec=", last_log)
+            self.assertIn("crash_hint=fast_crash_detected", last_log)
+            self.assertIn("USE_XWAYLAND=1,USE_SAFEDX12=1", last_log)
+
+            # With GUI enabled (mock kdialog accepting Safe Mode), saves USE_XWAYLAND=1 & USE_SAFEDX12=1
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            kdialog = mock_bin / "kdialog"
+            kdialog.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            kdialog.chmod(0o755)
+            # Pre-create profile so pre-launch checklist is skipped and only crash prompt fires
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            (profile_dir / "361420.env").write_text("USE_SDL=1\n", encoding="utf-8")
+
+            gui_env = {
+                **env,
+                "NO_GUI": "0",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            }
+            res_gui = subprocess.run(
+                [str(RUN), "/bin/false"],
+                env=gui_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(res_gui.returncode, 0)
+            saved_profile = (profile_dir / "361420.env").read_text(encoding="utf-8")
+            self.assertIn("USE_XWAYLAND=1", saved_profile)
+            self.assertIn("USE_SAFEDX12=1", saved_profile)
+            self.assertIn("USE_SDL=1", saved_profile)
+            gui_log = (state_dir / "last-361420.log").read_text(encoding="utf-8")
+            self.assertIn("crash_recovery=safe_mode_saved", gui_log)
+
+    def test_profile_use_fsr4_zero_disables_fsr4(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            profile_dir = home / ".config" / "steam-auto-profiler" / "profiles"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "361420.env").write_text(
+                "USE_FSR4=0\nUSE_SHARPEN=1\n",
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.pop("FSR4", None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+            })
+            res = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn("PROTON_FSR4_UPGRADE=0", res.stdout)
+            self.assertIn("ENABLE_VKBASALT=1", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

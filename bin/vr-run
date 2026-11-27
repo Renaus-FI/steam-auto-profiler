@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-for _vr_dir in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+for _vr_dir in "$HOME/.local/bin" /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
     case ":${PATH:-}:" in
         *:"$_vr_dir":*) ;;
         *) PATH="${PATH:+${PATH}:}$_vr_dir" ;;
@@ -21,6 +21,10 @@ Usage:
 Options:
   --dry-run       Resolve and print the VR launch environment without launching
   --help, -h      Show this help message
+
+Environment:
+  VR_AUTO_MODE=1  Automatically call 'vr-mode on/off' with session ref-counting
+                  when 'vr-mode' is installed (default: 1; set 0 to disable)
 EOF
 }
 
@@ -204,11 +208,26 @@ detect_scheduler() {
 }
 
 SCHEDULER="$(detect_scheduler)"
+VR_AUTO_MODE="${VR_AUTO_MODE:-1}"
+VR_MODE_BIN="$(command -v vr-mode 2>/dev/null || true)"
+VR_SESSIONS_FILE="${XDG_RUNTIME_DIR:-/tmp}/vr-run.sessions"
+VR_SESSIONS_LOCK="${VR_SESSIONS_FILE}.lock"
+
+vr_mode_status_label() {
+    if [[ "$VR_AUTO_MODE" != "1" ]]; then
+        echo "disabled"
+    elif [[ -n "$VR_MODE_BIN" ]]; then
+        echo "enabled ($VR_MODE_BIN)"
+    else
+        echo "unavailable"
+    fi
+}
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Steam Auto-Profiler VR dry run"
     echo "GPU: ${GPU_VENDOR}"
     echo "Scheduler: ${SCHEDULER}"
+    echo "Auto vr-mode: $(vr_mode_status_label)"
     echo "Exported VR variables:"
     env | LC_ALL=C sort | awk -F= '
         $1 ~ /^(AMD_VULKAN_ICD|RADV_PERFTEST|MESA_VK_DEVICE_SELECT|XR_RUNTIME_JSON|VR_OVERRIDE|PRESSURE_VESSEL_FILESYSTEMS_RO|PRESSURE_VESSEL_FILESYSTEMS_RW|LD_LIBRARY_PATH)$/ ||
@@ -216,6 +235,105 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
             print
         }'
     exit 0
+fi
+
+# Ref-counted vr-mode lifecycle management so switching VR games does not toggle off prematurely.
+VR_MODE_ACTIVE=0
+VR_MODE_CLEANED=0
+
+vr_sessions_acquire() {
+    local live_count=0 pid tmp_file
+    mkdir -p "$(dirname "$VR_SESSIONS_FILE")"
+    tmp_file="${VR_SESSIONS_FILE}.tmp.$$"
+    : > "$tmp_file"
+    if [[ -f "$VR_SESSIONS_FILE" ]]; then
+        while IFS= read -r pid || [[ -n "$pid" ]]; do
+            [[ "$pid" =~ ^[0-9]+$ ]] || continue
+            if kill -0 "$pid" 2>/dev/null; then
+                printf '%s\n' "$pid" >> "$tmp_file"
+                live_count=$((live_count + 1))
+            fi
+        done < "$VR_SESSIONS_FILE"
+    fi
+    printf '%s\n' "$$" >> "$tmp_file"
+    mv -f "$tmp_file" "$VR_SESSIONS_FILE"
+    if (( live_count == 0 )); then
+        "$VR_MODE_BIN" on >/dev/null 2>&1 || true
+    fi
+}
+
+vr_sessions_release() {
+    local live_count=0 pid tmp_file
+    tmp_file="${VR_SESSIONS_FILE}.tmp.$$"
+    : > "$tmp_file"
+    if [[ -f "$VR_SESSIONS_FILE" ]]; then
+        while IFS= read -r pid || [[ -n "$pid" ]]; do
+            [[ "$pid" =~ ^[0-9]+$ ]] || continue
+            [[ "$pid" == "$$" ]] && continue
+            if kill -0 "$pid" 2>/dev/null; then
+                printf '%s\n' "$pid" >> "$tmp_file"
+                live_count=$((live_count + 1))
+            fi
+        done < "$VR_SESSIONS_FILE"
+    fi
+    if (( live_count == 0 )); then
+        rm -f "$tmp_file" "$VR_SESSIONS_FILE"
+        "$VR_MODE_BIN" off >/dev/null 2>&1 || true
+    else
+        mv -f "$tmp_file" "$VR_SESSIONS_FILE"
+    fi
+}
+
+with_vr_lock() {
+    local fn="$1"
+    if command -v flock >/dev/null 2>&1; then
+        mkdir -p "$(dirname "$VR_SESSIONS_LOCK")"
+        (
+            flock -x 9
+            "$fn"
+        ) 9>"$VR_SESSIONS_LOCK"
+    else
+        "$fn"
+    fi
+}
+
+# shellcheck disable=SC2317
+# shellcheck disable=SC2329
+cleanup_vr_mode() {
+    [[ "$VR_MODE_ACTIVE" -eq 1 && "$VR_MODE_CLEANED" -eq 0 ]] || return 0
+    VR_MODE_CLEANED=1
+    with_vr_lock vr_sessions_release
+}
+
+if [[ "$VR_AUTO_MODE" == "1" && -n "$VR_MODE_BIN" ]]; then
+    VR_MODE_ACTIVE=1
+    trap cleanup_vr_mode EXIT INT TERM
+    with_vr_lock vr_sessions_acquire
+fi
+
+run_vr_command() {
+    case "$SCHEDULER" in
+        game-performance)
+            game-performance "$@"
+            ;;
+        powerprofilesctl)
+            powerprofilesctl launch -p performance -- "$@"
+            ;;
+        gamemoderun)
+            gamemoderun "$@"
+            ;;
+        *)
+            "$@"
+            ;;
+    esac
+}
+
+if [[ "$VR_MODE_ACTIVE" -eq 1 ]]; then
+    if run_vr_command "$@"; then
+        exit 0
+    else
+        exit $?
+    fi
 fi
 
 case "$SCHEDULER" in

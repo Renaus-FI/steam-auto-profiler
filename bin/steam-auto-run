@@ -819,7 +819,9 @@ fi
 [[ "${SAFEDX12:-0}" -eq 1 ]] && USE_SAFEDX12=1
 [[ "${NO_NTSYNC:-0}" -eq 1 ]] && USE_NO_NTSYNC=1
 [[ "${NO_DECORATION:-0}" -eq 1 ]] && USE_NO_DECORATION=1
-[[ "${USE_FSR4:-0}" -eq 1 ]] && FSR4=1
+if [[ -z "${FSR4+x}" && -n "${USE_FSR4+x}" ]]; then
+    FSR4="$USE_FSR4"
+fi
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
@@ -1058,6 +1060,24 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 LAST_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/steam-auto-profiler"
+LAUNCH_DURATION=0
+CRASH_HINT=""
+CRASH_RECOVERY=""
+
+save_safe_mode_profile() {
+    local target="$1" tmp_file
+    [[ -n "$target" ]] || return 1
+    mkdir -p "$(dirname "$target")"
+    tmp_file="${target}.tmp.$$"
+    if [[ -f "$target" ]]; then
+        grep -vE '^[[:space:]]*(USE_XWAYLAND|USE_SAFEDX12)=' "$target" > "$tmp_file" || true
+    else
+        : > "$tmp_file"
+    fi
+    printf 'USE_XWAYLAND=1\nUSE_SAFEDX12=1\n' >> "$tmp_file"
+    mv -f "$tmp_file" "$target"
+}
+
 write_last_log() {
     local app_log="$LAST_LOG_DIR/last-${APPID:-launch}.log"
     local exit_code="${1:-0}"
@@ -1070,6 +1090,7 @@ write_last_log() {
         printf 'gpu=%s\n' "${GPU_VENDOR:-unknown}"
         printf 'gamescope=%s\n' "$GAMESCOPE_SESSION"
         printf 'vrr_cap=%s\n' "${AUTO_VRR_CAP:-0}"
+        printf 'duration_sec=%s\n' "${LAUNCH_DURATION:-0}"
         printf 'command='
         printf '%q ' "$@"
         printf '\n'
@@ -1079,6 +1100,12 @@ write_last_log() {
             $1 == "STEAM_COMPAT_CONFIG" { print }
         '
         printf 'exit_code=%s\n' "$exit_code"
+        if [[ -n "$CRASH_HINT" ]]; then
+            printf 'crash_hint=%s\n' "$CRASH_HINT"
+        fi
+        if [[ -n "$CRASH_RECOVERY" ]]; then
+            printf 'crash_recovery=%s\n' "$CRASH_RECOVERY"
+        fi
     } > "$app_log"
     tail -n 200 "$app_log" > "$app_log.tmp"
     mv -f "$app_log.tmp" "$app_log"
@@ -1146,10 +1173,45 @@ else
     export LD_PRELOAD=""
 fi
 
+LAUNCH_START_SEC="$SECONDS"
 if run_with_scheduler "$@" "${EXTRA_ARGS[@]}"; then
     launch_exit=0
 else
     launch_exit=$?
 fi
+LAUNCH_DURATION=$((SECONDS - LAUNCH_START_SEC))
+
+CRASH_THRESHOLD_SEC="${SAP_CRASH_THRESHOLD_SEC:-20}"
+if [[ "$launch_exit" -ne 0 &&
+      "${NATIVE_RUNTIME:-0}" -ne 1 &&
+      "$LAUNCH_DURATION" -lt "$CRASH_THRESHOLD_SEC" &&
+      ( "$USE_XWAYLAND" -eq 0 || "$USE_SAFEDX12" -eq 0 ) ]]; then
+    CRASH_HINT="fast_crash_detected duration=${LAUNCH_DURATION}s exit_code=${launch_exit} suggested_safe_mode=USE_XWAYLAND=1,USE_SAFEDX12=1"
+    if [[ "${NO_GUI:-0}" -ne 1 &&
+          "$GAMESCOPE_SESSION" -eq 0 &&
+          -n "$PROFILE_FILE" &&
+          (-n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}") ]]; then
+        CRASH_PROMPT="Title (AppID: ${APPID}) exited with code ${launch_exit} after ${LAUNCH_DURATION}s while experimental Wayland/DX12 options were active.\n\nSave Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1) for the next launch?"
+        SAVE_SAFE_MODE=0
+        if command -v kdialog >/dev/null 2>&1; then
+            if env -u LD_LIBRARY_PATH -u LD_PRELOAD QT_QPA_PLATFORM="wayland;xcb" \
+                kdialog --title "Steam Auto-Profiler: Fast Crash Detected" \
+                --yesno "$CRASH_PROMPT" 2>/dev/null; then
+                SAVE_SAFE_MODE=1
+            fi
+        elif command -v zenity >/dev/null 2>&1; then
+            if env -u LD_LIBRARY_PATH -u LD_PRELOAD GDK_BACKEND="wayland,x11" \
+                zenity --question --title="Steam Auto-Profiler: Fast Crash Detected" \
+                --text="$CRASH_PROMPT" 2>/dev/null; then
+                SAVE_SAFE_MODE=1
+            fi
+        fi
+        if [[ "$SAVE_SAFE_MODE" -eq 1 ]]; then
+            save_safe_mode_profile "$PROFILE_FILE"
+            CRASH_RECOVERY="safe_mode_saved"
+        fi
+    fi
+fi
+
 write_last_log "$launch_exit" "$@" "${EXTRA_ARGS[@]}"
 exit "$launch_exit"

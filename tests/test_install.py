@@ -19,22 +19,25 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("--with-auto-sync", result.stdout)
 
-    def test_install_and_uninstall_includes_vr_run(self):
+    def test_install_and_uninstall_includes_vr_run_ui_and_desktop_entry(self):
         expected = (
             "steam-auto-run",
             "steam-auto-detect",
             "steam-auto-sync",
             "steam-net-boost",
             "vr-run",
+            "steam-auto-ui",
         )
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             home = tmp_path / "home"
             home.mkdir()
+            data_home = home / ".local" / "share"
             env = {
                 **os.environ,
                 "HOME": str(home),
                 "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_DATA_HOME": str(data_home),
                 "STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR": str(tmp_path / "sys-bin"),
                 "STEAM_AUTO_PROFILER_SUDOERS_DIR": str(tmp_path / "sudoers.d"),
             }
@@ -52,6 +55,11 @@ class InstallTests(unittest.TestCase):
                 self.assertTrue(target.is_file(), f"Missing installed script: {name}")
                 self.assertTrue(os.access(target, os.X_OK), f"Not executable: {name}")
 
+            desktop = data_home / "applications" / "steam-auto-profiler.desktop"
+            self.assertTrue(desktop.is_file(), "Missing desktop entry")
+            desktop_text = desktop.read_text(encoding="utf-8")
+            self.assertIn("steam-auto-ui --gui", desktop_text)
+
             res_uninstall = subprocess.run(
                 [str(ROOT / "install.sh"), "--uninstall"],
                 env=env,
@@ -62,6 +70,7 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(res_uninstall.returncode, 0, res_uninstall.stderr)
             for name in expected:
                 self.assertFalse((bin_dir / name).exists(), f"Failed to uninstall: {name}")
+            self.assertFalse(desktop.exists(), "Failed to uninstall desktop entry")
 
 
 if __name__ == "__main__":

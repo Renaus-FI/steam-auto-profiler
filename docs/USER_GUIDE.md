@@ -17,7 +17,7 @@ cd steam-auto-profiler
 ./install.sh
 ```
 
-The installer copies the five commands (`steam-auto-run`, `steam-auto-detect`, `steam-auto-sync`, `steam-net-boost`, and `vr-run`) to `~/.local/bin`, creates `~/.config/steam-auto-profiler/profiles`, and adds default vkBasalt presets. Make sure `~/.local/bin` is in `PATH`.
+The installer copies all six commands (`steam-auto-run`, `steam-auto-detect`, `steam-auto-sync`, `steam-net-boost`, `vr-run`, and `steam-auto-ui`) to `~/.local/bin`, installs the desktop launcher (`~/.local/share/applications/steam-auto-profiler.desktop`), creates `~/.config/steam-auto-profiler/profiles`, and adds default vkBasalt presets. Make sure `~/.local/bin` is in `PATH`.
 
 Optional installation flags may be combined:
 
@@ -53,8 +53,26 @@ steam-auto-run --doctor
 6. **Calculate a VRR cap.** An explicit `VRR_CAP=<fps>` is highest priority (`VRR_CAP=0` disables capping). Otherwise KDE (`kscreen-doctor`), wlroots (`wlr-randr`), or X11 (`xrandr`) refresh-rate data is read and used directly at 1:1 by default, such as 240 FPS on a 240 Hz display. Set `VRR_MINUS_MARGIN=1` to enable the optional -6% VRR headroom calculation (`hz * 94 / 100`). In Gamescope, DXVK/VKD3D frame caps are omitted unless `VRR_CAP` is explicit.
 7. **Configure or load the per-AppID profile.** The pre-launch `kdialog` or `zenity` checklist is shown on the first launch unless a profile exists or GUI launch is disabled. Selecting **Save profile** writes a small allowlisted `KEY=VALUE` file to `~/.config/steam-auto-profiler/profiles/<APPID>.env`.
 8. **Apply launch variables and scheduling.** The wrapper exports Wayland/HDR (`WAYLANDDRV_SHORTCUT_INHIBIT=0` by default, per-profile overridable), low-latency DXVK/VKD3D (`DXVK_FRAME_PACE=low-latency-vrr` when VRR capping is active), AMD `PROTON_NATIVE_AGS=1`, modern `VKD3D_CONFIG` (omitted when `SAFEDX12=1`), strict mutual-exclusion guards (disabling vkBasalt whenever FSR 4 or OptiScaler is active, and disabling Anti-Lag / low-latency / VRR frame caps whenever MLFG is enabled), upscaler, Steam Input, overlay, and compatibility variables. It uses `game-performance`, then `powerprofilesctl launch -p performance --`, and `gamemoderun` only when it will not conflict with `ananicy-cpp`.
-9. **Start and monitor the launch.** Native Linux titles omit Proton/Wine/DXVK/VKD3D variables. SteamVR (`250820`) and `-vr`/`--vr` launches bypass flatscreen orchestration cleanly. The wrapper launches the supplied command and writes a bounded last-launch record.
+9. **Start, monitor, and recover from fast crashes.** Native Linux titles omit Proton/Wine/DXVK/VKD3D variables. SteamVR (`250820`) and `-vr`/`--vr` launches bypass flatscreen orchestration cleanly. The wrapper records launch duration and exit code in `last-launch.log`; if a Proton/Windows title exits non-zero in under 20 seconds while experimental Wayland or DX12 flags are active (`USE_XWAYLAND=0` or `USE_SAFEDX12=0`), it logs a `crash_hint` and (when `NO_GUI=0`) offers a one-click `kdialog`/`zenity` prompt to save Safe Mode (`USE_XWAYLAND=1`, `USE_SAFEDX12=1`) for the next launch.
 10. **Restore optional network state.** If QoS is enabled, `steam-net-boost` activates per-session state for the selected interface while preserving existing static CAKE setups (both root `cake` and LAN-exempted HTB + leaf `cake` trees, as well as `wan-cake-shaper.service` and `cake-shaper.service`). Pre-existing root qdisc (`cake` vs `fq_codel`), tx queue length, and NIC EEE state are restored after the last launch session exits. `steam-net-boost status` runs read-only without root privileges.
+
+## Unified Control Center (`steam-auto-ui`)
+
+Launch `steam-auto-ui` from the KDE/desktop application menu or terminal:
+
+```bash
+steam-auto-ui          # Auto-selects native Qt6 GUI (PySide6/PyQt6) or curses TUI
+steam-auto-ui --gui    # Launch native Qt6 window
+steam-auto-ui --tui    # Launch terminal curses interface (works over SSH)
+steam-auto-ui --check  # Run headless self-test
+```
+
+The control center provides four synchronized views:
+
+1. **Games & Profiles:** Searchable library table (`AppID`, `Name`, `Auto Class`, `Synced`, `Profile`) with interactive profile toggles (`XWayland`, `FSR4`, `MLFG`, `VRR_CAP`, `vkBasalt`, `Safe DX12`, `Net QoS`, `SDL Input`, `Keep Overlay`, `OptiScaler`), live mutual-exclusion validation, `Dry-Run` preview, and `Reset Profile`.
+2. **System & Telemetry:** Displays `steam-auto-run --doctor`, `scxctl get` scheduler mode, GPU VRAM/utilization/temperature, `tc -s qdisc` LAN (`cake 10:`) vs WAN (`cake 20:`) throughput and `av_delay`, and `vr-mode status`.
+3. **Library Sync:** Triggers `steam-auto-sync --report`, `--sanitize --dry-run`, `--sanitize` (warning if Steam is running), and `--migrate-cachy-run`.
+4. **Logs & Recovery:** Browses `last-launch.log` and `last-<APPID>.log`, highlights `crash_hint` warnings, and offers one-click **Apply Safe Mode (`USE_XWAYLAND=1`, `USE_SAFEDX12=1`)**.
 
 ## VR titles (`vr-run`)
 
@@ -69,10 +87,11 @@ vr-run %command%
 - Scrubs inherited flatscreen variables (`DXVK_FRAME_RATE`, `VKD3D_FRAME_RATE`, `DXVK_FRAME_PACE`, `PROTON_ENABLE_WAYLAND`, `PROTON_USE_WAYLAND`, `ENABLE_LAYER_MESA_ANTI_LAG`, `ENABLE_VKBASALT`, `PROTON_MLFG_UPGRADE`, `MLFG_UPGRADE`).
 - Auto-selects the discrete GPU via `MESA_VK_DEVICE_SELECT` and sets `AMD_VULKAN_ICD=RADV` / `RADV_PERFTEST=sam` on AMD GPUs.
 - Dynamically detects WiVRn and xrizer OpenXR/OpenVR paths (`~/.local/share/wivrn-slr/openxr_wivrn.json`, `/usr/share/openxr/1/openxr_wivrn.json`, `/opt/xrizer`, `~/.config/openvr`, `$XDG_RUNTIME_DIR/wivrn`) and exports `XR_RUNTIME_JSON`, `VR_OVERRIDE`, `PRESSURE_VESSEL_FILESYSTEMS_RO`, `PRESSURE_VESSEL_FILESYSTEMS_RW`, and `LD_LIBRARY_PATH` without clobbering user overrides.
+- Automatically invokes `vr-mode on` before launch and `vr-mode off` when the last VR session exits (ref-counted in `${XDG_RUNTIME_DIR:-/tmp}/vr-run.sessions` so switching VR games does not toggle off prematurely; set `VR_AUTO_MODE=0` to disable).
 - Runs through the safe scheduler chain (`game-performance` -> `powerprofilesctl` -> `gamemoderun` when `ananicy-cpp` is inactive -> direct `exec`).
 - Supports `vr-run --dry-run` to inspect resolved VR variables without launching.
 
-`steam-auto-sync` preserves intentional `vr-run %command%` launch options during normal sync and `--sanitize`, and displays `VR` in `steam-auto-sync --report`.
+`steam-auto-detect` automatically detects VR titles via `openvr_api.dll`, `openxr_loader.dll`, and SteamVR manifests (`AUTO_IS_VR=1`, class `vr`). `steam-auto-sync` automatically assigns `vr-run %command%` to newly installed VR titles, preserves intentional `vr-run %command%` launch options during sync and `--sanitize`, and displays `VR` in `steam-auto-sync --report`.
 
 ## Steam launch automation
 
@@ -151,6 +170,7 @@ Useful commands:
 | List saved profiles | `steam-auto-run --list-profiles` |
 | Show latest launch log | `steam-auto-run --last-log [APPID]` |
 | Audit system readiness | `steam-auto-run --doctor` |
+| Open Control Center (GUI/TUI) | `steam-auto-ui [--gui\|--tui\|--check]` |
 | Preview VR launch environment | `vr-run --dry-run` |
 | Inspect network helper (read-only) | `steam-net-boost status [IFACE]` |
 

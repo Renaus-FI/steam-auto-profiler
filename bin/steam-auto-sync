@@ -117,6 +117,40 @@ def uses_vr_wrapper(launch_options):
     return False
 
 
+def find_detector(home):
+    candidates = [
+        Path(__file__).resolve().with_name("steam-auto-detect"),
+        home / ".local/bin/steam-auto-detect",
+        Path("/usr/local/bin/steam-auto-detect"),
+    ]
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def is_vr_appid(detector, appid, cache):
+    if appid in cache:
+        return cache[appid]
+    if detector is None:
+        cache[appid] = False
+        return False
+    result = subprocess.run(
+        [str(detector), "--json", appid],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        cache[appid] = False
+        return False
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        cache[appid] = False
+        return False
+    is_vr = bool(report.get("is_vr"))
+    cache[appid] = is_vr
+    return is_vr
+
+
 def install_systemd_units(home, library_paths=None):
     """Install and enable the user watcher when a user systemd session exists."""
     unit_dir = config_home(home) / "systemd/user"
@@ -566,6 +600,8 @@ def main():
                 print("No installed Steam games found.")
             return 0
 
+        detector = find_detector(home)
+        vr_cache = {}
         for config in (steam_root / "userdata").glob("*/config/localconfig.vdf"):
             raw = config.read_text(encoding="utf-8", errors="ignore")
             app_launch, app_close, apps_close = find_launch_options(raw)
@@ -575,18 +611,24 @@ def main():
             edits = []
             changed = []
             for appid, name in sorted(games.items(), key=lambda item: item[1].lower()):
+                effective_wrapper = args.wrapper
+                if not args.remove and args.wrapper == "steam-auto-run" and is_vr_appid(detector, appid, vr_cache):
+                    effective_wrapper = "vr-run"
+
                 if appid not in app_launch:
+                    if args.remove:
+                        continue
                     pos = app_close.get(appid, apps_close)
                     if appid in app_close:
                         rep = (
-                            f'\t\t\t\t"LaunchOptions"\t\t"{args.wrapper} %command%"\n'
+                            f'\t\t\t\t"LaunchOptions"\t\t"{effective_wrapper} %command%"\n'
                             "\t\t\t"
                         )
                     else:
                         rep = (
                             f'\t"{appid}"\n'
                             "\t\t{\n"
-                            f'\t\t\t"LaunchOptions"\t\t"{args.wrapper} %command%"\n'
+                            f'\t\t\t"LaunchOptions"\t\t"{effective_wrapper} %command%"\n'
                             "\t\t}\n"
                         )
                     edits.append((pos, pos, rep))
@@ -605,10 +647,13 @@ def main():
                 elif args.sanitize:
                     if uses_vr_wrapper(current):
                         continue
-                    profile_dir = cfg_home / "steam-auto-profiler/profiles"
-                    replacement, extracted_profile = sanitize_launch_option(
-                        appid, current, profile_dir, dry_run=args.dry_run
-                    )
+                    if effective_wrapper == "vr-run" and current.strip() in ("", "%command%"):
+                        replacement = "vr-run %command%"
+                    else:
+                        profile_dir = cfg_home / "steam-auto-profiler/profiles"
+                        replacement, extracted_profile = sanitize_launch_option(
+                            appid, current, profile_dir, dry_run=args.dry_run
+                        )
                     if replacement == current:
                         continue
                 else:
@@ -618,12 +663,12 @@ def main():
                         continue
                     if "%command%" in current:
                         replacement = current.replace(
-                            "%command%", f"{args.wrapper} %command%", 1
+                            "%command%", f"{effective_wrapper} %command%", 1
                         )
                     elif current.strip():
-                        replacement = f"{args.wrapper} %command% {current.strip()}"
+                        replacement = f"{effective_wrapper} %command% {current.strip()}"
                     else:
-                        replacement = f"{args.wrapper} %command%"
+                        replacement = f"{effective_wrapper} %command%"
 
                 escaped = replacement.replace("\\", "\\\\").replace('"', '\\"')
                 edits.append((start, end, f'"{escaped}"'))

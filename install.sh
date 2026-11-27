@@ -6,6 +6,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${HOME}/.local/bin"
+APPLICATIONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 SYSTEM_BIN_DIR="${STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR:-/usr/local/bin}"
 SUDOERS_DIR="${STEAM_AUTO_PROFILER_SUDOERS_DIR:-/etc/sudoers.d}"
 WITH_NET_BOOST=0
@@ -48,10 +49,14 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --user daemon-reload 2>/dev/null || true
     fi
-    for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost vr-run; do
+    for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost vr-run steam-auto-ui; do
         rm -f "$TARGET_DIR/$script"
         echo "Removed $TARGET_DIR/$script"
     done
+    if [[ -e "$APPLICATIONS_DIR/steam-auto-profiler.desktop" ]]; then
+        rm -f "$APPLICATIONS_DIR/steam-auto-profiler.desktop"
+        echo "Removed $APPLICATIONS_DIR/steam-auto-profiler.desktop"
+    fi
     if [[ -e "$SYSTEM_BIN_DIR/steam-net-boost" ]]; then
         sudo rm -f "$SYSTEM_BIN_DIR/steam-net-boost"
         echo "Removed $SYSTEM_BIN_DIR/steam-net-boost"
@@ -60,7 +65,7 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
         sudo rm -f "$SUDOERS_DIR/steam-net-boost"
         echo "Removed $SUDOERS_DIR/steam-net-boost"
     fi
-    for script in steam-auto-run steam-auto-detect steam-auto-sync vr-run; do
+    for script in steam-auto-run steam-auto-detect steam-auto-sync vr-run steam-auto-ui; do
         if [[ -e "$SYSTEM_BIN_DIR/$script" || -L "$SYSTEM_BIN_DIR/$script" ]]; then
             sudo rm -f "$SYSTEM_BIN_DIR/$script"
             echo "Removed $SYSTEM_BIN_DIR/$script"
@@ -116,15 +121,31 @@ dlsSharpness = 0.25
 EOF
 fi
 
-for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost vr-run; do
+for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost vr-run steam-auto-ui; do
     install -m 755 "$REPO_DIR/bin/$script" "$TARGET_DIR/$script"
     echo "Installed $TARGET_DIR/$script"
 done
 
+mkdir -p "$APPLICATIONS_DIR"
+cat >"$APPLICATIONS_DIR/steam-auto-profiler.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Steam Auto-Profiler
+GenericName=Steam Gaming Control Center
+Comment=Manage Steam Auto-Profiler per-game profiles, VR mode, network QoS, and crash recovery
+Exec=$TARGET_DIR/steam-auto-ui --gui
+Icon=steam
+Terminal=false
+Categories=Game;Settings;System;Utility;
+Keywords=Steam;Proton;FSR4;Wayland;VR;Gaming;
+StartupNotify=true
+EOF
+echo "Installed $APPLICATIONS_DIR/steam-auto-profiler.desktop"
+
 if [[ "$WITH_NET_BOOST" -eq 1 ]]; then
     USER_NAME="$(id -un)"
     sudo rm -f "$SUDOERS_DIR/cachy-net-boost" "$SYSTEM_BIN_DIR/cachy-net-boost"
-    for script in steam-auto-run steam-auto-detect steam-auto-sync vr-run; do
+    for script in steam-auto-run steam-auto-detect steam-auto-sync vr-run steam-auto-ui; do
         sudo install -m 755 "$REPO_DIR/bin/$script" "$SYSTEM_BIN_DIR/$script"
         echo "Installed $SYSTEM_BIN_DIR/$script"
     done

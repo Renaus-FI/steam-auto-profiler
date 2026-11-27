@@ -240,6 +240,80 @@ class VrRunTests(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
             self.assertEqual(res.stdout.strip(), "gp:echo hello")
 
+    def test_vr_mode_ref_counted_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            env = self._clean_env(tmp_path)
+            mock_bin = tmp_path / "mock-bin"
+            mock_bin.mkdir()
+            log_file = tmp_path / "vr-mode.log"
+            _write_exe(
+                mock_bin / "vr-mode",
+                f'#!/bin/sh\necho "$1" >> "{log_file}"\n',
+            )
+            env["PATH"] = f"{mock_bin}:/usr/bin:/bin"
+            env["VR_AUTO_MODE"] = "1"
+
+            # Start two overlapping VR sessions: session 1 stays alive while session 2 starts & exits
+            p1 = subprocess.Popen(
+                [str(VR_RUN), "/bin/sleep", "0.8"],
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            # Wait briefly until session 1 records itself
+            sessions_file = Path(env["XDG_RUNTIME_DIR"]) / "vr-run.sessions"
+            for _ in range(40):
+                if sessions_file.is_file() and sessions_file.read_text(encoding="utf-8").strip():
+                    break
+                import time
+                time.sleep(0.05)
+
+            res2 = subprocess.run(
+                [str(VR_RUN), "/bin/true"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res2.returncode, 0, res2.stderr)
+
+            # While session 1 is still active, vr-mode off MUST NOT have been called yet
+            mid_calls = log_file.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(mid_calls, ["on"])
+
+            _, p1_err = p1.communicate(timeout=10)
+            self.assertEqual(p1.returncode, 0, p1_err)
+
+            final_calls = log_file.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(final_calls, ["on", "off"])
+            self.assertFalse(sessions_file.exists())
+
+    def test_vr_auto_mode_disabled_skips_vr_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            env = self._clean_env(tmp_path)
+            mock_bin = tmp_path / "mock-bin"
+            mock_bin.mkdir()
+            log_file = tmp_path / "vr-mode.log"
+            _write_exe(
+                mock_bin / "vr-mode",
+                f'#!/bin/sh\necho "$1" >> "{log_file}"\n',
+            )
+            env["PATH"] = f"{mock_bin}:/usr/bin:/bin"
+            env["VR_AUTO_MODE"] = "0"
+
+            res = subprocess.run(
+                [str(VR_RUN), "/bin/true"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertFalse(log_file.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

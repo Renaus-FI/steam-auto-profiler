@@ -120,6 +120,29 @@ class DetectTests(unittest.TestCase):
         self.assertNotIn("vkd3dbindlesstb", tokens)
         self.assertNotIn("dxvklowlatency", tokens)
 
+    def test_vr_detection_openvr_openxr_and_vrmanifest(self):
+        cases = (
+            ("2001", "Half Life VR", ("bin/openvr_api.dll", "game.exe")),
+            ("2002", "OpenXR Flight", ("openxr_loader.dll", "sim.exe")),
+            ("2003", "Manifest VR", ("actions/game.vrmanifest", "app.exe")),
+        )
+        for appid, name, files in cases:
+            with self.subTest(appid=appid):
+                self.create_game(appid, name, files=files)
+                report = self.classify(appid)
+                self.assertTrue(report["is_vr"])
+                self.assertEqual(report["class"], "vr")
+                env = os.environ.copy()
+                env["HOME"] = str(self.home)
+                raw = subprocess.run(
+                    [str(DETECT), appid],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout
+                self.assertIn("AUTO_IS_VR=1", raw)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -284,6 +284,25 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(replacement, "PROTON_LOG=1 vr-run %command% -vr")
         self.assertEqual(profile, {})
 
+    def test_auto_assigns_vr_run_to_newly_installed_vr_title(self):
+        vr_dir = self.steam / "steamapps" / "common" / "Alyx_VR"
+        vr_dir.mkdir(parents=True)
+        (vr_dir / "openvr_api.dll").touch()
+        (vr_dir / "hlvr.exe").touch()
+        (self.steam / "steamapps" / "appmanifest_546560.acf").write_text(
+            '"AppState"\n{\n\t"appid"\t\t"546560"\n\t"installdir"\t\t"Alyx_VR"\n\t"name"\t\t"Half-Life: Alyx"\n}\n',
+            encoding="utf-8",
+        )
+        res = self.run_sync()
+        combined = (res.stdout + res.stderr).lower()
+        if res.returncode != 0 and "running" in combined:
+            self.skipTest("Steam is currently running on host")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        updated = self.config.read_text(encoding="utf-8")
+        self.assertIn('"546560"', updated)
+        self.assertIn('"LaunchOptions"\t\t"vr-run %command%"', updated)
+        self.assertIn("steam-auto-run %command%", updated)
+
 
 if __name__ == "__main__":
     unittest.main()

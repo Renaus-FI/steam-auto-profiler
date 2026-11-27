@@ -15,9 +15,10 @@ variable string.
 | Priority | Class | Detection signal | Default behavior |
 | --- | --- | --- | --- |
 | 1 | `competitive-anticheat` | Known competitive AppID or anti-cheat runtime files | Disable OptiScaler and frame generation; enable online network profile |
-| 2 | `native-fsr` | Native FSR 3.1+ / FSR 4 libraries | Prefer the driver-level FSR upgrade path |
-| 3 | `legacy-upscaler` | DLSS, XeSS, or FSR 2 libraries | Mark the title for an optional upscaler bridge |
-| 4 | `standard` | No anti-cheat or modern upscaler detected | Use a safe low-latency VRR profile |
+| 2 | `vr` | VR runtime libraries/manifests (`openvr_api.dll`, `openxr_loader.dll`, `*.vrmanifest`) | Export `AUTO_IS_VR=1`; `steam-auto-sync` assigns `vr-run %command%` automatically |
+| 3 | `native-fsr` | Native FSR 3.1+ / FSR 4 libraries | Prefer the driver-level FSR upgrade path |
+| 4 | `legacy-upscaler` | DLSS, XeSS, or FSR 2 libraries | Mark the title for an optional upscaler bridge |
+| 5 | `standard` | No anti-cheat, VR, or modern upscaler detected | Use a safe low-latency VRR profile |
 
 The classifier checks Steam library folders and the current AppID manifest, then scans
 the installed game directory to ten levels deep.
@@ -59,9 +60,20 @@ vr-run %command%
 
 `vr-run` scrubs flatscreen VRR caps, Wayland overrides, Anti-Lag, vkBasalt, and frame-generation
 hooks, auto-selects the discrete GPU via `MESA_VK_DEVICE_SELECT`, dynamically detects WiVRn and
-xrizer OpenXR/OpenVR paths without clobbering user overrides, and runs through the safe scheduler
-chain. `steam-auto-sync` automatically preserves intentional `vr-run %command%` entries during sync
-and `--sanitize`. Inspect resolved VR settings with `vr-run --dry-run`.
+xrizer OpenXR/OpenVR paths without clobbering user overrides, manages ref-counted `vr-mode on/off`
+sessions (`VR_AUTO_MODE=1`) when `vr-mode` is installed, and runs through the safe scheduler
+chain. `steam-auto-detect` detects VR titles (`AUTO_IS_VR=1`), and `steam-auto-sync` automatically
+assigns and preserves `vr-run %command%` entries during sync and `--sanitize`. Inspect resolved VR
+settings with `vr-run --dry-run`.
+
+Launch the unified Qt6 GUI / curses TUI control center (also installed in your application menu):
+
+```bash
+steam-auto-ui          # Auto-detects PySide6/PyQt6 GUI or curses TUI
+steam-auto-ui --gui    # Force native Qt6 window
+steam-auto-ui --tui    # Force terminal curses interface
+steam-auto-ui --check  # Headless CI self-test
+```
 
 Preview batch integration and apply it after closing Steam:
 
@@ -132,8 +144,9 @@ all launch sessions exit.
 ## Commands
 
 - `steam-auto-detect [--inspect] [APPID]` - classify an AppID and print the result.
-- `steam-auto-run [--inspect|--configure|--reset|--doctor|--check-system] [APPID]` - orchestrate a Steam launch or audit the system.
-- `vr-run [--dry-run] %command%` - orchestrate a VR launch with flatscreen override scrubbing and dynamic OpenXR/WiVRn/xrizer detection.
+- `steam-auto-run [--inspect|--configure|--reset|--doctor|--check-system] [APPID]` - orchestrate a Steam launch (with fast-crash Safe Mode auto-recovery) or audit the system.
+- `vr-run [--dry-run] %command%` - orchestrate a VR launch with flatscreen override scrubbing, dynamic OpenXR/WiVRn/xrizer detection, and ref-counted `vr-mode` hooks.
+- `steam-auto-ui [--gui|--tui|--check]` - launch the unified Qt6 GUI / curses TUI control center.
 - `steam-auto-sync [--dry-run|--remove|--sanitize|--clean|--migrate-cachy-run|--report|--print-library-paths|--keep-backups N]` - update Steam `localconfig.vdf` launch options or inspect/migrate profiles.
 - `steam-net-boost [on|off|status]` - apply, inspect (read-only), or restore optional network tuning.
 - `steam-auto-detect --inspect --json [APPID]` - print a machine-readable classification report.

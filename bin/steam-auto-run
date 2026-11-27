@@ -92,12 +92,18 @@ Options:
 Environment overrides:
   FORCE_GUI=1       Re-open the GUI for a saved profile
   NO_GUI=1          Run silently
-  VRR_CAP=<fps>     Override the calculated VRR frame cap
-  VRR_MINUS_MARGIN=1 Enable optional 6% VRR safety margin
-  XWAYLAND=1        Force XWayland
-  MLFG=1            Enable frame generation
-  NETOPT=1          Enable the optional network profile
+  VRR_CAP=<fps>     Override the calculated VRR frame cap (0 disables capping)
+  VRR_MINUS_MARGIN=1 Enable optional 6% VRR safety margin (e.g. 225 FPS on 240 Hz)
+  XWAYLAND=1        Force XWayland instead of native Wayland
+  WAYLANDDRV_SHORTCUT_INHIBIT=1 Allow shortcut inhibition under Wine Wayland
+  MLFG=1            Enable frame generation (disables Anti-Lag and VRR caps)
+  OPTISCALER=1      Enable optional OptiScaler bridge (guarded off for anti-cheat)
+  SHARPEN=1         Enable vkBasalt sharpening (disabled when FSR4/OptiScaler active)
+  SAFEDX12=1        Omit experimental VKD3D_CONFIG flags and vkd3dbindlesstb token
+  NETOPT=1          Enable the optional session network QoS profile
   SDL=1             Prefer native SDL/Steam Input emulation
+  CEF=1             Add --in-process-gpu for CEF launchers
+  VULKAN=1          Append -vulkan to the launch command
   KEEP_OVERLAY=1    Preserve LD_PRELOAD for Steam Overlay
   NO_NTSYNC=1       Disable NTSync for legacy titles
   NO_DECORATION=1   Disable WM decorations
@@ -186,10 +192,13 @@ run_doctor() {
     fi
 
     local nvme_schedulers=0
+    local nvme_dev=""
     for scheduler_file in /sys/block/nvme*/queue/scheduler; do
         [[ -r "$scheduler_file" ]] || continue
         nvme_schedulers=1
-        echo "[INFO] NVMe scheduler $(dirname "$(dirname "$scheduler_file")" | xargs basename): $(cat "$scheduler_file")"
+        nvme_dev="${scheduler_file#/sys/block/}"
+        nvme_dev="${nvme_dev%%/*}"
+        echo "[INFO] NVMe scheduler ${nvme_dev}: $(cat "$scheduler_file")"
     done
     (( nvme_schedulers == 1 )) || echo "[INFO] No NVMe block devices detected"
 
@@ -204,16 +213,19 @@ run_doctor() {
             echo "[INFO] No MESA/NVIDIA shader cache override found in $env_conf"
         fi
         declare -A env_keys=()
+        local env_base=""
         for env_file in "$env_conf"/*.conf; do
             [[ -f "$env_file" ]] || continue
+            env_base="$(basename "$env_file")"
             # shellcheck disable=SC2094
             while IFS='=' read -r key _; do
                 key="${key#"${key%%[![:space:]]*}"}"
+                key="${key%"${key##*[![:space:]]}"}"
                 [[ -n "$key" && "$key" != \#* ]] || continue
-                if [[ -n "${env_keys[$key]:-}" && "${env_keys[$key]}" != "$(basename "$env_file")" ]]; then
-                    echo "[WARN] Duplicate environment variable $key in $(basename "${env_keys[$key]}") and $(basename "$env_file")"
+                if [[ -n "${env_keys[$key]:-}" && "${env_keys[$key]}" != "$env_base" ]]; then
+                    echo "[WARN] Duplicate environment variable $key in ${env_keys[$key]} and $env_base"
                 else
-                    env_keys[$key]="$(basename "$env_file")"
+                    env_keys[$key]="$env_base"
                 fi
             done < "$env_file"
         done
@@ -352,7 +364,7 @@ case "${1:-}" in
         exit 1
         ;;
     --reset)
-        if [[ -z "${2:-}" ]]; then
+        if [[ -z "${2:-}" || ! "${2:-}" =~ ^[A-Za-z0-9_-]+$ ]]; then
             echo "Usage: steam-auto-run --reset APPID" >&2
             exit 2
         fi
@@ -361,13 +373,30 @@ case "${1:-}" in
         exit 0
         ;;
     --list-profiles)
+        declare -a list_steam_libs=()
+        declare -A list_seen_libs=()
+        for steam_root in \
+            "$HOME/.local/share/Steam" "$HOME/.steam/steam" \
+            "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"; do
+            [[ -d "$steam_root/steamapps" && -z "${list_seen_libs[$steam_root]:-}" ]] || continue
+            list_seen_libs["$steam_root"]=1
+            list_steam_libs+=("$steam_root")
+            if [[ -f "$steam_root/steamapps/libraryfolders.vdf" ]]; then
+                while IFS= read -r extra_lib; do
+                    [[ -d "$extra_lib/steamapps" && -z "${list_seen_libs[$extra_lib]:-}" ]] || continue
+                    list_seen_libs["$extra_lib"]=1
+                    list_steam_libs+=("$extra_lib")
+                done < <(
+                    grep -oE '"path"[[:space:]]+"[^"]+"' "$steam_root/steamapps/libraryfolders.vdf" 2>/dev/null \
+                        | sed -E 's/"path"[[:space:]]+"([^"]+)"/\1/' || true
+                )
+            fi
+        done
         for profile in "$PROFILE_DIR"/*.env; do
             [[ -f "$profile" ]] || continue
             appid="${profile##*/}"; appid="${appid%.env}"
             game_name=""
-            for steam_root in \
-                "$HOME/.local/share/Steam" "$HOME/.steam/steam" \
-                "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"; do
+            for steam_root in "${list_steam_libs[@]}"; do
                 [[ -f "$steam_root/steamapps/appmanifest_${appid}.acf" ]] || continue
                 game_name="$(sed -n '0,/^[[:space:]]*"name"/s/^[[:space:]]*"name"[[:space:]]*"\([^"]*\)".*/\1/p' \
                     "$steam_root/steamapps/appmanifest_${appid}.acf")"
@@ -387,6 +416,10 @@ case "${1:-}" in
     --last-log)
         LAST_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/steam-auto-profiler"
         if [[ -n "${2:-}" && "${2:-}" != -* ]]; then
+            if [[ ! "${2:-}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+                echo "Invalid AppID: $2" >&2
+                exit 2
+            fi
             if [[ -f "$LAST_LOG_DIR/last-${2}.log" ]]; then
                 cat "$LAST_LOG_DIR/last-${2}.log"
             else
@@ -609,7 +642,7 @@ detect_discrete_gpu() {
         fi
         boot_vga=0
         [[ -r "$card_dir/boot_vga" ]] && boot_vga="$(cat "$card_dir/boot_vga" 2>/dev/null || echo 0)"
-        if (( vram > 2147483648 )) || { [[ "$boot_vga" == "0" ]] && (( vram >= best_vram )); }; then
+        if (( vram > 2147483648 && vram >= best_vram )) || { [[ "$boot_vga" == "0" ]] && (( vram >= best_vram )); }; then
             best_vram="$vram"
             best_card="${vendor#0x}:${device#0x}!"
         fi
@@ -621,9 +654,12 @@ detect_discrete_gpu() {
 }
 
 GPU_VENDOR="$(detect_gpu_vendor)"
-AUTO_VRR_CAP="$(detect_vrr_cap)"
-AUTO_RDNA3="$(detect_rdna3)"
-AUTO_RDNA4="$(detect_rdna4)"
+AUTO_RDNA3=0
+AUTO_RDNA4=0
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    AUTO_RDNA3="$(detect_rdna3)"
+    AUTO_RDNA4="$(detect_rdna4)"
+fi
 
 if [[ -z "${MESA_VK_DEVICE_SELECT:-}" ]]; then
     MESA_GPU_SELECT="$(detect_discrete_gpu)"
@@ -1072,7 +1108,7 @@ if [[ "${PROTON_LOCAL_SHADER_CACHE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("localsha
 if [[ "${PROTON_USE_PIPEWIRE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("pipewire"); fi
 if [[ "${PROTON_DXVK_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("dxvklowlatency"); fi
 if [[ "${PROTON_VKD3D_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkd3dlowlatency"); fi
-if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("fsr4"); fi
+if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 || "${PROTON_FSR4_RDNA3_UPGRADE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("fsr4"); fi
 if [[ "$USE_MLFG" -eq 1 ]]; then COMPAT_TOKENS+=("mlfg"); fi
 if [[ "$USE_MLFG" -eq 0 && "$GPU_VENDOR" == "nvidia" && "${DXVK_NVAPI_VKREFLEX:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkreflex"); fi
 if [[ "$USE_NO_NTSYNC" -eq 1 || "${PROTON_NO_NTSYNC:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("nontsync"); fi
@@ -1288,8 +1324,12 @@ fi
 
 record_benchmark_results() {
     [[ "$BENCH_ACTIVE" -eq 1 && -d "$BENCH_CSV_DIR" ]] || return 0
+    local fsr4_active=0
+    if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 || "${PROTON_FSR4_RDNA3_UPGRADE:-0}" -eq 1 ]]; then
+        fsr4_active=1
+    fi
     python3 - "$BENCH_CSV_DIR" "$BENCH_DIR" "${APPID:-unknown}" "${AUTO_CLASS:-standard}" \
-        "${GPU_VENDOR:-unknown}" "${PROTON_FSR4_UPGRADE:-0}" "${USE_MLFG:-0}" \
+        "${GPU_VENDOR:-unknown}" "$fsr4_active" "${USE_MLFG:-0}" \
         "${USE_XWAYLAND:-0}" "${USE_SAFEDX12:-0}" "${AUTO_VRR_CAP:-0}" \
         "${LAUNCH_DURATION:-0}" <<'PY' 2>/dev/null || true
 import csv

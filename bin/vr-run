@@ -94,7 +94,7 @@ detect_discrete_gpu() {
         fi
         boot_vga=0
         [[ -r "$card_dir/boot_vga" ]] && boot_vga="$(cat "$card_dir/boot_vga" 2>/dev/null || echo 0)"
-        if (( vram > 2147483648 )) || { [[ "$boot_vga" == "0" ]] && (( vram >= best_vram )); }; then
+        if (( vram > 2147483648 && vram >= best_vram )) || { [[ "$boot_vga" == "0" ]] && (( vram >= best_vram )); }; then
             best_vram="$vram"
             best_card="${vendor#0x}:${device#0x}!"
         fi

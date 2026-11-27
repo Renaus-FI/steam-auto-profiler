@@ -57,6 +57,928 @@ PROFILE_TOGGLES = (
     ("AUTO_HDR_SWITCH", "Auto KDE Plasma 6 HDR Toggle"),
 )
 
+SUPPORTED_LANGUAGES: tuple[tuple[str, str], ...] = (
+    ("en", "English"),
+    ("fi", "Suomi"),
+    ("ru", "Русский"),
+    ("uk", "Українська"),
+    ("be", "Беларуская"),
+    ("kk", "Қазақша"),
+    ("uz", "O'zbekcha"),
+    ("hy", "Հայերեն"),
+    ("az", "Azərbaycanca"),
+    ("ky", "Кыргызча"),
+    ("tg", "Тоҷикӣ"),
+    ("pl", "Polski"),
+    ("cs", "Čeština"),
+    ("sk", "Slovenčina"),
+    ("bg", "Български"),
+    ("sr", "Српски"),
+    ("hr", "Hrvatski"),
+    ("sl", "Slovenščina"),
+    ("de", "Deutsch"),
+    ("fr", "Français"),
+    ("es", "Español"),
+    ("pt", "Português"),
+    ("it", "Italiano"),
+    ("ja", "日本語"),
+    ("ko", "한국어"),
+    ("zh-CN", "简体中文"),
+    ("tr", "Türkçe"),
+)
+
+_I18N_KEYS: tuple[str, ...] = (
+    "app_title", "lang_label", "status_ready", "status_loading",
+    "tab_games", "tab_telemetry", "tab_sync", "tab_logs", "tab_benchmarks",
+    "tui_tab_games", "tui_tab_telemetry", "tui_tab_sync", "tui_tab_logs", "tui_tab_benchmarks",
+    "search_placeholder", "btn_refresh_library",
+    "col_appid", "col_game_name", "col_source", "col_auto_class", "col_synced", "col_profile",
+    "profile_saved", "profile_auto", "select_game_prompt", "upscaler_sdk_label",
+    "toggle_USE_XWAYLAND", "toggle_USE_FSR4", "toggle_USE_MLFG", "toggle_USE_SHARPEN",
+    "toggle_USE_SAFEDX12", "toggle_USE_NET_OPT", "toggle_USE_SDL", "toggle_USE_KEEP_OVERLAY",
+    "toggle_USE_OPTISCALER", "toggle_AUTO_HDR_SWITCH",
+    "vrr_cap_label", "vrr_cap_placeholder",
+    "btn_save_profile", "btn_dry_run", "btn_benchmarks", "btn_reset_profile", "dry_run_placeholder",
+    "status_scanning_library", "status_loaded_titles", "status_saved_profile",
+    "status_running_dry_run", "status_dry_run_complete",
+    "btn_refresh_telemetry", "cb_auto_refresh", "loading_telemetry", "status_telemetry_updated",
+    "tel_header", "tel_scheduler", "tel_stack_section", "tel_gpu_section",
+    "tel_net_section", "tel_vr_section", "tel_doctor_section", "tel_shader_cache", "tel_no_downgrades",
+    "steam_running_warn", "steam_closed_safe",
+    "btn_sync_report", "btn_san_dry", "btn_san_apply", "btn_migrate",
+    "dlg_steam_running_title", "dlg_steam_running_body",
+    "status_running_sync", "status_sync_finished",
+    "btn_refresh_logs", "label_target_appid", "btn_apply_safe_mode",
+    "no_logs_found", "crash_hint_prefix",
+    "dlg_invalid_appid_title", "dlg_invalid_appid_body",
+    "dlg_safe_mode_title", "dlg_safe_mode_body",
+    "bench_filter_placeholder", "btn_refresh_benchmarks", "bench_hint", "bench_empty",
+    "bcol_timestamp", "bcol_avg_fps", "bcol_low_1pct", "bcol_p99", "bcol_samples", "bcol_vrr_cap",
+    "val_on", "val_off", "tui_status_help",
+    "tip_lang_select", "tip_refresh_library", "tip_save_profile", "tip_dry_run", "tip_safe_mode",
+)
+
+_I18N_PACKS: dict[str, tuple[str, ...]] = {
+    "en": (
+        "Steam Auto-Profiler Control Center", "Language:", "Ready", "Loading library and telemetry...",
+        "1. Games & Profiles", "2. System & Telemetry", "3. Library Sync", "4. Logs & Recovery", "5. Benchmarks",
+        "1:Games", "2:Telemetry", "3:Sync", "4:Logs", "5:Bench",
+        "Filter by AppID, game name, source (steam/shortcut), or class...", "Refresh Library",
+        "AppID", "Game Name", "Source", "Auto Class", "Synced", "Profile",
+        "Saved", "Auto", "Select a game or Non-Steam shortcut to edit its profile", "Upscaler SDK: {info}",
+        "Use XWayland (disable Wayland)", "FSR 4 Driver Upgrade", "Frame Generation (MLFG)", "vkBasalt Sharpening",
+        "Safe DX12 (disable experimental VKD3D)", "Session Network QoS", "Prefer SDL / Steam Input", "Keep Steam Overlay (LD_PRELOAD)",
+        "OptiScaler Bridge", "Auto KDE Plasma 6 HDR Toggle",
+        "VRR_CAP (empty=Auto, 0=Off):", "Auto",
+        "Save Profile", "Dry-Run Preview", "Benchmarks", "Reset Profile", "Dry-run environment output appears here...",
+        "Scanning Steam libraries and shortcuts.vdf...", "Loaded {count} title(s) (Steam + Non-Steam shortcuts).", "Saved {path}",
+        "Running dry-run for AppID {appid}...", "Dry-run complete.",
+        "Refresh Telemetry", "Auto-refresh (3s)", "Loading telemetry...", "Telemetry updated.",
+        "=== System & Network Live Telemetry ===", "Scheduler (sched-ext):", "--- Graphics / VR Stack & Shader Cache Watchdog ---", "--- GPU Telemetry ---",
+        "--- Network QoS ({iface}) ---", "--- VR Mode ---", "--- System Doctor ---", "Shader cache usage", "[OK] No recent git/AUR package downgrades detected in /var/log/pacman.log",
+        "WARNING: Steam is currently running. Close Steam before running write operations (--sanitize).", "Steam is closed. Safe to run library sync and sanitize operations.",
+        "Sync Report (--report)", "Sanitize Preview (--sanitize --dry-run)", "Apply Sanitize (--sanitize)", "Migrate cachy-run Profiles",
+        "Steam Is Running", "Close Steam completely before modifying localconfig.vdf.",
+        "Running steam-auto-sync ({mode})...", "Sync ({mode}) finished with exit code {rc}.",
+        "Refresh Logs", "Target AppID:", "Apply Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "No last-launch logs found.", "Crash Hint:",
+        "Invalid AppID", "Enter a numeric Steam AppID first.",
+        "Safe Mode Saved", "Saved USE_XWAYLAND=1 and USE_SAFEDX12=1 for AppID {appid} ({path}).",
+        "Filter benchmarks by AppID (blank = all runs)", "Refresh Benchmarks", "Record silent frametime benchmarks with: BENCH=1 steam-auto-run %command%", "No benchmark runs recorded yet. Launch a game with: BENCH=1 steam-auto-run %command%",
+        "Timestamp", "Avg FPS", "1% Low FPS", "P99 (ms)", "Samples", "VRR Cap",
+        "On", "Off", "Tabs: 1-5/Tab | L:Lang ({lang}) | q:Quit",
+        "Switch interface language live", "Rescan Steam libraries and Non-Steam shortcuts.vdf", "Save validated profile to profiles/<APPID>.env", "Preview resolved launch environment without launching", "Save USE_XWAYLAND=1 and USE_SAFEDX12=1 for crash recovery",
+    ),
+    "fi": (
+        "Steam Auto-Profiler -hallintakeskus", "Kieli:", "Valmis", "Ladataan kirjastoa ja telemetriaa...",
+        "1. Pelit ja profiilit", "2. Järjestelmä ja telemetria", "3. Kirjaston synkronointi", "4. Lokit ja palautus", "5. Suorituskykytestit",
+        "1:Pelit", "2:Telemetria", "3:Synk", "4:Lokit", "5:Testit",
+        "Suodata AppID:n, pelin nimen, lähteen (steam/shortcut) tai luokan mukaan...", "Päivitä kirjasto",
+        "AppID", "Pelin nimi", "Lähde", "Automaattiluokka", "Synkronoitu", "Profiili",
+        "Tallennettu", "Auto", "Valitse peli tai Non-Steam-pikakuvake profiilin muokkaamiseksi", "Skaalain-SDK: {info}",
+        "Käytä XWaylandia (poista Wayland käytöstä)", "FSR 4 -ajuripäivitys", "Kuvagenerointi (MLFG)", "vkBasalt-terävöitys",
+        "Turvallinen DX12 (poista kokeellinen VKD3D)", "Istunnon verkon QoS", "Suosi SDL / Steam Inputia", "Säilytä Steam Overlay (LD_PRELOAD)",
+        "OptiScaler-silta", "Automaattinen KDE Plasma 6 HDR -kytkin",
+        "VRR_CAP (tyhjä=Auto, 0=Pois):", "Auto",
+        "Tallenna profiili", "Esikatselu (Dry-Run)", "Testit", "Nollaa profiili", "Dry-run-ympäristön tuloste näkyy tässä...",
+        "Skannataan Steam-kirjastoja ja shortcuts.vdf-tiedostoja...", "Ladattu {count} nimikettä (Steam + Non-Steam-pikakuvakkeet).", "Tallennettu: {path}",
+        "Ajetaan dry-run-esikatselu AppID:lle {appid}...", "Dry-run valmis.",
+        "Päivitä telemetria", "Automaattinen päivitys (3s)", "Ladataan telemetriaa...", "Telemetria päivitetty.",
+        "=== Järjestelmän ja verkon reaaliaikainen telemetria ===", "Ajastin (sched-ext):", "--- Grafiikka-/VR-pino ja varjostinvälimuisti ---", "--- GPU-telemetria ---",
+        "--- Verkon QoS ({iface}) ---", "--- VR-tila ---", "--- Järjestelmätohtori ---", "Varjostinvälimuistin käyttö", "[OK] Ei viimeaikaisia git/AUR-pakettien alennuksia tiedostossa /var/log/pacman.log",
+        "VAROITUS: Steam on käynnissä. Sulje Steam ennen kirjoitustoimintoja (--sanitize).", "Steam on suljettu. Kirjaston synkronointi ja siivous on turvallista.",
+        "Synkronointiraportti (--report)", "Siivouksen esikatselu (--sanitize --dry-run)", "Suorita siivous (--sanitize)", "Tuo cachy-run-profiilit",
+        "Steam on käynnissä", "Sulje Steam kokonaan ennen localconfig.vdf-tiedoston muokkaamista.",
+        "Ajetaan steam-auto-sync ({mode})...", "Synkronointi ({mode}) päättyi paluukoodilla {rc}.",
+        "Päivitä lokit", "Kohde-AppID:", "Ota vikasietotila käyttöön (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Viimeisimpiä käynnistyslokeja ei löytynyt.", "Kaatumisvihje:",
+        "Virheellinen AppID", "Syötä ensin numeerinen Steam AppID.",
+        "Vikasietotila tallennettu", "Tallennettu USE_XWAYLAND=1 ja USE_SAFEDX12=1 AppID:lle {appid} ({path}).",
+        "Suodata testejä AppID:n mukaan (tyhjä = kaikki ajot)", "Päivitä testit", "Tallenna hiljaiset ruutuaikatestit: BENCH=1 steam-auto-run %command%", "Suorituskykytestejä ei ole vielä tallennettu. Käynnistä peli: BENCH=1 steam-auto-run %command%",
+        "Aikaleima", "Keski-FPS", "1% Low FPS", "P99 (ms)", "Näytteet", "VRR-raja",
+        "Päällä", "Pois", "Välilehdet: 1-5/Tab | L:Kieli ({lang}) | q:Lopeta",
+        "Vaihda käyttöliittymän kieli lennossa", "Skannaa Steam-kirjastot ja shortcuts.vdf uudelleen", "Tallenna tarkistettu profiili tiedostoon profiles/<APPID>.env", "Esikatsele käynnistysmuuttujat käynnistämättä peliä", "Tallenna USE_XWAYLAND=1 ja USE_SAFEDX12=1 kaatumisesta palautumiseen",
+    ),
+    "ru": (
+        "Центр управления Steam Auto-Profiler", "Язык:", "Готово", "Загрузка библиотеки и телеметрии...",
+        "1. Игры и профили", "2. Система и телеметрия", "3. Синхронизация", "4. Логи и восстановление", "5. Бенчмарки",
+        "1:Игры", "2:Телеметрия", "3:Синхр", "4:Логи", "5:Бенч",
+        "Фильтр по AppID, названию, источнику (steam/shortcut) или классу...", "Обновить библиотеку",
+        "AppID", "Название игры", "Источник", "Авто-класс", "Синхр.", "Профиль",
+        "Сохранён", "Авто", "Выберите игру или сторонний ярлык для настройки профиля", "Upscaler SDK: {info}",
+        "Использовать XWayland (отключить Wayland)", "Обновление драйвера FSR 4", "Генерация кадров (MLFG)", "Резкость vkBasalt",
+        "Безопасный DX12 (отключить эксперим. VKD3D)", "Сетевой QoS на сессию", "Предпочитать SDL / Steam Input", "Сохранить Steam Overlay (LD_PRELOAD)",
+        "Мост OptiScaler", "Автопереключение HDR в KDE Plasma 6",
+        "VRR_CAP (пусто=Авто, 0=Выкл):", "Авто",
+        "Сохранить профиль", "Предпросмотр (Dry-Run)", "Бенчмарки", "Сбросить профиль", "Вывод dry-run окружения появится здесь...",
+        "Сканирование библиотек Steam и shortcuts.vdf...", "Загружено игр/ярлыков: {count} (Steam + Non-Steam).", "Сохранено: {path}",
+        "Запуск dry-run для AppID {appid}...", "Dry-run завершён.",
+        "Обновить телеметрию", "Автообновление (3с)", "Загрузка телеметрии...", "Телеметрия обновлена.",
+        "=== Телеметрия системы и сети ===", "Планировщик (sched-ext):", "--- Стек графики/VR и кэш шейдеров ---", "--- Телеметрия GPU ---",
+        "--- Сетевой QoS ({iface}) ---", "--- Режим VR ---", "--- Диагностика системы ---", "Размер кэша шейдеров", "[OK] Недавних откатов git/AUR-пакетов в /var/log/pacman.log не обнаружено",
+        "ВНИМАНИЕ: Steam сейчас запущен. Закройте Steam перед записью (--sanitize).", "Steam закрыт. Можно безопасно выполнять синхронизацию и очистку.",
+        "Отчёт синхронизации (--report)", "Предпросмотр очистки (--sanitize --dry-run)", "Применить очистку (--sanitize)", "Миграция профилей cachy-run",
+        "Steam запущен", "Полностью закройте Steam перед изменением localconfig.vdf.",
+        "Выполняется steam-auto-sync ({mode})...", "Синхронизация ({mode}) завершена с кодом {rc}.",
+        "Обновить логи", "Целевой AppID:", "Безопасный режим (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Логи последнего запуска не найдены.", "Подсказка по сбою:",
+        "Некорректный AppID", "Сначала введите числовой Steam AppID.",
+        "Безопасный режим сохранён", "Сохранены USE_XWAYLAND=1 и USE_SAFEDX12=1 для AppID {appid} ({path}).",
+        "Фильтр бенчмарков по AppID (пусто = все прогоны)", "Обновить бенчмарки", "Тихий замер времени кадра: BENCH=1 steam-auto-run %command%", "Записей бенчмарков пока нет. Запустите игру с: BENCH=1 steam-auto-run %command%",
+        "Время", "Сред. FPS", "1% Low FPS", "P99 (мс)", "Сэмплы", "Лимит VRR",
+        "Вкл", "Выкл", "Вкладки: 1-5/Tab | L:Язык ({lang}) | q:Выход",
+        "Переключить язык интерфейса на лету", "Повторно просканировать библиотеки Steam и shortcuts.vdf", "Сохранить проверенный профиль в profiles/<APPID>.env", "Показать переменные окружения без запуска игры", "Сохранить USE_XWAYLAND=1 и USE_SAFEDX12=1 после сбоя запуска",
+    ),
+    "uk": (
+        "Центр керування Steam Auto-Profiler", "Мова:", "Готово", "Завантаження бібліотеки та телеметрії...",
+        "1. Ігри та профілі", "2. Система й телеметрія", "3. Синхронізація", "4. Логи й відновлення", "5. Бенчмарки",
+        "1:Ігри", "2:Телеметрія", "3:Синхр", "4:Логи", "5:Бенч",
+        "Фільтр за AppID, назвою, джерелом (steam/shortcut) або класом...", "Оновити бібліотеку",
+        "AppID", "Назва гри", "Джерело", "Автоклас", "Синхр.", "Профіль",
+        "Збережено", "Авто", "Виберіть гру або сторонній ярлик для редагування профілю", "Upscaler SDK: {info}",
+        "Використовувати XWayland (вимкнути Wayland)", "Оновлення драйвера FSR 4", "Генерація кадрів (MLFG)", "Різкість vkBasalt",
+        "Безпечний DX12 (вимкнути експерим. VKD3D)", "Мережевий QoS на сесію", "Надавати перевагу SDL / Steam Input", "Зберегти Steam Overlay (LD_PRELOAD)",
+        "Міст OptiScaler", "Автоперемикач HDR у KDE Plasma 6",
+        "VRR_CAP (порожньо=Авто, 0=Вимк):", "Авто",
+        "Зберегти профіль", "Попередній перегляд (Dry-Run)", "Бенчмарки", "Скинути профіль", "Вивід dry-run середовища з'явиться тут...",
+        "Сканування бібліотек Steam і shortcuts.vdf...", "Завантажено {count} позицій (Steam + Non-Steam).", "Збережено: {path}",
+        "Запуск dry-run для AppID {appid}...", "Dry-run завершено.",
+        "Оновити телеметрію", "Автооновлення (3с)", "Завантаження телеметрії...", "Телеметрію оновлено.",
+        "=== Телеметрія системи та мережі ===", "Планувальник (sched-ext):", "--- Стек графіки/VR і кеш шейдерів ---", "--- Телеметрія GPU ---",
+        "--- Мережевий QoS ({iface}) ---", "--- Режим VR ---", "--- Діагностика системи ---", "Використання кешу шейдерів", "[OK] Нещодавніх відкатів git/AUR-пакунків у /var/log/pacman.log не виявлено",
+        "УВАГА: Steam зараз запущено. Закрийте Steam перед записом (--sanitize).", "Steam закрито. Можна безпечно синхронізувати й очищувати бібліотеку.",
+        "Звіт синхронізації (--report)", "Попередній перегляд (--sanitize --dry-run)", "Застосувати очищення (--sanitize)", "Міграція профілів cachy-run",
+        "Steam запущено", "Повністю закрийте Steam перед зміною localconfig.vdf.",
+        "Виконується steam-auto-sync ({mode})...", "Синхронізація ({mode}) завершилася з кодом {rc}.",
+        "Оновити логи", "Цільовий AppID:", "Безпечний режим (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Логів останнього запуску не знайдено.", "Підказка щодо збою:",
+        "Некоректний AppID", "Спочатку введіть числовий Steam AppID.",
+        "Безпечний режим збережено", "Збережено USE_XWAYLAND=1 і USE_SAFEDX12=1 для AppID {appid} ({path}).",
+        "Фільтр бенчмарків за AppID (порожньо = усі запуски)", "Оновити бенчмарки", "Тихий замір часу кадру: BENCH=1 steam-auto-run %command%", "Бенчмарків ще немає. Запустіть гру з: BENCH=1 steam-auto-run %command%",
+        "Час", "Серед. FPS", "1% Low FPS", "P99 (мс)", "Вибірка", "Ліміт VRR",
+        "Увімк", "Вимк", "Вкладки: 1-5/Tab | L:Мова ({lang}) | q:Вихід",
+        "Змінити мову інтерфейсу на льоту", "Повторно просканувати бібліотеки Steam і shortcuts.vdf", "Зберегти перевірений профіль у profiles/<APPID>.env", "Переглянути змінні запуску без запуску гри", "Зберегти USE_XWAYLAND=1 і USE_SAFEDX12=1 для відновлення після збою",
+    ),
+    "be": (
+        "Цэнтр кіравання Steam Auto-Profiler", "Мова:", "Гатова", "Загрузка бібліятэкі і тэлеметрыі...",
+        "1. Гульні і профілі", "2. Сістэма і тэлеметрыя", "3. Сінхранізацыя", "4. Логі і аднаўленне", "5. Бенчмаркі",
+        "1:Гульні", "2:Тэлем", "3:Сінхр", "4:Логі", "5:Бенч",
+        "Фільтр па AppID, назве, крыніцы (steam/shortcut) або класе...", "Абнавіць бібліятэку",
+        "AppID", "Назва гульні", "Крыніца", "Аўтаклас", "Сінхр.", "Профіль",
+        "Захаваны", "Аўта", "Абярыце гульню або цэтлік Non-Steam для рэдагавання профілю", "Upscaler SDK: {info}",
+        "Выкарыстоўваць XWayland (адключыць Wayland)", "Абнаўленне драйвера FSR 4", "Генерацыя кадраў (MLFG)", "Рэзкасць vkBasalt",
+        "Бяспечны DX12 (адключыць эксперым. VKD3D)", "Сеткавы QoS на сесію", "Аддаваць перавагу SDL / Steam Input", "Захаваць Steam Overlay (LD_PRELOAD)",
+        "Мост OptiScaler", "Аўтапераключальнік HDR у KDE Plasma 6",
+        "VRR_CAP (пуста=Аўта, 0=Выкл):", "Аўта",
+        "Захаваць профіль", "Прадпрагляд (Dry-Run)", "Бенчмаркі", "Скінуць профіль", "Вывад dry-run асяроддзя з'явіцца тут...",
+        "Сканаванне бібліятэк Steam і shortcuts.vdf...", "Загружана пазіцый: {count} (Steam + Non-Steam).", "Захавана: {path}",
+        "Запуск dry-run для AppID {appid}...", "Dry-run завершаны.",
+        "Абнавіць тэлеметрыю", "Аўтаабнаўленне (3с)", "Загрузка тэлеметрыі...", "Тэлеметрыя абноўлена.",
+        "=== Тэлеметрыя сістэмы і сеткі ===", "Планавальнік (sched-ext):", "--- Стэк графікі/VR і кэш шэйдараў ---", "--- Тэлеметрыя GPU ---",
+        "--- Сеткавы QoS ({iface}) ---", "--- Рэжым VR ---", "--- Дыягностыка сістэмы ---", "Памер кэша шэйдараў", "[OK] Нядаўніх адкатаў git/AUR-пакетаў у /var/log/pacman.log не знойдзена",
+        "УВАГА: Steam запушчаны. Закрыйце Steam перад запісам (--sanitize).", "Steam закрыты. Можна бяспечна сінхранізаваць і ачышчаць бібліятэку.",
+        "Справаздача сінхранізацыі (--report)", "Прадпрагляд ачысткі (--sanitize --dry-run)", "Прымяніць ачыстку (--sanitize)", "Міграцыя профіляў cachy-run",
+        "Steam запушчаны", "Цалкам закрыйце Steam перад змяненнем localconfig.vdf.",
+        "Выконваецца steam-auto-sync ({mode})...", "Сінхранізацыя ({mode}) завершана з кодам {rc}.",
+        "Абнавіць логі", "Мэтавы AppID:", "Бяспечны рэжым (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Логі апошняга запуску не знойдзены.", "Падказка па збоі:",
+        "Некарэктны AppID", "Спачатку ўвядзіце лікавы Steam AppID.",
+        "Бяспечны рэжым захаваны", "Захаваны USE_XWAYLAND=1 і USE_SAFEDX12=1 для AppID {appid} ({path}).",
+        "Фільтр бенчмаркаў па AppID (пуста = усе запускі)", "Абнавіць бенчмаркі", "Ціхі замер часу кадра: BENCH=1 steam-auto-run %command%", "Запісаў бенчмаркаў пакуль няма. Запусціце гульню з: BENCH=1 steam-auto-run %command%",
+        "Час", "Сярэд. FPS", "1% Low FPS", "P99 (мс)", "Выбарка", "Ліміт VRR",
+        "Укл", "Выкл", "Укладкі: 1-5/Tab | L:Мова ({lang}) | q:Выхад",
+        "Змяніць мову інтэрфейсу на ляту", "Паўторна прасканаваць бібліятэкі Steam і shortcuts.vdf", "Захаваць правераны профіль у profiles/<APPID>.env", "Паглядзець зменныя запуску без запуску гульні", "Захаваць USE_XWAYLAND=1 і USE_SAFEDX12=1 для аднаўлення пасля збою",
+    ),
+    "kk": (
+        "Steam Auto-Profiler басқару орталығы", "Тіл:", "Дайын", "Кітапхана мен телеметрия жүктелуде...",
+        "1. Ойындар мен профильдер", "2. Жүйе және телеметрия", "3. Кітапхананы синхрондау", "4. Журналдар және қалпына келтіру", "5. Бенчмарктер",
+        "1:Ойындар", "2:Телем", "3:Синхр", "4:Логтар", "5:Бенч",
+        "AppID, ойын атауы, көзі (steam/shortcut) немесе санаты бойынша сүзу...", "Кітапхананы жаңарту",
+        "AppID", "Ойын атауы", "Көзі", "Авто-санат", "Синхр.", "Профиль",
+        "Сақталған", "Авто", "Профильді өңдеу үшін ойынды немесе Non-Steam таңбашасын таңдаңыз", "Upscaler SDK: {info}",
+        "XWayland қолдану (Wayland өшіру)", "FSR 4 драйверін жаңарту", "Кадр генерациясы (MLFG)", "vkBasalt айқындығы",
+        "Қауіпсіз DX12 (эксперименттік VKD3D өшіру)", "Сеанстық желі QoS", "SDL / Steam Input таңдау", "Steam Overlay сақтау (LD_PRELOAD)",
+        "OptiScaler көпірі", "KDE Plasma 6 авто-HDR ауыстырғышы",
+        "VRR_CAP (бос=Авто, 0=Өшірулі):", "Авто",
+        "Профильді сақтау", "Алдын ала қарау (Dry-Run)", "Бенчмарктер", "Профильді тастау", "Dry-run ортасының нәтижесі осында шығады...",
+        "Steam кітапханалары мен shortcuts.vdf сканерленуде...", "{count} ойын/таңбаша жүктелді (Steam + Non-Steam).", "Сақталды: {path}",
+        "AppID {appid} үшін dry-run орындалуда...", "Dry-run аяқталды.",
+        "Телеметрияны жаңарту", "Автожаңарту (3с)", "Телеметрия жүктелуде...", "Телеметрия жаңартылды.",
+        "=== Жүйе мен желінің нақты уақыттағы телеметриясы ===", "Жоспарлаушы (sched-ext):", "--- Графика/VR стегі және шейдер кэші ---", "--- GPU телеметриясы ---",
+        "--- Желілік QoS ({iface}) ---", "--- VR режимі ---", "--- Жүйе диагностикасы ---", "Шейдер кэшінің көлемі", "[OK] /var/log/pacman.log ішінде соңғы git/AUR төмендетулері табылмады",
+        "ЕСКЕРТУ: Steam қазір қосулы. Жазу әрекеттері (--sanitize) алдында Steam-ді жабыңыз.", "Steam жабық. Кітапхананы синхрондау және тазарту қауіпсіз.",
+        "Синхрондау есебі (--report)", "Тазартуды алдын ала қарау (--sanitize --dry-run)", "Тазартуды қолдану (--sanitize)", "cachy-run профильдерін көшіру",
+        "Steam қосулы", "localconfig.vdf файлын өзгертпес бұрын Steam-ді толық жабыңыз.",
+        "steam-auto-sync ({mode}) орындалуда...", "Синхрондау ({mode}) {rc} кодымен аяқталды.",
+        "Журналдарды жаңарту", "Мақсатты AppID:", "Қауіпсіз режим (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Соңғы іске қосу журналдары табылмады.", "Ақау кеңесі:",
+        "Жарамсыз AppID", "Алдымен сандық Steam AppID енгізіңіз.",
+        "Қауіпсіз режим сақталды", "AppID {appid} үшін USE_XWAYLAND=1 және USE_SAFEDX12=1 сақталды ({path}).",
+        "Бенчмарктерді AppID бойынша сүзу (бос = барлығы)", "Бенчмарктерді жаңарту", "Үнсіз кадр уақыты өлшемі: BENCH=1 steam-auto-run %command%", "Әзірге бенчмарк нәтижелері жоқ. Ойынды былай іске қосыңыз: BENCH=1 steam-auto-run %command%",
+        "Уақыт", "Орташа FPS", "1% Low FPS", "P99 (мс)", "Үлгілер", "VRR шегі",
+        "Қосулы", "Өшірулі", "Қойындылар: 1-5/Tab | L:Тіл ({lang}) | q:Шығу",
+        "Интерфейс тілін лезде ауыстыру", "Steam кітапханалары мен shortcuts.vdf қайта сканерлеу", "Тексерілген профильді profiles/<APPID>.env файлына сақтау", "Ойынды іске қоспай орта айнымалыларын қарау", "Іске қосу ақауынан кейін USE_XWAYLAND=1 және USE_SAFEDX12=1 сақтау",
+    ),
+    "uz": (
+        "Steam Auto-Profiler boshqaruv markazi", "Til:", "Tayyor", "Kutubxona va telemetriya yuklanmoqda...",
+        "1. O'yinlar va profillar", "2. Tizim va telemetriya", "3. Kutubxona sinxronlash", "4. Loglar va tiklash", "5. Benchmarklar",
+        "1:O'yinlar", "2:Telem", "3:Sinx", "4:Loglar", "5:Bench",
+        "AppID, o'yin nomi, manba (steam/shortcut) yoki sinf bo'yicha filtrlash...", "Kutubxonani yangilash",
+        "AppID", "O'yin nomi", "Manba", "Avto-sinf", "Sinx.", "Profil",
+        "Saqlangan", "Avto", "Profilni tahrirlash uchun o'yin yoki Non-Steam yorlig'ini tanlang", "Upscaler SDK: {info}",
+        "XWayland ishlatish (Waylandni o'chirish)", "FSR 4 drayver yangilanishi", "Kadr generatsiyasi (MLFG)", "vkBasalt keskinlashtirish",
+        "Xavfsiz DX12 (eksperimental VKD3Dni o'chirish)", "Sessiya tarmoq QoS", "SDL / Steam Inputni afzal ko'rish", "Steam Overlayni saqlash (LD_PRELOAD)",
+        "OptiScaler ko'prigi", "KDE Plasma 6 avto-HDR almashtirgichi",
+        "VRR_CAP (bo'sh=Avto, 0=O'chiq):", "Avto",
+        "Profilni saqlash", "Oldindan ko'rish (Dry-Run)", "Benchmarklar", "Profilni tiklash", "Dry-run muhit chiqishi shu yerda ko'rinadi...",
+        "Steam kutubxonalari va shortcuts.vdf skanerlanmoqda...", "{count} ta o'yin/yorliq yuklandi (Steam + Non-Steam).", "Saqlandi: {path}",
+        "AppID {appid} uchun dry-run bajarilmoqda...", "Dry-run yakunlandi.",
+        "Telemetriyani yangilash", "Avto-yangilash (3s)", "Telemetriya yuklanmoqda...", "Telemetriya yangilandi.",
+        "=== Tizim va tarmoq jonli telemetriyasi ===", "Rejalashtiruvchi (sched-ext):", "--- Grafika/VR steki va sheyder keshi ---", "--- GPU telemetriyasi ---",
+        "--- Tarmoq QoS ({iface}) ---", "--- VR rejimi ---", "--- Tizim diagnostikasi ---", "Sheyder keshi hajmi", "[OK] /var/log/pacman.log ichida yaqinda git/AUR pasayishlari topilmadi",
+        "OGOHLANTIRISH: Steam hozir ishlayapti. Yozish amallaridan (--sanitize) oldin Steamni yoping.", "Steam yopiq. Kutubxonani sinxronlash va tozalash xavfsiz.",
+        "Sinxronlash hisoboti (--report)", "Tozalashni ko'rish (--sanitize --dry-run)", "Tozalashni qo'llash (--sanitize)", "cachy-run profillarini ko'chirish",
+        "Steam ishlayapti", "localconfig.vdf faylini o'zgartirishdan oldin Steamni to'liq yoping.",
+        "steam-auto-sync ({mode}) ishlamoqda...", "Sinxronlash ({mode}) {rc} kodi bilan tugadi.",
+        "Loglarni yangilash", "Maqsad AppID:", "Xavfsiz rejim (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "So'nggi ishga tushirish loglari topilmadi.", "Nosozlik maslahati:",
+        "Noto'g'ri AppID", "Avval raqamli Steam AppID kiriting.",
+        "Xavfsiz rejim saqlandi", "AppID {appid} uchun USE_XWAYLAND=1 va USE_SAFEDX12=1 saqlandi ({path}).",
+        "Benchmarklarni AppID bo'yicha filtrlash (bo'sh = barchasi)", "Benchmarklarni yangilash", "Sokin kadr vaqti testi: BENCH=1 steam-auto-run %command%", "Hali benchmark yozuvlari yo'q. O'yinni shunday ishga tushiring: BENCH=1 steam-auto-run %command%",
+        "Vaqt", "O'rt. FPS", "1% Low FPS", "P99 (ms)", "Namunalar", "VRR cheki",
+        "Yoqiq", "O'chiq", "Varaqlar: 1-5/Tab | L:Til ({lang}) | q:Chiqish",
+        "Interfeys tilini darhol almashtirish", "Steam kutubxonalari va shortcuts.vdfni qayta skanerlash", "Tekshirilgan profilni profiles/<APPID>.env ga saqlash", "O'yinni ochmasdan muhit o'zgaruvchilarini ko'rish", "Nosozlikdan tiklash uchun USE_XWAYLAND=1 va USE_SAFEDX12=1 saqlash",
+    ),
+    "hy": (
+        "Steam Auto-Profiler կառավարման կենտրոն", "Լեզու՝", "Պատրաստ է", "Բեռնվում են գրադարանը և տելեմետրիան...",
+        "1. Խաղեր և պրոֆիլներ", "2. Համակարգ և տելեմետրիա", "3. Համաժամեցում", "4. Մատյաններ և վերականգնում", "5. Բենչմարկներ",
+        "1:Խաղեր", "2:Տելեմ", "3:Համաժ", "4:Լոգեր", "5:Բենչ",
+        "Զտել ըստ AppID-ի, խաղի անվան, աղբյուրի (steam/shortcut) կամ դասի...", "Թարմացնել գրադարանը",
+        "AppID", "Խաղի անվանում", "Աղբյուր", "Ավտո դաս", "Համաժ.", "Պրոֆիլ",
+        "Պահպանված", "Ավտո", "Ընտրեք խաղ կամ Non-Steam պիտակ՝ պրոֆիլը խմբագրելու համար", "Upscaler SDK՝ {info}",
+        "Օգտագործել XWayland (անջատել Wayland)", "FSR 4 դրայվերի թարմացում", "Կադրերի գեներացիա (MLFG)", "vkBasalt հստակություն",
+        "Անվտանգ DX12 (անջատել փորձարարական VKD3D)", "Սեսիայի ցանցային QoS", "Նախընտրել SDL / Steam Input", "Պահել Steam Overlay (LD_PRELOAD)",
+        "OptiScaler կամուրջ", "KDE Plasma 6 ավտո-HDR փոխարկիչ",
+        "VRR_CAP (դատարկ=Ավտո, 0=Անջատ):", "Ավտո",
+        "Պահպանել պրոֆիլը", "Նախադիտում (Dry-Run)", "Բենչմարկներ", "Վերակայել պրոֆիլը", "Dry-run միջավայրի արդյունքը կհայտնվի այստեղ...",
+        "Սկանավորվում են Steam գրադարաններն ու shortcuts.vdf-ը...", "Բեռնվել է {count} խաղ/պիտակ (Steam + Non-Steam):", "Պահպանվեց՝ {path}",
+        "Կատարվում է dry-run AppID {appid}-ի համար...", "Dry-run-ը ավարտվեց:",
+        "Թարմացնել տելեմետրիան", "Ավտոթարմացում (3վ)", "Բեռնվում է տելեմետրիան...", "Տելեմետրիան թարմացվեց:",
+        "=== Համակարգի և ցանցի տելեմետրիա ===", "Պլանավորիչ (sched-ext):", "--- Գրաֆիկա/VR ստեկ և շեյդերների քեշ ---", "--- GPU տելեմետրիա ---",
+        "--- Ցանցային QoS ({iface}) ---", "--- VR ռեժիմ ---", "--- Համակարգի ախտորոշում ---", "Շեյդերների քեշի ծավալ", "[OK] /var/log/pacman.log-ում վերջին git/AUR իջեցումներ չեն հայտնաբերվել",
+        "ՈՒՇԱԴՐՈՒԹՅՈՒՆ․ Steam-ը գործարկված է։ Փակեք Steam-ը գրառումից (--sanitize) առաջ։", "Steam-ը փակ է։ Կարելի է անվտանգ համաժամեցնել և մաքրել։",
+        "Համաժամեցման հաշվետվություն (--report)", "Մաքրման նախադիտում (--sanitize --dry-run)", "Կիրառել մաքրում (--sanitize)", "Տեղափոխել cachy-run պրոֆիլները",
+        "Steam-ը գործարկված է", "Ամբողջությամբ փակեք Steam-ը localconfig.vdf-ը փոփոխելուց առաջ։",
+        "Գործարկվում է steam-auto-sync ({mode})...", "Համաժամեցումը ({mode}) ավարտվեց {rc} կոդով:",
+        "Թարմացնել լոգերը", "Թիրախ AppID:", "Անվտանգ ռեժիմ (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Վերջին գործարկման լոգեր չեն գտնվել:", "Խափանման հուշում՝",
+        "Սխալ AppID", "Նախ մուտքագրեք թվային Steam AppID:",
+        "Անվտանգ ռեժիմը պահպանված է", "Պահպանվեցին USE_XWAYLAND=1 և USE_SAFEDX12=1՝ AppID {appid}-ի համար ({path}):",
+        "Զտել բենչմարկները AppID-ով (դատարկ = բոլորը)", "Թարմացնել բենչմարկները", "Անաղմուկ կադրերի չափում՝ BENCH=1 steam-auto-run %command%", "Բենչմարկներ դեռ չկան։ Գործարկեք խաղը՝ BENCH=1 steam-auto-run %command%",
+        "Ժամանակ", "Միջին FPS", "1% Low FPS", "P99 (մվ)", "Նմուշներ", "VRR սահման",
+        "Միացված", "Անջատված", "Ներդիրներ՝ 1-5/Tab | L:Լեզու ({lang}) | q:Ելք",
+        "Փոխել միջերեսի լեզուն անմիջապես", "Կրկին սկանավորել Steam գրադարանները և shortcuts.vdf-ը", "Պահպանել ստուգված պրոֆիլը profiles/<APPID>.env-ում", "Դիտել գործարկման փոփոխականները առանց խաղը բացելու", "Պահպանել USE_XWAYLAND=1 և USE_SAFEDX12=1՝ խափանումից վերականգնելու համար",
+    ),
+    "az": (
+        "Steam Auto-Profiler İdarəetmə Mərkəzi", "Dil:", "Hazırdır", "Kitabxana və telemetriya yüklənir...",
+        "1. Oyunlar və profillər", "2. Sistem və telemetriya", "3. Kitabxana sinxronizasiyası", "4. Loqlar və bərpa", "5. Bençmarklar",
+        "1:Oyunlar", "2:Telem", "3:Sinx", "4:Loqlar", "5:Benç",
+        "AppID, oyun adı, mənbə (steam/shortcut) və ya sinif üzrə süzgəc...", "Kitabxananı yenilə",
+        "AppID", "Oyun adı", "Mənbə", "Avto sinif", "Sinx.", "Profil",
+        "Saxlanılıb", "Avto", "Profili redaktə etmək üçün oyun və ya Non-Steam qısayolu seçin", "Upscaler SDK: {info}",
+        "XWayland istifadə et (Wayland söndür)", "FSR 4 drayver yeniləməsi", "Kadr generasiyası (MLFG)", "vkBasalt kəskinləşdirmə",
+        "Təhlükəsiz DX12 (eksperimental VKD3D söndür)", "Sessiya şəbəkə QoS", "SDL / Steam Input üstün tut", "Steam Overlay saxla (LD_PRELOAD)",
+        "OptiScaler körpüsü", "KDE Plasma 6 avto-HDR açarı",
+        "VRR_CAP (boş=Avto, 0=Sönülü):", "Avto",
+        "Profili saxla", "Önizləmə (Dry-Run)", "Bençmarklar", "Profili sıfırla", "Dry-run mühit çıxışı burada görünəcək...",
+        "Steam kitabxanaları və shortcuts.vdf skan edilir...", "{count} oyun/qısayol yükləndi (Steam + Non-Steam).", "Saxlanıldı: {path}",
+        "AppID {appid} üçün dry-run icra edilir...", "Dry-run tamamlandı.",
+        "Telemetriyanı yenilə", "Avto-yeniləmə (3s)", "Telemetriya yüklənir...", "Telemetriya yeniləndi.",
+        "=== Sistem və şəbəkə canlı telemetriyası ===", "Planlayıcı (sched-ext):", "--- Qrafika/VR steki və şeyder keşi ---", "--- GPU telemetriyası ---",
+        "--- Şəbəkə QoS ({iface}) ---", "--- VR rejimi ---", "--- Sistem diaqnostikası ---", "Şeyder keşi istifadəsi", "[OK] /var/log/pacman.log faylında son git/AUR geriləməsi tapılmadı",
+        "XƏBƏRDARLIQ: Steam hazırda işləyir. Yazma əməliyyatlarından (--sanitize) əvvəl Steam-i bağlayın.", "Steam bağlıdır. Kitabxananı sinxronlaşdırmaq və təmizləmək təhlükəsizdir.",
+        "Sinxronizasiya hesabatı (--report)", "Təmizləmə önizləməsi (--sanitize --dry-run)", "Təmizləməni tətbiq et (--sanitize)", "cachy-run profillərini köçür",
+        "Steam işləyir", "localconfig.vdf faylını dəyişməzdən əvvəl Steam-i tam bağlayın.",
+        "steam-auto-sync ({mode}) icra olunur...", "Sinxronizasiya ({mode}) {rc} kodu ilə bitdi.",
+        "Loqları yenilə", "Hədəf AppID:", "Təhlükəsiz rejim (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Son işəsalma loqları tapılmadı.", "Xəta ipucu:",
+        "Yanlış AppID", "Əvvəlcə rəqəmsal Steam AppID daxil edin.",
+        "Təhlükəsiz rejim saxlanıldı", "AppID {appid} üçün USE_XWAYLAND=1 və USE_SAFEDX12=1 saxlanıldı ({path}).",
+        "Bençmarkları AppID üzrə süz (boş = hamısı)", "Bençmarkları yenilə", "Səssiz kadr vaxtı testi: BENCH=1 steam-auto-run %command%", "Hələ bençmark qeydi yoxdur. Oyunu belə başladın: BENCH=1 steam-auto-run %command%",
+        "Vaxt", "Orta FPS", "1% Low FPS", "P99 (ms)", "Nümunələr", "VRR limiti",
+        "Açıq", "Qapalı", "Tablar: 1-5/Tab | L:Dil ({lang}) | q:Çıxış",
+        "İnterfeys dilini canlı dəyişdir", "Steam kitabxanalarını və shortcuts.vdf faylını yenidən skan et", "Yoxlanılmış profili profiles/<APPID>.env faylına yaz", "Oyunu başlatmadan mühit dəyişənlərinə bax", "Qəza bərpası üçün USE_XWAYLAND=1 və USE_SAFEDX12=1 saxla",
+    ),
+    "ky": (
+        "Steam Auto-Profiler башкаруу борбору", "Тил:", "Даяр", "Китепкана жана телеметрия жүктөлүүдө...",
+        "1. Оюндар жана профилдер", "2. Система жана телеметрия", "3. Синхрондоштуруу", "4. Логдор жана калыбына келтирүү", "5. Бенчмарктар",
+        "1:Оюндар", "2:Телем", "3:Синхр", "4:Логдор", "5:Бенч",
+        "AppID, оюн аталышы, булагы (steam/shortcut) же классы боюнча чыпкалоо...", "Китепкананы жаңылоо",
+        "AppID", "Оюндун аталышы", "Булак", "Авто-класс", "Синхр.", "Профиль",
+        "Сакталган", "Авто", "Профилди түзөтүү үчүн оюнду же Non-Steam жарлыгын тандаңыз", "Upscaler SDK: {info}",
+        "XWayland колдонуу (Wayland өчүрүү)", "FSR 4 драйверин жаңылоо", "Кадр генерациясы (MLFG)", "vkBasalt тактыгы",
+        "Коопсуз DX12 (эксперименттик VKD3D өчүрүү)", "Сеанстык тармак QoS", "SDL / Steam Input артык көрүү", "Steam Overlay сактоо (LD_PRELOAD)",
+        "OptiScaler көпүрөсү", "KDE Plasma 6 авто-HDR которгучу",
+        "VRR_CAP (бош=Авто, 0=Өчүк):", "Авто",
+        "Профилди сактоо", "Алдын ала көрүү (Dry-Run)", "Бенчмарктар", "Профилди таштоо", "Dry-run чөйрөсүнүн натыйжасы бул жерде көрүнөт...",
+        "Steam китепканалары жана shortcuts.vdf сканерленүүдө...", "{count} оюн/жарлык жүктөлдү (Steam + Non-Steam).", "Сакталды: {path}",
+        "AppID {appid} үчүн dry-run иштетилүүдө...", "Dry-run аяктады.",
+        "Телеметрияны жаңылоо", "Автожаңылоо (3с)", "Телеметрия жүктөлүүдө...", "Телеметрия жаңыланды.",
+        "=== Система жана тармак телеметриясы ===", "Пландоочу (sched-ext):", "--- Графика/VR стеги жана шейдер кэши ---", "--- GPU телеметриясы ---",
+        "--- Тармак QoS ({iface}) ---", "--- VR режими ---", "--- Система диагностикасы ---", "Шейдер кэшинин көлөмү", "[OK] /var/log/pacman.log ичинде соңку git/AUR төмөндөтүүлөр табылган жок",
+        "ЭСКЕРТҮҮ: Steam азыр иштеп жатат. Жазуудан (--sanitize) мурун Steamди жабыңыз.", "Steam жабык. Китепкананы синхрондоштуруу жана тазалоо коопсуз.",
+        "Синхрондоштуруу отчету (--report)", "Тазалоону алдын ала көрүү (--sanitize --dry-run)", "Тазалоону колдонуу (--sanitize)", "cachy-run профилдерин көчүрүү",
+        "Steam иштеп жатат", "localconfig.vdf өзгөртүүдөн мурун Steamди толук жабыңыз.",
+        "steam-auto-sync ({mode}) иштеп жатат...", "Синхрондоштуруу ({mode}) {rc} коду менен бүттү.",
+        "Логдорду жаңылоо", "Максаттуу AppID:", "Коопсуз режим (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Соңку иштетүү логдору табылган жок.", "Ката кеңеши:",
+        "Жараксыз AppID", "Адегенде сандык Steam AppID киргизиңиз.",
+        "Коопсуз режим сакталды", "AppID {appid} үчүн USE_XWAYLAND=1 жана USE_SAFEDX12=1 сакталды ({path}).",
+        "Бенчмарктарды AppID боюнча чыпкалоо (бош = баары)", "Бенчмарктарды жаңылоо", "Үнсүз кадр убактысы өлчөө: BENCH=1 steam-auto-run %command%", "Бенчмарк жазуулары жок. Оюнду мындай иштетиңиз: BENCH=1 steam-auto-run %command%",
+        "Убакыт", "Орточо FPS", "1% Low FPS", "P99 (мс)", "Үлгүлөр", "VRR чеги",
+        "Күйүк", "Өчүк", "Өтмөктөр: 1-5/Tab | L:Тил ({lang}) | q:Чыгуу",
+        "Интерфейс тилин дароо алмаштыруу", "Steam китепканаларын жана shortcuts.vdf кайра сканерлөө", "Текшерилген профилди profiles/<APPID>.env ичине сактоо", "Оюнду ачпай чөйрө өзгөрмөлөрүн көрүү", "Катадан калыбына келтирүү үчүн USE_XWAYLAND=1 жана USE_SAFEDX12=1 сактоо",
+    ),
+    "tg": (
+        "Маркази идоракунии Steam Auto-Profiler", "Забон:", "Омода", "Китобхона ва телеметрия бор мешавад...",
+        "1. Бозиҳо ва профилҳо", "2. Система ва телеметрия", "3. Ҳамоҳангсозӣ", "4. Логҳо ва барқарорсозӣ", "5. Бенчмаркҳо",
+        "1:Бозиҳо", "2:Телем", "3:Ҳамоҳ", "4:Логҳо", "5:Бенч",
+        "Филтр аз рӯи AppID, номи бозӣ, манбаъ (steam/shortcut) ё синф...", "Навсозии китобхона",
+        "AppID", "Номи бозӣ", "Манбаъ", "Авто-синф", "Ҳамоҳ.", "Профил",
+        "Сабтшуда", "Авто", "Барои таҳрири профил бозӣ ё нишонаи Non-Steam-ро интихоб кунед", "Upscaler SDK: {info}",
+        "Истифодаи XWayland (хомӯш кардани Wayland)", "Навсозии драйвери FSR 4", "Тавлиди кадрҳо (MLFG)", "Тезии vkBasalt",
+        "DX12-и бехатар (хомӯш кардани VKD3D-и таҷрибавӣ)", "QoS-и шабака барои сессия", "Афзалият ба SDL / Steam Input", "Нигоҳ доштани Steam Overlay (LD_PRELOAD)",
+        "Пули OptiScaler", "Авто-калиди HDR дар KDE Plasma 6",
+        "VRR_CAP (холӣ=Авто, 0=Хомӯш):", "Авто",
+        "Сабти профил", "Пешнамоиш (Dry-Run)", "Бенчмаркҳо", "Бозсозии профил", "Натиҷаи муҳити dry-run дар ин ҷо пайдо мешавад...",
+        "Скан кардани китобхонаҳои Steam ва shortcuts.vdf...", "{count} бозӣ/нишона бор шуд (Steam + Non-Steam).", "Сабт шуд: {path}",
+        "Иҷрои dry-run барои AppID {appid}...", "Dry-run анҷом ёфт.",
+        "Навсозии телеметрия", "Авто-навсозӣ (3с)", "Боркунии телеметрия...", "Телеметрия нав шуд.",
+        "=== Телеметрияи зиндаи система ва шабака ===", "Банақшагир (sched-ext):", "--- Стеки графика/VR ва кэши шейдерҳо ---", "--- Телеметрияи GPU ---",
+        "--- QoS-и шабака ({iface}) ---", "--- Реҷаи VR ---", "--- Ташхиси система ---", "Ҳаҷми кэши шейдерҳо", "[OK] Дар /var/log/pacman.log пастшавии нави бастаҳои git/AUR ёфт нашуд",
+        "ОГОҲӢ: Steam ҳоло фаъол аст. Пеш аз навиштан (--sanitize) Steam-ро пӯшед.", "Steam пӯшида аст. Ҳамоҳангсозӣ ва тозакунӣ бехатар аст.",
+        "Ҳисоботи ҳамоҳангсозӣ (--report)", "Пешнамоиши тозакунӣ (--sanitize --dry-run)", "Татбиқи тозакунӣ (--sanitize)", "Кӯчонидани профилҳои cachy-run",
+        "Steam фаъол аст", "Пеш аз тағйири localconfig.vdf Steam-ро пурра пӯшед.",
+        "Иҷрои steam-auto-sync ({mode})...", "Ҳамоҳангсозӣ ({mode}) бо коди {rc} анҷом ёфт.",
+        "Навсозии логҳо", "AppID-и мақсад:", "Реҷаи бехатар (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Логҳои охирин ёфт нашуданд.", "Ишораи хатогӣ:",
+        "AppID нодуруст", "Аввал Steam AppID-и рақамиро ворид кунед.",
+        "Реҷаи бехатар сабт шуд", "USE_XWAYLAND=1 ва USE_SAFEDX12=1 барои AppID {appid} сабт шуданд ({path}).",
+        "Филтри бенчмаркҳо аз рӯи AppID (холӣ = ҳама)", "Навсозии бенчмаркҳо", "Санҷиши ороми вақти кадр: BENCH=1 steam-auto-run %command%", "Ҳоло бенчмарк нест. Бозиро чунин оғоз кунед: BENCH=1 steam-auto-run %command%",
+        "Вақт", "Миёна FPS", "1% Low FPS", "P99 (мс)", "Намунаҳо", "Ҳадди VRR",
+        "Фаъол", "Хомӯш", "Варақҳо: 1-5/Tab | L:Забон ({lang}) | q:Баромад",
+        "Иваз кардани забони интерфейс фавран", "Бозскан кардани китобхонаҳои Steam ва shortcuts.vdf", "Сабти профили тасдиқшуда дар profiles/<APPID>.env", "Дидани тағйирёбандаҳои муҳит бе оғози бозӣ", "Сабти USE_XWAYLAND=1 ва USE_SAFEDX12=1 барои барқарорсозӣ",
+    ),
+    "pl": (
+        "Centrum sterowania Steam Auto-Profiler", "Język:", "Gotowe", "Wczytywanie biblioteki i telemetrii...",
+        "1. Gry i profile", "2. System i telemetria", "3. Synchronizacja biblioteki", "4. Logi i odzyskiwanie", "5. Benchmarki",
+        "1:Gry", "2:Telem", "3:Synch", "4:Logi", "5:Bench",
+        "Filtruj po AppID, nazwie gry, źródle (steam/shortcut) lub klasie...", "Odśwież bibliotekę",
+        "AppID", "Nazwa gry", "Źródło", "Auto-klasa", "Zsynchr.", "Profil",
+        "Zapisany", "Auto", "Wybierz grę lub skrót Non-Steam, aby edytować profil", "Upscaler SDK: {info}",
+        "Użyj XWayland (wyłącz Wayland)", "Aktualizacja sterownika FSR 4", "Generowanie klatek (MLFG)", "Wyostrzanie vkBasalt",
+        "Bezpieczny DX12 (wyłącz eksperym. VKD3D)", "Sieciowy QoS sesji", "Preferuj SDL / Steam Input", "Zachowaj nakładkę Steam (LD_PRELOAD)",
+        "Mostek OptiScaler", "Automatyczny przełącznik HDR w KDE Plasma 6",
+        "VRR_CAP (puste=Auto, 0=Wył):", "Auto",
+        "Zapisz profil", "Podgląd Dry-Run", "Benchmarki", "Resetuj profil", "Tutaj pojawi się wynik środowiska dry-run...",
+        "Skanowanie bibliotek Steam i shortcuts.vdf...", "Wczytano {count} pozycji (Steam + skróty Non-Steam).", "Zapisano {path}",
+        "Uruchamianie dry-run dla AppID {appid}...", "Dry-run zakończony.",
+        "Odśwież telemetrię", "Autoodświeżanie (3s)", "Wczytywanie telemetrii...", "Telemetria zaktualizowana.",
+        "=== Telemetria systemu i sieci na żywo ===", "Planista (sched-ext):", "--- Stos grafiki/VR i pamięć podręczna shaderów ---", "--- Telemetria GPU ---",
+        "--- Sieciowy QoS ({iface}) ---", "--- Tryb VR ---", "--- Diagnostyka systemu ---", "Użycie pamięci podręcznej shaderów", "[OK] Nie wykryto ostatnich obniżeń wersji pakietów git/AUR w /var/log/pacman.log",
+        "UWAGA: Steam jest uruchomiony. Zamknij Steam przed zapisem (--sanitize).", "Steam jest zamknięty. Synchronizacja i czyszczenie są bezpieczne.",
+        "Raport synchronizacji (--report)", "Podgląd czyszczenia (--sanitize --dry-run)", "Zastosuj czyszczenie (--sanitize)", "Migruj profile cachy-run",
+        "Steam jest uruchomiony", "Zamknij całkowicie Steam przed modyfikacją localconfig.vdf.",
+        "Uruchamianie steam-auto-sync ({mode})...", "Synchronizacja ({mode}) zakończona kodem {rc}.",
+        "Odśwież logi", "Docelowe AppID:", "Zastosuj tryb awaryjny (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Nie znaleziono logów ostatniego uruchomienia.", "Wskazówka awarii:",
+        "Nieprawidłowe AppID", "Najpierw wpisz numeryczne Steam AppID.",
+        "Zapisano tryb awaryjny", "Zapisano USE_XWAYLAND=1 i USE_SAFEDX12=1 dla AppID {appid} ({path}).",
+        "Filtruj benchmarki po AppID (puste = wszystkie)", "Odśwież benchmarki", "Ciche testy czasu klatki: BENCH=1 steam-auto-run %command%", "Brak zapisanych benchmarków. Uruchom grę z: BENCH=1 steam-auto-run %command%",
+        "Znacznik czasu", "Śr. FPS", "1% Low FPS", "P99 (ms)", "Próbki", "Limit VRR",
+        "Wł", "Wył", "Karty: 1-5/Tab | L:Język ({lang}) | q:Wyjście",
+        "Zmień język interfejsu na żywo", "Przeskanuj ponownie biblioteki Steam i shortcuts.vdf", "Zapisz zweryfikowany profil do profiles/<APPID>.env", "Podgląd zmiennych uruchomieniowych bez włączania gry", "Zapisz USE_XWAYLAND=1 i USE_SAFEDX12=1 do odzyskiwania po awarii",
+    ),
+    "cs": (
+        "Ovládací centrum Steam Auto-Profiler", "Jazyk:", "Připraveno", "Načítání knihovny a telemetrie...",
+        "1. Hry a profily", "2. Systém a telemetrie", "3. Synchronizace knihovny", "4. Logy a obnova", "5. Benchmarky",
+        "1:Hry", "2:Telem", "3:Synch", "4:Logy", "5:Bench",
+        "Filtrovat podle AppID, názvu hry, zdroje (steam/shortcut) nebo třídy...", "Obnovit knihovnu",
+        "AppID", "Název hry", "Zdroj", "Auto třída", "Synch.", "Profil",
+        "Uložený", "Auto", "Vyberte hru nebo zástupce Non-Steam pro úpravu profilu", "Upscaler SDK: {info}",
+        "Použít XWayland (vypnout Wayland)", "Upgrade ovladače FSR 4", "Generování snímků (MLFG)", "Doostření vkBasalt",
+        "Bezpečný DX12 (vypnout experim. VKD3D)", "Síťové QoS pro relaci", "Upřednostnit SDL / Steam Input", "Zachovat Steam Overlay (LD_PRELOAD)",
+        "Most OptiScaler", "Automatický přepínač HDR v KDE Plasma 6",
+        "VRR_CAP (prázdné=Auto, 0=Vyp):", "Auto",
+        "Uložit profil", "Náhled Dry-Run", "Benchmarky", "Obnovit výchozí", "Výstup prostředí dry-run se zobrazí zde...",
+        "Skenování knihoven Steam a shortcuts.vdf...", "Načteno {count} položek (Steam + zástupci Non-Steam).", "Uloženo {path}",
+        "Spouštění dry-run pro AppID {appid}...", "Dry-run dokončen.",
+        "Obnovit telemetrii", "Automaticky (3s)", "Načítání telemetrie...", "Telemetrie aktualizována.",
+        "=== Živá telemetrie systému a sítě ===", "Plánovač (sched-ext):", "--- Grafický/VR stack a mezipaměť shaderů ---", "--- Telemetrie GPU ---",
+        "--- Síťové QoS ({iface}) ---", "--- Režim VR ---", "--- Diagnostika systému ---", "Využití mezipaměti shaderů", "[OK] V /var/log/pacman.log nebyly zjištěny nedávné downgrady git/AUR balíčků",
+        "VAROVÁNÍ: Steam běží. Před zápisem (--sanitize) Steam zavřete.", "Steam je zavřený. Synchronizace a vyčištění jsou bezpečné.",
+        "Zpráva synchronizace (--report)", "Náhled vyčištění (--sanitize --dry-run)", "Použít vyčištění (--sanitize)", "Migrovat profily cachy-run",
+        "Steam běží", "Před úpravou localconfig.vdf Steam zcela zavřete.",
+        "Spouštění steam-auto-sync ({mode})...", "Synchronizace ({mode}) skončila s kódem {rc}.",
+        "Obnovit logy", "Cílové AppID:", "Použít nouzový režim (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Nebyly nalezeny žádné logy posledního spuštění.", "Nápověda k pádu:",
+        "Neplatné AppID", "Nejprve zadejte číselné Steam AppID.",
+        "Nouzový režim uložen", "Uloženo USE_XWAYLAND=1 a USE_SAFEDX12=1 pro AppID {appid} ({path}).",
+        "Filtrovat benchmarky podle AppID (prázdné = vše)", "Obnovit benchmarky", "Tiché měření frametime: BENCH=1 steam-auto-run %command%", "Zatím žádné benchmarky. Spusťte hru s: BENCH=1 steam-auto-run %command%",
+        "Čas", "Prům. FPS", "1% Low FPS", "P99 (ms)", "Vzorky", "Limit VRR",
+        "Zap", "Vyp", "Karty: 1-5/Tab | L:Jazyk ({lang}) | q:Konec",
+        "Okamžitě přepnout jazyk rozhraní", "Znovu prohledat knihovny Steam a shortcuts.vdf", "Uložit ověřený profil do profiles/<APPID>.env", "Zobrazit proměnné prostředí bez spuštění hry", "Uložit USE_XWAYLAND=1 a USE_SAFEDX12=1 pro obnovu po pádu",
+    ),
+    "sk": (
+        "Ovládacie centrum Steam Auto-Profiler", "Jazyk:", "Pripravené", "Načítavam knižnicu a telemetriu...",
+        "1. Hry a profily", "2. Systém a telemetria", "3. Synchronizácia knižnice", "4. Logy a obnova", "5. Benchmarky",
+        "1:Hry", "2:Telem", "3:Synch", "4:Logy", "5:Bench",
+        "Filtrovať podľa AppID, názvu hry, zdroja (steam/shortcut) alebo triedy...", "Obnoviť knižnicu",
+        "AppID", "Názov hry", "Zdroj", "Auto trieda", "Synch.", "Profil",
+        "Uložený", "Auto", "Vyberte hru alebo odkaz Non-Steam na úpravu profilu", "Upscaler SDK: {info}",
+        "Použiť XWayland (vypnúť Wayland)", "Upgrade ovládača FSR 4", "Generovanie snímok (MLFG)", "Doostrenie vkBasalt",
+        "Bezpečný DX12 (vypnúť experim. VKD3D)", "Sieťové QoS pre reláciu", "Uprednostniť SDL / Steam Input", "Zachovať Steam Overlay (LD_PRELOAD)",
+        "Most OptiScaler", "Automatický prepínač HDR v KDE Plasma 6",
+        "VRR_CAP (prázdne=Auto, 0=Vyp):", "Auto",
+        "Uložiť profil", "Náhľad Dry-Run", "Benchmarky", "Resetovať profil", "Výstup prostredia dry-run sa zobrazí tu...",
+        "Skenujem knižnice Steam a shortcuts.vdf...", "Načítaných {count} položiek (Steam + odkazy Non-Steam).", "Uložené {path}",
+        "Spúšťam dry-run pre AppID {appid}...", "Dry-run dokončený.",
+        "Obnoviť telemetriu", "Automaticky (3s)", "Načítavam telemetriu...", "Telemetria aktualizovaná.",
+        "=== Živá telemetria systému a siete ===", "Plánovač (sched-ext):", "--- Grafický/VR stack a cache shaderov ---", "--- Telemetria GPU ---",
+        "--- Sieťové QoS ({iface}) ---", "--- Režim VR ---", "--- Diagnostika systému ---", "Využitie cache shaderov", "[OK] V /var/log/pacman.log sa nenašli nedávne downgrady git/AUR balíkov",
+        "UPOZORNENIE: Steam beží. Pred zápisom (--sanitize) Steam zatvorte.", "Steam je zatvorený. Synchronizácia a čistenie sú bezpečné.",
+        "Správa synchronizácie (--report)", "Náhľad čistenia (--sanitize --dry-run)", "Použiť čistenie (--sanitize)", "Migrovať profily cachy-run",
+        "Steam beží", "Pred úpravou localconfig.vdf úplne zatvorte Steam.",
+        "Spúšťam steam-auto-sync ({mode})...", "Synchronizácia ({mode}) skončila s kódom {rc}.",
+        "Obnoviť logy", "Cieľové AppID:", "Použiť núdzový režim (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Nenašli sa žiadne logy posledného spustenia.", "Tip k pádu:",
+        "Neplatné AppID", "Najprv zadajte číselné Steam AppID.",
+        "Núdzový režim uložený", "Uložené USE_XWAYLAND=1 a USE_SAFEDX12=1 pre AppID {appid} ({path}).",
+        "Filtrovať benchmarky podľa AppID (prázdne = všetky)", "Obnoviť benchmarky", "Tiché meranie frametime: BENCH=1 steam-auto-run %command%", "Zatiaľ žiadne benchmarky. Spustite hru s: BENCH=1 steam-auto-run %command%",
+        "Čas", "Priem. FPS", "1% Low FPS", "P99 (ms)", "Vzorky", "Limit VRR",
+        "Zap", "Vyp", "Karty: 1-5/Tab | L:Jazyk ({lang}) | q:Koniec",
+        "Okamžite prepnúť jazyk rozhrania", "Znovu preskenovať knižnice Steam a shortcuts.vdf", "Uložiť overený profil do profiles/<APPID>.env", "Zobraziť premenné prostredia bez spustenia hry", "Uložiť USE_XWAYLAND=1 a USE_SAFEDX12=1 na obnovu po páde",
+    ),
+    "bg": (
+        "Контролен център на Steam Auto-Profiler", "Език:", "Готово", "Зареждане на библиотеката и телеметрията...",
+        "1. Игри и профили", "2. Система и телеметрия", "3. Синхронизация", "4. Логове и възстановяване", "5. Бенчмаркове",
+        "1:Игри", "2:Телем", "3:Синхр", "4:Логове", "5:Бенч",
+        "Филтриране по AppID, име, източник (steam/shortcut) или клас...", "Обнови библиотеката",
+        "AppID", "Име на играта", "Източник", "Авто-клас", "Синхр.", "Профил",
+        "Запазен", "Авто", "Изберете игра или Non-Steam пряк път за редакция на профила", "Upscaler SDK: {info}",
+        "Използвай XWayland (изключи Wayland)", "Драйверно обновяване FSR 4", "Генериране на кадри (MLFG)", "Изостряне vkBasalt",
+        "Безопасен DX12 (изключи експерим. VKD3D)", "Мрежов QoS за сесията", "Предпочитай SDL / Steam Input", "Запази Steam Overlay (LD_PRELOAD)",
+        "Мост OptiScaler", "Автоматичен HDR в KDE Plasma 6",
+        "VRR_CAP (празно=Авто, 0=Изкл):", "Авто",
+        "Запази профила", "Преглед (Dry-Run)", "Бенчмаркове", "Нулирай профила", "Изходът от dry-run средата ще се появи тук...",
+        "Сканиране на Steam библиотеки и shortcuts.vdf...", "Заредени са {count} заглавия (Steam + Non-Steam).", "Запазено: {path}",
+        "Изпълнение на dry-run за AppID {appid}...", "Dry-run приключи.",
+        "Обнови телеметрията", "Автообновяване (3с)", "Зареждане на телеметрията...", "Телеметрията е обновена.",
+        "=== Системна и мрежова телеметрия на живо ===", "Планировчик (sched-ext):", "--- Графичен/VR стек и шейдър кеш ---", "--- GPU телеметрия ---",
+        "--- Мрежов QoS ({iface}) ---", "--- VR режим ---", "--- Системна диагностика ---", "Размер на шейдър кеша", "[OK] Няма скорошни понижения на git/AUR пакети в /var/log/pacman.log",
+        "ВНИМАНИЕ: Steam работи в момента. Затворете Steam преди запис (--sanitize).", "Steam е затворен. Синхронизацията и почистването са безопасни.",
+        "Отчет за синхронизация (--report)", "Преглед на почистване (--sanitize --dry-run)", "Приложи почистване (--sanitize)", "Мигрирай профили от cachy-run",
+        "Steam работи", "Затворете напълно Steam преди промяна на localconfig.vdf.",
+        "Изпълнява се steam-auto-sync ({mode})...", "Синхронизацията ({mode}) завърши с код {rc}.",
+        "Обнови логовете", "Целеви AppID:", "Безопасен режим (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Няма намерени логове от последното стартиране.", "Подсказка за срив:",
+        "Невалиден AppID", "Първо въведете числов Steam AppID.",
+        "Безопасният режим е запазен", "Запазени USE_XWAYLAND=1 и USE_SAFEDX12=1 за AppID {appid} ({path}).",
+        "Филтрирай бенчмаркове по AppID (празно = всички)", "Обнови бенчмарковете", "Тих тест за време на кадър: BENCH=1 steam-auto-run %command%", "Все още няма бенчмаркове. Стартирайте игра с: BENCH=1 steam-auto-run %command%",
+        "Време", "Сред. FPS", "1% Low FPS", "P99 (мс)", "Проби", "VRR лимит",
+        "Вкл", "Изкл", "Раздели: 1-5/Tab | L:Език ({lang}) | q:Изход",
+        "Смяна на езика на интерфейса в реално време", "Повторно сканиране на Steam библиотеки и shortcuts.vdf", "Запази валидирания профил в profiles/<APPID>.env", "Преглед на променливите без стартиране на играта", "Запази USE_XWAYLAND=1 и USE_SAFEDX12=1 за възстановяване след срив",
+    ),
+    "sr": (
+        "Контролни центар Steam Auto-Profiler", "Језик:", "Спремно", "Учитавање библиотеке и телеметрије...",
+        "1. Игре и профили", "2. Систем и телеметрија", "3. Синхронизација", "4. Логови и опоравак", "5. Бенчмаркови",
+        "1:Игре", "2:Телем", "3:Синхр", "4:Логови", "5:Бенч",
+        "Филтрирај по AppID-у, називу, извору (steam/shortcut) или класи...", "Освежи библиотеку",
+        "AppID", "Назив игре", "Извор", "Ауто класа", "Синхр.", "Профил",
+        "Сачуван", "Ауто", "Изаберите игру или Non-Steam пречицу за уређивање профила", "Upscaler SDK: {info}",
+        "Користи XWayland (искључи Wayland)", "FSR 4 надоградња драјвера", "Генерисање кадрова (MLFG)", "vkBasalt оштрење",
+        "Безбедни DX12 (искључи експерим. VKD3D)", "Мрежни QoS за сесију", "Дај предност SDL / Steam Input-у", "Задржи Steam Overlay (LD_PRELOAD)",
+        "OptiScaler мост", "Аутоматски KDE Plasma 6 HDR прекидач",
+        "VRR_CAP (празно=Ауто, 0=Искљ):", "Ауто",
+        "Сачувај профил", "Преглед (Dry-Run)", "Бенчмаркови", "Ресетуј профил", "Излаз dry-run окружења појавиће се овде...",
+        "Скенирање Steam библиотека и shortcuts.vdf...", "Учитано {count} наслова (Steam + Non-Steam).", "Сачувано: {path}",
+        "Покретање dry-run прегледа за AppID {appid}...", "Dry-run завршен.",
+        "Освежи телеметрију", "Ауто-освежавање (3с)", "Учитавање телеметрије...", "Телеметрија ажурирана.",
+        "=== Телеметрија система и мреже уживо ===", "Распоређивач (sched-ext):", "--- Графички/VR стек и кеш шејдера ---", "--- GPU телеметрија ---",
+        "--- Мрежни QoS ({iface}) ---", "--- VR режим ---", "--- Системска дијагностика ---", "Величина кеша шејдера", "[OK] Није пронађено недавно спуштање верзија git/AUR пакета у /var/log/pacman.log",
+        "УПОЗОРЕЊЕ: Steam је покренут. Затворите Steam пре уписа (--sanitize).", "Steam је затворен. Синхронизација и чишћење су безбедни.",
+        "Извештај синхронизације (--report)", "Преглед чишћења (--sanitize --dry-run)", "Примени чишћење (--sanitize)", "Мигрирај cachy-run профиле",
+        "Steam је покренут", "Потпуно затворите Steam пре измене localconfig.vdf.",
+        "Покретање steam-auto-sync ({mode})...", "Синхронизација ({mode}) завршена са кодом {rc}.",
+        "Освежи логове", "Циљни AppID:", "Безбедни режим (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Нису пронађени логови последњег покретања.", "Савет за пад:",
+        "Неисправан AppID", "Прво унесите нумерички Steam AppID.",
+        "Безбедни режим сачуван", "Сачувано USE_XWAYLAND=1 и USE_SAFEDX12=1 за AppID {appid} ({path}).",
+        "Филтрирај бенчмаркове по AppID-у (празно = све)", "Освежи бенчмаркове", "Тихо мерење времена кадра: BENCH=1 steam-auto-run %command%", "Још нема забележених бенчмаркова. Покрените игру са: BENCH=1 steam-auto-run %command%",
+        "Време", "Прос. FPS", "1% Low FPS", "P99 (мс)", "Узорци", "VRR лимит",
+        "Укљ", "Искљ", "Картице: 1-5/Tab | L:Језик ({lang}) | q:Излаз",
+        "Промените језик интерфејса уживо", "Поново скенирај Steam библиотеке и shortcuts.vdf", "Сачувај проверен профил у profiles/<APPID>.env", "Прегледај променљиве окружења без покретања игре", "Сачувај USE_XWAYLAND=1 и USE_SAFEDX12=1 за опоравак после пада",
+    ),
+    "hr": (
+        "Kontrolni centar Steam Auto-Profiler", "Jezik:", "Spremno", "Učitavanje biblioteke i telemetrije...",
+        "1. Igre i profili", "2. Sustav i telemetrija", "3. Sinkronizacija", "4. Zapisnici i oporavak", "5. Benchmarkovi",
+        "1:Igre", "2:Telem", "3:Sink", "4:Logovi", "5:Bench",
+        "Filtriraj po AppID-u, nazivu, izvoru (steam/shortcut) ili klasi...", "Osvježi biblioteku",
+        "AppID", "Naziv igre", "Izvor", "Auto klasa", "Sink.", "Profil",
+        "Spremljen", "Auto", "Odaberite igru ili Non-Steam prečac za uređivanje profila", "Upscaler SDK: {info}",
+        "Koristi XWayland (onemogući Wayland)", "FSR 4 nadogradnja upravljačkog programa", "Generiranje sličica (MLFG)", "vkBasalt izoštravanje",
+        "Sigurni DX12 (onemogući eksperim. VKD3D)", "Mrežni QoS za sesiju", "Preferiraj SDL / Steam Input", "Zadrži Steam Overlay (LD_PRELOAD)",
+        "OptiScaler most", "Automatski KDE Plasma 6 HDR prekidač",
+        "VRR_CAP (prazno=Auto, 0=Isklj):", "Auto",
+        "Spremi profil", "Pregled (Dry-Run)", "Benchmarkovi", "Poništi profil", "Izlaz dry-run okruženja pojavit će se ovdje...",
+        "Skeniranje Steam biblioteka i shortcuts.vdf...", "Učitano {count} naslova (Steam + Non-Steam).", "Spremljeno: {path}",
+        "Pokretanje dry-run pregleda za AppID {appid}...", "Dry-run dovršen.",
+        "Osvježi telemetriju", "Automatski (3s)", "Učitavanje telemetrije...", "Telemetrija ažurirana.",
+        "=== Telemetrija sustava i mreže uživo ===", "Raspoređivač (sched-ext):", "--- Grafički/VR stog i predmemorija shadera ---", "--- GPU telemetrija ---",
+        "--- Mrežni QoS ({iface}) ---", "--- VR način ---", "--- Dijagnostika sustava ---", "Upotreba predmemorije shadera", "[OK] Nisu pronađena nedavna vraćanja git/AUR paketa u /var/log/pacman.log",
+        "UPOZORENJE: Steam je pokrenut. Zatvorite Steam prije pisanja (--sanitize).", "Steam je zatvoren. Sinkronizacija i čišćenje su sigurni.",
+        "Izvješće sinkronizacije (--report)", "Pregled čišćenja (--sanitize --dry-run)", "Primijeni čišćenje (--sanitize)", "Migriraj cachy-run profile",
+        "Steam je pokrenut", "Potpuno zatvorite Steam prije izmjene localconfig.vdf.",
+        "Pokretanje steam-auto-sync ({mode})...", "Sinkronizacija ({mode}) završila s kodom {rc}.",
+        "Osvježi zapisnike", "Ciljani AppID:", "Primijeni sigurni način (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Nisu pronađeni zapisnici zadnjeg pokretanja.", "Savjet za rušenje:",
+        "Neispravan AppID", "Prvo unesite numerički Steam AppID.",
+        "Sigurni način spremljen", "Spremljeno USE_XWAYLAND=1 i USE_SAFEDX12=1 za AppID {appid} ({path}).",
+        "Filtriraj benchmarkove po AppID-u (prazno = sve)", "Osvježi benchmarkove", "Tiho mjerenje vremena sličice: BENCH=1 steam-auto-run %command%", "Još nema snimljenih benchmarkova. Pokrenite igru uz: BENCH=1 steam-auto-run %command%",
+        "Vrijeme", "Prosj. FPS", "1% Low FPS", "P99 (ms)", "Uzorci", "VRR granica",
+        "Uklj", "Isklj", "Kartice: 1-5/Tab | L:Jezik ({lang}) | q:Izlaz",
+        "Promijeni jezik sučelja uživo", "Ponovno skeniraj Steam biblioteke i shortcuts.vdf", "Spremi provjereni profil u profiles/<APPID>.env", "Pregledaj varijable okruženja bez pokretanja igre", "Spremi USE_XWAYLAND=1 i USE_SAFEDX12=1 za oporavak nakon rušenja",
+    ),
+    "sl": (
+        "Nadzorni center Steam Auto-Profiler", "Jezik:", "Pripravljeno", "Nalaganje knjižnice in telemetrije...",
+        "1. Igre in profili", "2. Sistem in telemetrija", "3. Sinhronizacija", "4. Dnevniki in obnovitev", "5. Primerjalni testi",
+        "1:Igre", "2:Telem", "3:Sinh", "4:Dnevn", "5:Testi",
+        "Filtriraj po AppID, imenu igre, viru (steam/shortcut) ali razredu...", "Osveži knjižnico",
+        "AppID", "Ime igre", "Vir", "Samod. razred", "Sinh.", "Profil",
+        "Shranjen", "Samod.", "Izberite igro ali bližnjico Non-Steam za urejanje profila", "Upscaler SDK: {info}",
+        "Uporabi XWayland (onemogoči Wayland)", "Nadgradnja gonilnika FSR 4", "Generiranje sličic (MLFG)", "Ostrenje vkBasalt",
+        "Varni DX12 (onemogoči eksperim. VKD3D)", "Omrežni QoS seje", "Daj prednost SDL / Steam Input", "Ohrani Steam Overlay (LD_PRELOAD)",
+        "Most OptiScaler", "Samodejni preklop HDR v KDE Plasma 6",
+        "VRR_CAP (prazno=Samod., 0=Izkl):", "Samod.",
+        "Shrani profil", "Predogled Dry-Run", "Testi", "Ponastavi profil", "Izpis okolja dry-run se prikaže tukaj...",
+        "Pregledovanje knjižnic Steam in shortcuts.vdf...", "Naloženih {count} naslovov (Steam + Non-Steam).", "Shranjeno: {path}",
+        "Zagon predogleda dry-run za AppID {appid}...", "Dry-run končan.",
+        "Osveži telemetrijo", "Samodejno (3s)", "Nalaganje telemetrije...", "Telemetrija posodobljena.",
+        "=== Telemetrija sistema in omrežja v živo ===", "Razporejevalnik (sched-ext):", "--- Grafični/VR sklad in predpomnilnik senčilnikov ---", "--- Telemetrija GPU ---",
+        "--- Omrežni QoS ({iface}) ---", "--- Način VR ---", "--- Diagnostika sistema ---", "Poraba predpomnilnika senčilnikov", "[OK] V /var/log/pacman.log ni nedavnih znižanj paketov git/AUR",
+        "OPOZORILO: Steam trenutno teče. Zaprite Steam pred pisanjem (--sanitize).", "Steam je zaprt. Sinhronizacija in čiščenje sta varna.",
+        "Poročilo sinhronizacije (--report)", "Predogled čiščenja (--sanitize --dry-run)", "Uporabi čiščenje (--sanitize)", "Prenesi profile cachy-run",
+        "Steam teče", "Popolnoma zaprite Steam pred spreminjanjem localconfig.vdf.",
+        "Izvajanje steam-auto-sync ({mode})...", "Sinhronizacija ({mode}) končana s kodo {rc}.",
+        "Osveži dnevnike", "Ciljni AppID:", "Uporabi varni način (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Ni najdenih dnevnikov zadnjega zagona.", "Namig za sesutje:",
+        "Neveljaven AppID", "Najprej vnesite številčni Steam AppID.",
+        "Varni način shranjen", "Shranjeno USE_XWAYLAND=1 in USE_SAFEDX12=1 za AppID {appid} ({path}).",
+        "Filtriraj teste po AppID (prazno = vsi)", "Osveži teste", "Tiho merjenje časa sličic: BENCH=1 steam-auto-run %command%", "Še ni zabeleženih testov. Zaženite igro z: BENCH=1 steam-auto-run %command%",
+        "Čas", "Povpr. FPS", "1% Low FPS", "P99 (ms)", "Vzorci", "Omejitev VRR",
+        "Vkl", "Izkl", "Zavihki: 1-5/Tab | L:Jezik ({lang}) | q:Izhod",
+        "Preklopi jezik vmesnika v živo", "Ponovno preglej knjižnice Steam in shortcuts.vdf", "Shrani preverjen profil v profiles/<APPID>.env", "Predogled spremenljivk okolja brez zagona igre", "Shrani USE_XWAYLAND=1 in USE_SAFEDX12=1 za obnovitev po sesutju",
+    ),
+    "de": (
+        "Steam Auto-Profiler Kontrollzentrum", "Sprache:", "Bereit", "Bibliothek und Telemetrie werden geladen...",
+        "1. Spiele & Profile", "2. System & Telemetrie", "3. Bibliotheks-Sync", "4. Logs & Wiederherstellung", "5. Benchmarks",
+        "1:Spiele", "2:Telem", "3:Sync", "4:Logs", "5:Bench",
+        "Filtern nach AppID, Spielname, Quelle (steam/shortcut) oder Klasse...", "Bibliothek aktualisieren",
+        "AppID", "Spielname", "Quelle", "Auto-Klasse", "Sync", "Profil",
+        "Gespeichert", "Auto", "Spiel oder Non-Steam-Verknüpfung zum Bearbeiten auswählen", "Upscaler-SDK: {info}",
+        "XWayland verwenden (Wayland deaktivieren)", "FSR-4-Treiber-Upgrade", "Frame-Generierung (MLFG)", "vkBasalt-Schärfung",
+        "Sicheres DX12 (experim. VKD3D deaktivieren)", "Sitzungs-Netzwerk-QoS", "SDL / Steam Input bevorzugen", "Steam-Overlay behalten (LD_PRELOAD)",
+        "OptiScaler-Brücke", "Automatischer KDE-Plasma-6-HDR-Schalter",
+        "VRR_CAP (leer=Auto, 0=Aus):", "Auto",
+        "Profil speichern", "Dry-Run-Vorschau", "Benchmarks", "Profil zurücksetzen", "Die Dry-Run-Ausgabe erscheint hier...",
+        "Steam-Bibliotheken und shortcuts.vdf werden gescannt...", "{count} Titel geladen (Steam + Non-Steam-Verknüpfungen).", "Gespeichert: {path}",
+        "Dry-Run für AppID {appid} wird ausgeführt...", "Dry-Run abgeschlossen.",
+        "Telemetrie aktualisieren", "Auto-Aktualisierung (3s)", "Telemetrie wird geladen...", "Telemetrie aktualisiert.",
+        "=== System- & Netzwerk-Live-Telemetrie ===", "Scheduler (sched-ext):", "--- Grafik-/VR-Stack & Shader-Cache-Wächter ---", "--- GPU-Telemetrie ---",
+        "--- Netzwerk-QoS ({iface}) ---", "--- VR-Modus ---", "--- System-Doktor ---", "Shader-Cache-Belegung", "[OK] Keine aktuellen git/AUR-Downgrades in /var/log/pacman.log erkannt",
+        "WARNUNG: Steam läuft derzeit. Schließe Steam vor Schreibvorgängen (--sanitize).", "Steam ist geschlossen. Sync und Bereinigung sind sicher.",
+        "Sync-Bericht (--report)", "Bereinigungsvorschau (--sanitize --dry-run)", "Bereinigung anwenden (--sanitize)", "cachy-run-Profile migrieren",
+        "Steam läuft", "Schließe Steam vollständig, bevor localconfig.vdf geändert wird.",
+        "steam-auto-sync ({mode}) wird ausgeführt...", "Sync ({mode}) beendet mit Exit-Code {rc}.",
+        "Logs aktualisieren", "Ziel-AppID:", "Abgesicherten Modus anwenden (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Keine Start-Logs gefunden.", "Absturz-Hinweis:",
+        "Ungültige AppID", "Bitte zuerst eine numerische Steam-AppID eingeben.",
+        "Abgesicherter Modus gespeichert", "USE_XWAYLAND=1 und USE_SAFEDX12=1 für AppID {appid} gespeichert ({path}).",
+        "Benchmarks nach AppID filtern (leer = alle Läufe)", "Benchmarks aktualisieren", "Stille Frametime-Benchmarks: BENCH=1 steam-auto-run %command%", "Noch keine Benchmarks vorhanden. Starte ein Spiel mit: BENCH=1 steam-auto-run %command%",
+        "Zeitstempel", "Ø FPS", "1% Low FPS", "P99 (ms)", "Messpunkte", "VRR-Limit",
+        "Ein", "Aus", "Tabs: 1-5/Tab | L:Sprache ({lang}) | q:Beenden",
+        "Oberflächensprache live wechseln", "Steam-Bibliotheken und shortcuts.vdf neu scannen", "Geprüftes Profil in profiles/<APPID>.env speichern", "Startumgebung anzeigen ohne das Spiel zu starten", "USE_XWAYLAND=1 und USE_SAFEDX12=1 zur Absturzwiederherstellung speichern",
+    ),
+    "fr": (
+        "Centre de contrôle Steam Auto-Profiler", "Langue :", "Prêt", "Chargement de la bibliothèque et de la télémétrie...",
+        "1. Jeux & Profils", "2. Système & Télémétrie", "3. Synchro bibliothèque", "4. Journaux & Secours", "5. Benchmarks",
+        "1:Jeux", "2:Télém", "3:Sync", "4:Logs", "5:Bench",
+        "Filtrer par AppID, nom du jeu, source (steam/shortcut) ou classe...", "Actualiser la bibliothèque",
+        "AppID", "Nom du jeu", "Source", "Classe auto", "Sync", "Profil",
+        "Enregistré", "Auto", "Sélectionnez un jeu ou un raccourci Non-Steam pour éditer son profil", "SDK d'upscaling : {info}",
+        "Utiliser XWayland (désactiver Wayland)", "Mise à niveau pilote FSR 4", "Génération d'images (MLFG)", "Netteté vkBasalt",
+        "DX12 sûr (désactiver VKD3D expérimental)", "QoS réseau de session", "Préférer SDL / Steam Input", "Conserver l'overlay Steam (LD_PRELOAD)",
+        "Passerelle OptiScaler", "Bascule HDR auto KDE Plasma 6",
+        "VRR_CAP (vide=Auto, 0=Désact.) :", "Auto",
+        "Enregistrer le profil", "Aperçu Dry-Run", "Benchmarks", "Réinitialiser", "La sortie dry-run s'affichera ici...",
+        "Analyse des bibliothèques Steam et de shortcuts.vdf...", "{count} titre(s) chargé(s) (Steam + raccourcis Non-Steam).", "Enregistré : {path}",
+        "Exécution dry-run pour AppID {appid}...", "Dry-run terminé.",
+        "Actualiser la télémétrie", "Actualisation auto (3s)", "Chargement de la télémétrie...", "Télémétrie mise à jour.",
+        "=== Télémétrie système et réseau en direct ===", "Ordonnanceur (sched-ext) :", "--- Pile graphique/VR et cache shaders ---", "--- Télémétrie GPU ---",
+        "--- QoS réseau ({iface}) ---", "--- Mode VR ---", "--- Diagnostic système ---", "Taille du cache shaders", "[OK] Aucune rétrogradation git/AUR récente détectée dans /var/log/pacman.log",
+        "ATTENTION : Steam est en cours d'exécution. Fermez Steam avant toute écriture (--sanitize).", "Steam est fermé. La synchronisation et le nettoyage sont sûrs.",
+        "Rapport de synchro (--report)", "Aperçu nettoyage (--sanitize --dry-run)", "Appliquer nettoyage (--sanitize)", "Migrer profils cachy-run",
+        "Steam est en cours d'exécution", "Fermez complètement Steam avant de modifier localconfig.vdf.",
+        "Exécution de steam-auto-sync ({mode})...", "Synchro ({mode}) terminée avec le code {rc}.",
+        "Actualiser les journaux", "AppID cible :", "Appliquer mode sans échec (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Aucun journal de dernier lancement trouvé.", "Indice de crash :",
+        "AppID invalide", "Saisissez d'abord un AppID Steam numérique.",
+        "Mode sans échec enregistré", "USE_XWAYLAND=1 et USE_SAFEDX12=1 enregistrés pour AppID {appid} ({path}).",
+        "Filtrer les benchmarks par AppID (vide = tous)", "Actualiser les benchmarks", "Mesure silencieuse des frametimes : BENCH=1 steam-auto-run %command%", "Aucun benchmark enregistré. Lancez un jeu avec : BENCH=1 steam-auto-run %command%",
+        "Horodatage", "FPS moy.", "1% Low FPS", "P99 (ms)", "Échantillons", "Limite VRR",
+        "Activé", "Désactivé", "Onglets : 1-5/Tab | L:Langue ({lang}) | q:Quitter",
+        "Changer la langue de l'interface à chaud", "Réanalyser les bibliothèques Steam et shortcuts.vdf", "Enregistrer le profil validé dans profiles/<APPID>.env", "Prévisualiser les variables d'environnement sans lancer le jeu", "Enregistrer USE_XWAYLAND=1 et USE_SAFEDX12=1 après un crash",
+    ),
+    "es": (
+        "Centro de control de Steam Auto-Profiler", "Idioma:", "Listo", "Cargando biblioteca y telemetría...",
+        "1. Juegos y perfiles", "2. Sistema y telemetría", "3. Sincronización", "4. Registros y rescate", "5. Benchmarks",
+        "1:Juegos", "2:Telem", "3:Sinc", "4:Logs", "5:Bench",
+        "Filtrar por AppID, nombre del juego, origen (steam/shortcut) o clase...", "Actualizar biblioteca",
+        "AppID", "Nombre del juego", "Origen", "Clase auto", "Sinc.", "Perfil",
+        "Guardado", "Auto", "Selecciona un juego o acceso directo Non-Steam para editar su perfil", "SDK de reescalado: {info}",
+        "Usar XWayland (desactivar Wayland)", "Mejora de controlador FSR 4", "Generación de fotogramas (MLFG)", "Nitidez vkBasalt",
+        "DX12 seguro (desactivar VKD3D experimental)", "QoS de red por sesión", "Preferir SDL / Steam Input", "Conservar Steam Overlay (LD_PRELOAD)",
+        "Puente OptiScaler", "Cambio automático de HDR en KDE Plasma 6",
+        "VRR_CAP (vacío=Auto, 0=Desact.):", "Auto",
+        "Guardar perfil", "Vista previa Dry-Run", "Benchmarks", "Restablecer perfil", "La salida del entorno dry-run aparecerá aquí...",
+        "Escaneando bibliotecas de Steam y shortcuts.vdf...", "Se cargaron {count} título(s) (Steam + accesos Non-Steam).", "Guardado: {path}",
+        "Ejecutando dry-run para AppID {appid}...", "Dry-run completado.",
+        "Actualizar telemetría", "Autoactualizar (3s)", "Cargando telemetría...", "Telemetría actualizada.",
+        "=== Telemetría en vivo del sistema y red ===", "Planificador (sched-ext):", "--- Pila gráfica/VR y caché de shaders ---", "--- Telemetría de GPU ---",
+        "--- QoS de red ({iface}) ---", "--- Modo VR ---", "--- Diagnóstico del sistema ---", "Uso de caché de shaders", "[OK] No se detectaron degradaciones recientes de paquetes git/AUR en /var/log/pacman.log",
+        "AVISO: Steam está abierto. Cierra Steam antes de escribir (--sanitize).", "Steam está cerrado. Es seguro sincronizar y limpiar la biblioteca.",
+        "Informe de sincronización (--report)", "Vista previa limpieza (--sanitize --dry-run)", "Aplicar limpieza (--sanitize)", "Migrar perfiles de cachy-run",
+        "Steam está abierto", "Cierra Steam por completo antes de modificar localconfig.vdf.",
+        "Ejecutando steam-auto-sync ({mode})...", "Sincronización ({mode}) finalizada con código {rc}.",
+        "Actualizar registros", "AppID objetivo:", "Aplicar modo seguro (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "No se encontraron registros del último lanzamiento.", "Pista de fallo:",
+        "AppID no válido", "Introduce primero un Steam AppID numérico.",
+        "Modo seguro guardado", "Guardados USE_XWAYLAND=1 y USE_SAFEDX12=1 para AppID {appid} ({path}).",
+        "Filtrar benchmarks por AppID (vacío = todos)", "Actualizar benchmarks", "Graba benchmarks silenciosos con: BENCH=1 steam-auto-run %command%", "Aún no hay benchmarks registrados. Lanza un juego con: BENCH=1 steam-auto-run %command%",
+        "Fecha/hora", "FPS prom.", "1% Low FPS", "P99 (ms)", "Muestras", "Límite VRR",
+        "Sí", "No", "Pestañas: 1-5/Tab | L:Idioma ({lang}) | q:Salir",
+        "Cambiar el idioma de la interfaz al instante", "Volver a escanear bibliotecas de Steam y shortcuts.vdf", "Guardar perfil validado en profiles/<APPID>.env", "Previsualizar variables de entorno sin iniciar el juego", "Guardar USE_XWAYLAND=1 y USE_SAFEDX12=1 para recuperarse de cierres",
+    ),
+    "pt": (
+        "Central de Controle Steam Auto-Profiler", "Idioma:", "Pronto", "Carregando biblioteca e telemetria...",
+        "1. Jogos e Perfis", "2. Sistema e Telemetria", "3. Sincronização", "4. Logs e Recuperação", "5. Benchmarks",
+        "1:Jogos", "2:Telem", "3:Sinc", "4:Logs", "5:Bench",
+        "Filtrar por AppID, nome do jogo, origem (steam/shortcut) ou classe...", "Atualizar biblioteca",
+        "AppID", "Nome do jogo", "Origem", "Classe auto", "Sinc.", "Perfil",
+        "Salvo", "Auto", "Selecione um jogo ou atalho Non-Steam para editar o perfil", "SDK de upscaling: {info}",
+        "Usar XWayland (desativar Wayland)", "Upgrade de driver FSR 4", "Geração de quadros (MLFG)", "Nitidez vkBasalt",
+        "DX12 seguro (desativar VKD3D experimental)", "QoS de rede da sessão", "Preferir SDL / Steam Input", "Manter Steam Overlay (LD_PRELOAD)",
+        "Ponte OptiScaler", "Alternância automática de HDR no KDE Plasma 6",
+        "VRR_CAP (vazio=Auto, 0=Deslig.):", "Auto",
+        "Salvar perfil", "Prévia Dry-Run", "Benchmarks", "Redefinir perfil", "A saída do ambiente dry-run aparecerá aqui...",
+        "Verificando bibliotecas Steam e shortcuts.vdf...", "{count} título(s) carregado(s) (Steam + atalhos Non-Steam).", "Salvo: {path}",
+        "Executando dry-run para AppID {appid}...", "Dry-run concluído.",
+        "Atualizar telemetria", "Atualização auto (3s)", "Carregando telemetria...", "Telemetria atualizada.",
+        "=== Telemetria ao vivo do sistema e rede ===", "Escalonador (sched-ext):", "--- Pilha gráfica/VR e cache de shaders ---", "--- Telemetria da GPU ---",
+        "--- QoS de rede ({iface}) ---", "--- Modo VR ---", "--- Diagnóstico do sistema ---", "Uso do cache de shaders", "[OK] Nenhum downgrade recente de pacotes git/AUR em /var/log/pacman.log",
+        "AVISO: O Steam está em execução. Feche o Steam antes de gravar (--sanitize).", "O Steam está fechado. Seguro para sincronizar e limpar a biblioteca.",
+        "Relatório de sincronização (--report)", "Prévia de limpeza (--sanitize --dry-run)", "Aplicar limpeza (--sanitize)", "Migrar perfis do cachy-run",
+        "Steam em execução", "Feche o Steam completamente antes de modificar localconfig.vdf.",
+        "Executando steam-auto-sync ({mode})...", "Sincronização ({mode}) concluída com código {rc}.",
+        "Atualizar logs", "AppID alvo:", "Aplicar modo seguro (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Nenhum log do último lançamento encontrado.", "Dica de falha:",
+        "AppID inválido", "Informe primeiro um Steam AppID numérico.",
+        "Modo seguro salvo", "Salvo USE_XWAYLAND=1 e USE_SAFEDX12=1 para AppID {appid} ({path}).",
+        "Filtrar benchmarks por AppID (vazio = todos)", "Atualizar benchmarks", "Grave benchmarks silenciosos com: BENCH=1 steam-auto-run %command%", "Nenhum benchmark gravado ainda. Inicie um jogo com: BENCH=1 steam-auto-run %command%",
+        "Data/hora", "FPS méd.", "1% Low FPS", "P99 (ms)", "Amostras", "Limite VRR",
+        "Lig", "Desl", "Abas: 1-5/Tab | L:Idioma ({lang}) | q:Sair",
+        "Alternar o idioma da interface em tempo real", "Reescanear bibliotecas Steam e shortcuts.vdf", "Salvar perfil validado em profiles/<APPID>.env", "Visualizar variáveis de ambiente sem abrir o jogo", "Salvar USE_XWAYLAND=1 e USE_SAFEDX12=1 para recuperação de falhas",
+    ),
+    "it": (
+        "Centro di controllo Steam Auto-Profiler", "Lingua:", "Pronto", "Caricamento libreria e telemetria...",
+        "1. Giochi e Profili", "2. Sistema e Telemetria", "3. Sincronizzazione", "4. Log e Ripristino", "5. Benchmark",
+        "1:Giochi", "2:Telem", "3:Sinc", "4:Log", "5:Bench",
+        "Filtra per AppID, nome gioco, origine (steam/shortcut) o classe...", "Aggiorna libreria",
+        "AppID", "Nome gioco", "Origine", "Classe auto", "Sinc.", "Profilo",
+        "Salvato", "Auto", "Seleziona un gioco o collegamento Non-Steam per modificare il profilo", "SDK Upscaler: {info}",
+        "Usa XWayland (disabilita Wayland)", "Upgrade driver FSR 4", "Generazione fotogrammi (MLFG)", "Nitidezza vkBasalt",
+        "DX12 sicuro (disabilita VKD3D sperimentale)", "QoS di rete per sessione", "Preferisci SDL / Steam Input", "Mantieni Steam Overlay (LD_PRELOAD)",
+        "Bridge OptiScaler", "Switch automatico HDR su KDE Plasma 6",
+        "VRR_CAP (vuoto=Auto, 0=Off):", "Auto",
+        "Salva profilo", "Anteprima Dry-Run", "Benchmark", "Ripristina profilo", "L'output dell'ambiente dry-run apparirà qui...",
+        "Scansione librerie Steam e shortcuts.vdf...", "Caricati {count} titoli (Steam + collegamenti Non-Steam).", "Salvato: {path}",
+        "Esecuzione dry-run per AppID {appid}...", "Dry-run completato.",
+        "Aggiorna telemetria", "Auto-aggiorna (3s)", "Caricamento telemetria...", "Telemetria aggiornata.",
+        "=== Telemetria live di sistema e rete ===", "Scheduler (sched-ext):", "--- Stack grafica/VR e cache shader ---", "--- Telemetria GPU ---",
+        "--- QoS di rete ({iface}) ---", "--- Modalità VR ---", "--- Diagnostica di sistema ---", "Uso cache shader", "[OK] Nessun downgrade recente di pacchetti git/AUR in /var/log/pacman.log",
+        "ATTENZIONE: Steam è in esecuzione. Chiudi Steam prima di scrivere (--sanitize).", "Steam è chiuso. È sicuro sincronizzare e pulire la libreria.",
+        "Report sincronizzazione (--report)", "Anteprima pulizia (--sanitize --dry-run)", "Applica pulizia (--sanitize)", "Migra profili cachy-run",
+        "Steam è in esecuzione", "Chiudi completamente Steam prima di modificare localconfig.vdf.",
+        "Esecuzione steam-auto-sync ({mode})...", "Sincronizzazione ({mode}) terminata con codice {rc}.",
+        "Aggiorna log", "AppID target:", "Applica modalità sicura (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Nessun log dell'ultimo avvio trovato.", "Suggerimento crash:",
+        "AppID non valido", "Inserisci prima un Steam AppID numerico.",
+        "Modalità sicura salvata", "Salvati USE_XWAYLAND=1 e USE_SAFEDX12=1 per AppID {appid} ({path}).",
+        "Filtra benchmark per AppID (vuoto = tutti)", "Aggiorna benchmark", "Registra benchmark silenziosi con: BENCH=1 steam-auto-run %command%", "Nessun benchmark registrato. Avvia un gioco con: BENCH=1 steam-auto-run %command%",
+        "Data/ora", "FPS medi", "1% Low FPS", "P99 (ms)", "Campioni", "Limite VRR",
+        "On", "Off", "Schede: 1-5/Tab | L:Lingua ({lang}) | q:Esci",
+        "Cambia lingua dell'interfaccia in tempo reale", "Riscansiona librerie Steam e shortcuts.vdf", "Salva il profilo validato in profiles/<APPID>.env", "Visualizza le variabili di avvio senza lanciare il gioco", "Salva USE_XWAYLAND=1 e USE_SAFEDX12=1 per il ripristino da crash",
+    ),
+    "ja": (
+        "Steam Auto-Profiler コントロールセンター", "言語:", "準備完了", "ライブラリとテレメトリを読み込み中...",
+        "1. ゲームとプロファイル", "2. システムとテレメトリ", "3. ライブラリ同期", "4. ログと復旧", "5. ベンチマーク",
+        "1:ゲーム", "2:計測", "3:同期", "4:ログ", "5:ベンチ",
+        "AppID、ゲーム名、ソース (steam/shortcut)、クラスで絞り込み...", "ライブラリを更新",
+        "AppID", "ゲーム名", "ソース", "自動クラス", "同期", "プロファイル",
+        "保存済み", "自動", "プロファイルを編集するゲームまたは非Steamショートカットを選択してください", "アップスケーラーSDK: {info}",
+        "XWaylandを使用 (Waylandを無効化)", "FSR 4 ドライバーアップグレード", "フレーム生成 (MLFG)", "vkBasalt シャープニング",
+        "安全DX12 (実験的VKD3Dを無効化)", "セッションネットワーク QoS", "SDL / Steam Input を優先", "Steamオーバーレイを維持 (LD_PRELOAD)",
+        "OptiScaler ブリッジ", "KDE Plasma 6 HDR 自動切替",
+        "VRR_CAP (空欄=自動, 0=無効):", "自動",
+        "プロファイル保存", "Dry-Run プレビュー", "ベンチマーク", "プロファイル初期化", "Dry-run の環境変数出力がここに表示されます...",
+        "Steam ライブラリと shortcuts.vdf をスキャン中...", "{count} 件のタイトルを読み込みました (Steam + 非Steam)。", "保存しました: {path}",
+        "AppID {appid} の dry-run を実行中...", "Dry-run が完了しました。",
+        "テレメトリ更新", "自動更新 (3秒)", "テレメトリを読み込み中...", "テレメトリを更新しました。",
+        "=== システム・ネットワーク ライブテレメトリ ===", "スケジューラ (sched-ext):", "--- グラフィックス/VR スタック・シェーダーキャッシュ ---", "--- GPU テレメトリ ---",
+        "--- ネットワーク QoS ({iface}) ---", "--- VR モード ---", "--- システム診断 ---", "シェーダーキャッシュ使用量", "[OK] /var/log/pacman.log に最近の git/AUR パッケージダウングレードはありません",
+        "警告: Steam が実行中です。書き込み操作 (--sanitize) の前に Steam を終了してください。", "Steam は終了しています。同期とクリーンアップを安全に実行できます。",
+        "同期レポート (--report)", "クリーンアップ確認 (--sanitize --dry-run)", "クリーンアップ適用 (--sanitize)", "cachy-run プロファイル移行",
+        "Steam が実行中", "localconfig.vdf を変更する前に Steam を完全に終了してください。",
+        "steam-auto-sync ({mode}) を実行中...", "同期 ({mode}) が終了コード {rc} で完了しました。",
+        "ログを更新", "対象 AppID:", "セーフモード適用 (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "直近の起動ログは見つかりませんでした。", "クラッシュヒント:",
+        "無効な AppID", "先に数値の Steam AppID を入力してください。",
+        "セーフモードを保存しました", "AppID {appid} に USE_XWAYLAND=1 と USE_SAFEDX12=1 を保存しました ({path})。",
+        "AppID でベンチマークを絞り込み (空欄 = 全件)", "ベンチマーク更新", "サイレント計測: BENCH=1 steam-auto-run %command%", "ベンチマーク記録はまだありません。次で起動してください: BENCH=1 steam-auto-run %command%",
+        "日時", "平均 FPS", "1% Low FPS", "P99 (ms)", "サンプル数", "VRR上限",
+        "オン", "オフ", "タブ: 1-5/Tab | L:言語 ({lang}) | q:終了",
+        "UI言語をリアルタイムで切り替え", "Steamライブラリとshortcuts.vdfを再スキャン", "検証済みプロファイルを profiles/<APPID>.env に保存", "ゲームを起動せずに環境変数をプレビュー", "起動クラッシュ復旧用に USE_XWAYLAND=1 と USE_SAFEDX12=1 を保存",
+    ),
+    "ko": (
+        "Steam Auto-Profiler 제어 센터", "언어:", "준비됨", "라이브러리 및 텔레메트리 불러오는 중...",
+        "1. 게임 및 프로필", "2. 시스템 및 텔레메트리", "3. 라이브러리 동기화", "4. 로그 및 복구", "5. 벤치마크",
+        "1:게임", "2:텔레메트리", "3:동기화", "4:로그", "5:벤치",
+        "AppID, 게임 이름, 출처(steam/shortcut), 클래스로 필터...", "라이브러리 새로고침",
+        "AppID", "게임 이름", "출처", "자동 분류", "동기화", "프로필",
+        "저장됨", "자동", "프로필을 편집할 게임 또는 비-Steam 바로가기를 선택하세요", "업스케일러 SDK: {info}",
+        "XWayland 사용 (Wayland 비활성화)", "FSR 4 드라이버 업그레이드", "프레임 생성 (MLFG)", "vkBasalt 선명도",
+        "안전 DX12 (실험적 VKD3D 비활성화)", "세션 네트워크 QoS", "SDL / Steam Input 우선", "Steam 오버레이 유지 (LD_PRELOAD)",
+        "OptiScaler 브리지", "KDE Plasma 6 자동 HDR 전환",
+        "VRR_CAP (비움=자동, 0=끔):", "자동",
+        "프로필 저장", "Dry-Run 미리보기", "벤치마크", "프로필 초기화", "Dry-run 환경 변수 출력이 여기에 표시됩니다...",
+        "Steam 라이브러리 및 shortcuts.vdf 스캔 중...", "{count}개 항목을 불러왔습니다 (Steam + 비-Steam).", "저장됨: {path}",
+        "AppID {appid} Dry-run 실행 중...", "Dry-run 완료.",
+        "텔레메트리 새로고침", "자동 새로고침 (3초)", "텔레메트리 불러오는 중...", "텔레메트리가 업데이트되었습니다.",
+        "=== 시스템 및 네트워크 실시간 텔레메트리 ===", "스케줄러 (sched-ext):", "--- 그래픽/VR 스택 및 셰이더 캐시 ---", "--- GPU 텔레메트리 ---",
+        "--- 네트워크 QoS ({iface}) ---", "--- VR 모드 ---", "--- 시스템 진단 ---", "셰이더 캐시 사용량", "[OK] /var/log/pacman.log에서 최근 git/AUR 패키지 다운그레이드가 감지되지 않았습니다",
+        "경고: Steam이 실행 중입니다. 쓰기 작업(--sanitize) 전에 Steam을 종료하세요.", "Steam이 종료되어 있습니다. 동기화 및 정리를 안전하게 실행할 수 있습니다.",
+        "동기화 보고서 (--report)", "정리 미리보기 (--sanitize --dry-run)", "정리 적용 (--sanitize)", "cachy-run 프로필 마이그레이션",
+        "Steam 실행 중", "localconfig.vdf를 수정하기 전에 Steam을 완전히 종료하세요.",
+        "steam-auto-sync ({mode}) 실행 중...", "동기화({mode})가 종료 코드 {rc}(으)로 완료되었습니다.",
+        "로그 새로고침", "대상 AppID:", "안전 모드 적용 (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "최근 실행 로그를 찾을 수 없습니다.", "충돌 힌트:",
+        "잘못된 AppID", "먼저 숫자 Steam AppID를 입력하세요.",
+        "안전 모드 저장됨", "AppID {appid}에 USE_XWAYLAND=1 및 USE_SAFEDX12=1을 저장했습니다 ({path}).",
+        "AppID로 벤치마크 필터링 (비움 = 전체)", "벤치마크 새로고침", "무음 프레임타임 벤치마크: BENCH=1 steam-auto-run %command%", "기록된 벤치마크가 없습니다. 다음으로 게임을 실행하세요: BENCH=1 steam-auto-run %command%",
+        "시간", "평균 FPS", "1% Low FPS", "P99 (ms)", "샘플", "VRR 제한",
+        "켜짐", "꺼짐", "탭: 1-5/Tab | L:언어 ({lang}) | q:종료",
+        "인터페이스 언어 실시간 전환", "Steam 라이브러리 및 shortcuts.vdf 다시 스캔", "검증된 프로필을 profiles/<APPID>.env에 저장", "게임을 시작하지 않고 실행 환경 변수 미리보기", "충돌 복구용 USE_XWAYLAND=1 및 USE_SAFEDX12=1 저장",
+    ),
+    "zh-CN": (
+        "Steam Auto-Profiler 控制中心", "语言：", "就绪", "正在加载游戏库与遥测数据...",
+        "1. 游戏与配置", "2. 系统与遥测", "3. 游戏库同步", "4. 日志与恢复", "5. 基准测试",
+        "1:游戏", "2:遥测", "3:同步", "4:日志", "5:基准",
+        "按 AppID、游戏名称、来源 (steam/shortcut) 或分类筛选...", "刷新游戏库",
+        "AppID", "游戏名称", "来源", "自动分类", "已同步", "配置",
+        "已保存", "自动", "选择游戏或非 Steam 快捷方式以编辑配置", "超分 SDK：{info}",
+        "使用 XWayland（禁用 Wayland）", "FSR 4 驱动级升级", "帧生成 (MLFG)", "vkBasalt 锐化",
+        "安全 DX12（禁用实验性 VKD3D）", "会话网络 QoS", "优先 SDL / Steam Input", "保留 Steam 覆盖层 (LD_PRELOAD)",
+        "OptiScaler 桥接", "KDE Plasma 6 自动 HDR 切换",
+        "VRR_CAP（留空=自动，0=关闭）：", "自动",
+        "保存配置", "Dry-Run 预览", "基准测试", "重置配置", "Dry-run 环境变量预览将显示在此处...",
+        "正在扫描 Steam 游戏库与 shortcuts.vdf...", "已加载 {count} 个项目（Steam + 非 Steam 快捷方式）。", "已保存：{path}",
+        "正在为 AppID {appid} 运行 dry-run...", "Dry-run 已完成。",
+        "刷新遥测", "自动刷新 (3秒)", "正在加载遥测...", "遥测已更新。",
+        "=== 系统与网络实时遥测 ===", "调度器 (sched-ext)：", "--- 图形/VR 软件栈与着色器缓存监控 ---", "--- GPU 遥测 ---",
+        "--- 网络 QoS ({iface}) ---", "--- VR 模式 ---", "--- 系统体检 ---", "着色器缓存占用", "[OK] 在 /var/log/pacman.log 中未检测到近期 git/AUR 软件包降级",
+        "警告：Steam 正在运行。执行写入操作 (--sanitize) 前请先关闭 Steam。", "Steam 已关闭，可安全执行同步与清理操作。",
+        "同步报告 (--report)", "清理预览 (--sanitize --dry-run)", "应用清理 (--sanitize)", "迁移 cachy-run 配置",
+        "Steam 正在运行", "修改 localconfig.vdf 前请彻底关闭 Steam。",
+        "正在运行 steam-auto-sync ({mode})...", "同步 ({mode}) 已完成，退出码 {rc}。",
+        "刷新日志", "目标 AppID：", "应用安全模式 (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "未找到最近启动日志。", "崩溃提示：",
+        "无效的 AppID", "请先输入纯数字 Steam AppID。",
+        "安全模式已保存", "已为 AppID {appid} 保存 USE_XWAYLAND=1 和 USE_SAFEDX12=1 ({path})。",
+        "按 AppID 筛选基准测试（留空 = 全部）", "刷新基准测试", "静默帧时间基准：BENCH=1 steam-auto-run %command%", "暂无基准记录。使用以下命令启动游戏：BENCH=1 steam-auto-run %command%",
+        "时间", "平均 FPS", "1% Low FPS", "P99 (ms)", "采样数", "VRR 上限",
+        "开", "关", "标签页: 1-5/Tab | L:语言 ({lang}) | q:退出",
+        "实时切换界面语言", "重新扫描 Steam 库与 shortcuts.vdf", "将校验后的配置保存到 profiles/<APPID>.env", "不启动游戏预览最终环境变量", "保存 USE_XWAYLAND=1 与 USE_SAFEDX12=1 用于崩溃恢复",
+    ),
+    "tr": (
+        "Steam Auto-Profiler Kontrol Merkezi", "Dil:", "Hazır", "Kütüphane ve telemetri yükleniyor...",
+        "1. Oyunlar ve Profiller", "2. Sistem ve Telemetri", "3. Kütüphane Eşitleme", "4. Günlükler ve Kurtarma", "5. Kıyaslamalar",
+        "1:Oyunlar", "2:Telem", "3:Eşitle", "4:Günlük", "5:Kıyas",
+        "AppID, oyun adı, kaynak (steam/shortcut) veya sınıfa göre filtrele...", "Kütüphaneyi Yenile",
+        "AppID", "Oyun Adı", "Kaynak", "Oto Sınıf", "Eşitli", "Profil",
+        "Kayıtlı", "Oto", "Profilini düzenlemek için bir oyun veya Non-Steam kısayolu seçin", "Yükseltici SDK: {info}",
+        "XWayland Kullan (Wayland'ı kapat)", "FSR 4 Sürücü Yükseltmesi", "Kare Üretimi (MLFG)", "vkBasalt Keskinleştirme",
+        "Güvenli DX12 (deneysel VKD3D'yi kapat)", "Oturum Ağı QoS", "SDL / Steam Input Tercih Et", "Steam Arayüzünü Koru (LD_PRELOAD)",
+        "OptiScaler Köprüsü", "Otomatik KDE Plasma 6 HDR Anahtarı",
+        "VRR_CAP (boş=Oto, 0=Kapalı):", "Oto",
+        "Profili Kaydet", "Dry-Run Önizleme", "Kıyaslamalar", "Profili Sıfırla", "Dry-run ortam çıktısı burada görünür...",
+        "Steam kütüphaneleri ve shortcuts.vdf taranıyor...", "{count} başlık yüklendi (Steam + Non-Steam kısayollar).", "Kaydedildi: {path}",
+        "AppID {appid} için dry-run çalıştırılıyor...", "Dry-run tamamlandı.",
+        "Telemetriyi Yenile", "Otomatik yenile (3sn)", "Telemetri yükleniyor...", "Telemetri güncellendi.",
+        "=== Sistem ve Ağ Canlı Telemetrisi ===", "Zamanlayıcı (sched-ext):", "--- Grafik / VR Yığını ve Gölgelendirici Önbelleği ---", "--- GPU Telemetrisi ---",
+        "--- Ağ QoS ({iface}) ---", "--- VR Modu ---", "--- Sistem Doktoru ---", "Gölgelendirici önbellek kullanımı", "[OK] /var/log/pacman.log içinde son git/AUR paket düşüşü algılanmadı",
+        "UYARI: Steam şu anda çalışıyor. Yazma işlemlerinden (--sanitize) önce Steam'i kapatın.", "Steam kapalı. Kütüphane eşitleme ve temizleme güvenlidir.",
+        "Eşitleme Raporu (--report)", "Temizleme Önizlemesi (--sanitize --dry-run)", "Temizlemeyi Uygula (--sanitize)", "cachy-run Profillerini Aktar",
+        "Steam Çalışıyor", "localconfig.vdf dosyasını değiştirmeden önce Steam'i tamamen kapatın.",
+        "steam-auto-sync ({mode}) çalıştırılıyor...", "Eşitleme ({mode}) {rc} çıkış koduyla tamamlandı.",
+        "Günlükleri Yenile", "Hedef AppID:", "Güvenli Modu Uygula (USE_XWAYLAND=1, USE_SAFEDX12=1)",
+        "Son başlatma günlüğü bulunamadı.", "Çökme İpucu:",
+        "Geçersiz AppID", "Önce sayısal bir Steam AppID girin.",
+        "Güvenli Mod Kaydedildi", "AppID {appid} için USE_XWAYLAND=1 ve USE_SAFEDX12=1 kaydedildi ({path}).",
+        "Kıyaslamaları AppID'ye göre filtrele (boş = tümü)", "Kıyaslamaları Yenile", "Sessiz kare süresi ölçümü: BENCH=1 steam-auto-run %command%", "Henüz kıyaslama kaydı yok. Oyunu şununla başlatın: BENCH=1 steam-auto-run %command%",
+        "Zaman", "Ort. FPS", "1% Low FPS", "P99 (ms)", "Örnekler", "VRR Sınırı",
+        "Açık", "Kapalı", "Sekmeler: 1-5/Tab | L:Dil ({lang}) | q:Çıkış",
+        "Arayüz dilini anında değiştir", "Steam kütüphanelerini ve shortcuts.vdf dosyasını yeniden tara", "Doğrulanmış profili profiles/<APPID>.env konumuna kaydet", "Oyunu başlatmadan ortam değişkenlerini önizle", "Çökme kurtarma için USE_XWAYLAND=1 ve USE_SAFEDX12=1 kaydet",
+    ),
+}
+
+TRANSLATIONS: dict[str, dict[str, str]] = {
+    lang: dict(zip(_I18N_KEYS, values))
+    for lang, values in _I18N_PACKS.items()
+}
+_SUPPORTED_LANG_MAP: dict[str, str] = {code.lower(): code for code, _ in SUPPORTED_LANGUAGES}
+
+
+def normalize_lang(code: str | None) -> str:
+    """Normalize a CLI or POSIX locale string to a supported language code, defaulting to 'en'."""
+    if not code:
+        return "en"
+    cleaned = code.strip().split(".", 1)[0].split("@", 1)[0].replace("_", "-")
+    if not cleaned or cleaned.upper() in ("C", "POSIX"):
+        return "en"
+    low = cleaned.lower()
+    if low in _SUPPORTED_LANG_MAP:
+        return _SUPPORTED_LANG_MAP[low]
+    if low in ("zh", "zh-hans", "zh-sg"):
+        return "zh-CN"
+    primary = low.split("-", 1)[0]
+    if primary in _SUPPORTED_LANG_MAP:
+        return _SUPPORTED_LANG_MAP[primary]
+    return "en"
+
+
+def detect_system_lang(env: dict[str, str] | None = None) -> str:
+    """Detect the preferred UI language from LC_ALL, LC_MESSAGES, or LANG."""
+    source = env if env is not None else os.environ
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = source.get(var, "").strip()
+        if not val or val.upper() in ("C", "POSIX", "C.UTF-8", "C.UTF8"):
+            continue
+        return normalize_lang(val)
+    return "en"
+
+
+def tr(lang: str, key: str, **kwargs: Any) -> str:
+    """Translate a UI key for the given language with graceful fallback to English."""
+    norm = normalize_lang(lang)
+    catalog = TRANSLATIONS.get(norm) or TRANSLATIONS["en"]
+    text = catalog.get(key) or TRANSLATIONS["en"].get(key, key)
+    if kwargs:
+        try:
+            return text.format(**kwargs)
+        except (KeyError, ValueError):
+            return text
+    return text
+
 
 def parse_shortcuts_vdf(path: Path | str) -> list[dict[str, str]]:
     """Safely parse Steam binary userdata/*/config/shortcuts.vdf (read-only)."""
@@ -714,24 +1636,27 @@ class ProfilerBackend:
         runs.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
         return runs
 
-    def format_benchmarks_text(self, runs: list[dict[str, Any]]) -> str:
+    def format_benchmarks_text(self, runs: list[dict[str, Any]], lang: str = "en") -> str:
         if not runs:
-            return "No benchmark runs recorded yet. Launch a game with: BENCH=1 steam-auto-run %command%"
+            return tr(lang, "bench_empty")
         header = (
-            f"{'Timestamp':<20} {'AppID':<10} {'Avg FPS':>8} {'1% Low':>8} {'P99(ms)':>8} "
+            f"{tr(lang, 'bcol_timestamp'):<20} {tr(lang, 'col_appid'):<10} "
+            f"{tr(lang, 'bcol_avg_fps'):>8} {tr(lang, 'bcol_low_1pct'):>10} {tr(lang, 'bcol_p99'):>8} "
             f"{'FSR4':>5} {'MLFG':>5} {'XWay':>5} {'Safe12':>6} {'VRR':>5}"
         )
         lines = [header, "-" * len(header)]
+        on_s = tr(lang, "val_on")
+        off_s = tr(lang, "val_off")
         for r in runs:
             ts = str(r.get("timestamp", ""))[:19].replace("T", " ")
             lines.append(
                 f"{ts:<20} {str(r.get('appid', '')):<10} "
-                f"{float(r.get('avg_fps', 0)):>8.1f} {float(r.get('low_1pct_fps', 0)):>8.1f} "
+                f"{float(r.get('avg_fps', 0)):>8.1f} {float(r.get('low_1pct_fps', 0)):>10.1f} "
                 f"{float(r.get('p99_frametime_ms', 0)):>8.2f} "
-                f"{'on' if r.get('fsr4') else 'off':>5} "
-                f"{'on' if r.get('mlfg') else 'off':>5} "
-                f"{'on' if r.get('xwayland') else 'off':>5} "
-                f"{'on' if r.get('safedx12') else 'off':>6} "
+                f"{on_s if r.get('fsr4') else off_s:>5} "
+                f"{on_s if r.get('mlfg') else off_s:>5} "
+                f"{on_s if r.get('xwayland') else off_s:>5} "
+                f"{on_s if r.get('safedx12') else off_s:>6} "
                 f"{str(r.get('vrr_cap', 0)):>5}"
             )
         return "\n".join(lines)
@@ -911,12 +1836,12 @@ class ProfilerBackend:
             "vr_mode": vr_mode_out,
         }
 
-    def format_telemetry_text(self, telemetry: dict[str, Any]) -> str:
-        lines = ["=== System & Network Live Telemetry ==="]
-        lines.append(f"Scheduler (sched-ext): {telemetry['scheduler']}")
+    def format_telemetry_text(self, telemetry: dict[str, Any], lang: str = "en") -> str:
+        lines = [tr(lang, "tel_header")]
+        lines.append(f"{tr(lang, 'tel_scheduler')} {telemetry['scheduler']}")
 
         lines.append("")
-        lines.append("--- Graphics / VR Stack & Shader Cache Watchdog ---")
+        lines.append(tr(lang, "tel_stack_section"))
         stack = telemetry.get("stack_versions", [])
         if stack:
             for pkg, ver in stack:
@@ -926,7 +1851,7 @@ class ProfilerBackend:
         sc = telemetry.get("shader_cache", {})
         dirs_label = ", ".join(sc.get("dirs", [])) or "none"
         lines.append(
-            f"  Shader cache usage     {format_bytes(sc.get('total_bytes', 0))} "
+            f"  {tr(lang, 'tel_shader_cache'):<22} {format_bytes(sc.get('total_bytes', 0))} "
             f"({sc.get('file_count', 0)} files in {dirs_label})"
         )
         downgrades = telemetry.get("pacman_downgrades", [])
@@ -934,10 +1859,10 @@ class ProfilerBackend:
             for w in downgrades:
                 lines.append(f"  {w}")
         else:
-            lines.append("  [OK] No recent git/AUR package downgrades detected in /var/log/pacman.log")
+            lines.append(f"  {tr(lang, 'tel_no_downgrades')}")
 
         lines.append("")
-        lines.append("--- GPU Telemetry ---")
+        lines.append(tr(lang, "tel_gpu_section"))
         if telemetry["gpus"]:
             for gpu in telemetry["gpus"]:
                 vram = (
@@ -955,7 +1880,7 @@ class ProfilerBackend:
             lines.append("  No DRM GPU sysfs telemetry available.")
 
         lines.append("")
-        lines.append(f"--- Network QoS ({telemetry['iface']}) ---")
+        lines.append(tr(lang, "tel_net_section", iface=telemetry["iface"]))
         parsed = telemetry["tc_parsed"]
         for label, key in (("LAN (cake/qdisc 10:)", "lan"), ("WAN (cake 20:/root)", "wan")):
             blk = parsed.get(key)
@@ -970,10 +1895,10 @@ class ProfilerBackend:
                 lines.append(f"  {label}: not detected")
 
         lines.append("")
-        lines.append("--- VR Mode ---")
+        lines.append(tr(lang, "tel_vr_section"))
         lines.append(telemetry["vr_mode"])
         lines.append("")
-        lines.append("--- System Doctor ---")
+        lines.append(tr(lang, "tel_doctor_section"))
         lines.append(telemetry["doctor"])
         return "\n".join(lines)
 
@@ -1035,8 +1960,8 @@ def detect_qt_binding() -> tuple[str | None, Any]:
     return None, None
 
 
-def run_self_check(backend: ProfilerBackend) -> int:
-    """Headless CI self-test verifying backend, validators, parsers, and UI bindings."""
+def run_self_check(backend: ProfilerBackend, lang: str = "en") -> int:
+    """Headless CI self-test verifying backend, validators, parsers, i18n, and UI bindings."""
     sample_tc = (
         "qdisc htb 1: root refcnt 2 r2q 10 default 0x20\n"
         " Sent 1048576 bytes 800 pkt (dropped 0, overlimits 0 requeues 0)\n"
@@ -1061,6 +1986,11 @@ def run_self_check(backend: ProfilerBackend) -> int:
     assert norm["AUTO_HDR_SWITCH"] == "1"
     assert len(warns) >= 2
 
+    active_lang = normalize_lang(lang)
+    for code, _ in SUPPORTED_LANGUAGES:
+        assert code in TRANSLATIONS
+        assert len(TRANSLATIONS[code]) == len(_I18N_KEYS)
+
     qt_name, _ = detect_qt_binding()
     tools = {
         name: backend.find_tool(name)
@@ -1068,29 +1998,37 @@ def run_self_check(backend: ProfilerBackend) -> int:
     }
     report = {
         "status": "ok",
+        "language": active_lang,
+        "supported_languages": [code for code, _ in SUPPORTED_LANGUAGES],
         "qt_binding": qt_name or "unavailable",
         "curses_available": True,
         "tools": tools,
         "tc_parser_verified": True,
         "mutual_exclusion_verified": True,
         "shortcuts_parser_available": True,
+        "i18n_verified": True,
         "stack_packages": dict(backend.collect_stack_versions()),
         "shader_cache_bytes": backend.measure_shader_cache()["total_bytes"],
         "gpus_detected": len(backend.read_gpu_telemetry()),
         "benchmarks_found": len(backend.list_benchmarks()),
         "logs_found": len(backend.list_logs()),
     }
-    print(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0
 
 
-def run_qt_gui(backend: ProfilerBackend) -> int:
+def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
     binding, mods = detect_qt_binding()
     if binding is None or mods is None:
         print("Error: Neither PySide6 nor PyQt6 is installed. Use --tui for terminal mode.", file=sys.stderr)
         return 1
     QtWidgets, QtCore = mods
     qt_signal = getattr(QtCore, "Signal", None) or getattr(QtCore, "pyqtSignal")
+
+    current_lang = normalize_lang(lang)
+
+    def t(key: str, **kwargs: Any) -> str:
+        return tr(current_lang, key, **kwargs)
 
     class WorkerBridge(QtCore.QObject):
         games_ready = qt_signal(list)
@@ -1115,14 +2053,29 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     sigint_received = False
 
     win = MainWindow(lambda: shutdown_ui())
-    win.setWindowTitle(f"Steam Auto-Profiler Control Center ({binding})")
+    win.setWindowTitle(f"{t('app_title')} ({binding})")
     win.resize(1180, 760)
     bridge = WorkerBridge(win)
 
     tabs = QtWidgets.QTabWidget()
     win.setCentralWidget(tabs)
     status_bar = win.statusBar()
-    status_bar.showMessage("Ready")
+    status_bar.showMessage(t("status_ready"))
+
+    # Live runtime language switcher in the top-right corner of the tab bar
+    lang_widget = QtWidgets.QWidget()
+    lang_layout = QtWidgets.QHBoxLayout(lang_widget)
+    lang_layout.setContentsMargins(4, 2, 6, 2)
+    lang_label = QtWidgets.QLabel(t("lang_label"))
+    lang_combo = QtWidgets.QComboBox()
+    for code, native in SUPPORTED_LANGUAGES:
+        lang_combo.addItem(f"{native} ({code})", code)
+    initial_idx = next((i for i, (c, _) in enumerate(SUPPORTED_LANGUAGES) if c == current_lang), 0)
+    lang_combo.setCurrentIndex(initial_idx)
+    lang_combo.setToolTip(t("tip_lang_select"))
+    lang_layout.addWidget(lang_label)
+    lang_layout.addWidget(lang_combo)
+    tabs.setCornerWidget(lang_widget, QtCore.Qt.Corner.TopRightCorner)
 
     # --- Tab 1: Games & Profiles ---
     tab_games = QtWidgets.QWidget()
@@ -1130,8 +2083,9 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     top_bar = QtWidgets.QHBoxLayout()
     search_edit = QtWidgets.QLineEdit()
-    search_edit.setPlaceholderText("Filter by AppID, game name, source (steam/shortcut), or class...")
-    refresh_games_btn = QtWidgets.QPushButton("Refresh Library")
+    search_edit.setPlaceholderText(t("search_placeholder"))
+    refresh_games_btn = QtWidgets.QPushButton(t("btn_refresh_library"))
+    refresh_games_btn.setToolTip(t("tip_refresh_library"))
     top_bar.addWidget(search_edit)
     top_bar.addWidget(refresh_games_btn)
     games_layout.addLayout(top_bar)
@@ -1140,7 +2094,10 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     games_layout.addWidget(splitter, 1)
 
     table = QtWidgets.QTableWidget(0, 6)
-    table.setHorizontalHeaderLabels(["AppID", "Game Name", "Source", "Auto Class", "Synced", "Profile"])
+    table.setHorizontalHeaderLabels([
+        t("col_appid"), t("col_game_name"), t("col_source"),
+        t("col_auto_class"), t("col_synced"), t("col_profile"),
+    ])
     table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
     table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -1149,7 +2106,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     editor_widget = QtWidgets.QWidget()
     editor_layout = QtWidgets.QVBoxLayout(editor_widget)
-    selected_label = QtWidgets.QLabel("Select a game or Non-Steam shortcut to edit its profile")
+    selected_label = QtWidgets.QLabel(t("select_game_prompt"))
     selected_label.setWordWrap(True)
     editor_layout.addWidget(selected_label)
 
@@ -1163,30 +2120,33 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     editor_layout.addWidget(warning_label)
 
     checkboxes: dict[str, Any] = {}
-    for key, label in PROFILE_TOGGLES:
-        cb = QtWidgets.QCheckBox(label)
+    for key, _label in PROFILE_TOGGLES:
+        cb = QtWidgets.QCheckBox(t(f"toggle_{key}"))
         checkboxes[key] = cb
         editor_layout.addWidget(cb)
 
     vrr_row = QtWidgets.QHBoxLayout()
-    vrr_row.addWidget(QtWidgets.QLabel("VRR_CAP (empty=Auto, 0=Off):"))
+    vrr_label = QtWidgets.QLabel(t("vrr_cap_label"))
+    vrr_row.addWidget(vrr_label)
     vrr_edit = QtWidgets.QLineEdit()
-    vrr_edit.setPlaceholderText("Auto")
+    vrr_edit.setPlaceholderText(t("vrr_cap_placeholder"))
     vrr_row.addWidget(vrr_edit)
     editor_layout.addLayout(vrr_row)
 
     btn_row = QtWidgets.QHBoxLayout()
-    save_btn = QtWidgets.QPushButton("Save Profile")
-    dry_run_btn = QtWidgets.QPushButton("Dry-Run Preview")
-    bench_jump_btn = QtWidgets.QPushButton("Benchmarks")
-    reset_btn = QtWidgets.QPushButton("Reset Profile")
+    save_btn = QtWidgets.QPushButton(t("btn_save_profile"))
+    save_btn.setToolTip(t("tip_save_profile"))
+    dry_run_btn = QtWidgets.QPushButton(t("btn_dry_run"))
+    dry_run_btn.setToolTip(t("tip_dry_run"))
+    bench_jump_btn = QtWidgets.QPushButton(t("btn_benchmarks"))
+    reset_btn = QtWidgets.QPushButton(t("btn_reset_profile"))
     for b in (save_btn, dry_run_btn, bench_jump_btn, reset_btn):
         btn_row.addWidget(b)
     editor_layout.addLayout(btn_row)
 
     dry_run_box = QtWidgets.QPlainTextEdit()
     dry_run_box.setReadOnly(True)
-    dry_run_box.setPlaceholderText("Dry-run environment output appears here...")
+    dry_run_box.setPlaceholderText(t("dry_run_placeholder"))
     editor_layout.addWidget(dry_run_box, 1)
     splitter.addWidget(editor_widget)
     splitter.setSizes([680, 480])
@@ -1197,6 +2157,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     updating_ui = False
     library_worker: Any = None
     library_in_flight = False
+    last_telemetry_data: dict[str, Any] | None = None
 
     def collect_editor_profile() -> dict[str, str]:
         prof = {key: ("1" if cb.isChecked() else "0") for key, cb in checkboxes.items()}
@@ -1243,7 +2204,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
                 g["source"],
                 g["class"],
                 g["synced"],
-                "Saved" if g["has_profile"] else "Auto",
+                t("profile_saved") if g["has_profile"] else t("profile_auto"),
             )
             for col, val in enumerate(values):
                 table.setItem(row, col, QtWidgets.QTableWidgetItem(val))
@@ -1260,7 +2221,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
         library_in_flight = False
         library_worker = None
         refresh_games_btn.setEnabled(True)
-        status_bar.showMessage(f"Loaded {len(games_cache)} title(s) (Steam + Non-Steam shortcuts).")
+        status_bar.showMessage(t("status_loaded_titles", count=len(games_cache)))
 
     bridge.games_ready.connect(on_games_loaded, QtCore.Qt.ConnectionType.QueuedConnection)
 
@@ -1270,7 +2231,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
             return
         library_in_flight = True
         refresh_games_btn.setEnabled(False)
-        status_bar.showMessage("Scanning Steam libraries and shortcuts.vdf...")
+        status_bar.showMessage(t("status_scanning_library"))
 
         def _scan() -> None:
             if shutting_down or backend.is_cancelled():
@@ -1300,11 +2261,11 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
             return
         current_game = filtered_games[idx]
         selected_label.setText(
-            f"{current_game['name']} (AppID {current_game['appid']} | source: {current_game['source']}) — "
-            f"Class: {current_game['class']} | Synced: {current_game['synced']}"
+            f"{current_game['name']} ({t('col_appid')} {current_game['appid']} | {t('col_source')}: {current_game['source']}) — "
+            f"{t('col_auto_class')}: {current_game['class']} | {t('col_synced')}: {current_game['synced']}"
         )
         uinfo = current_game.get("upscaler_info", "None detected")
-        upscaler_badge.setText(f"Upscaler SDK: {uinfo}")
+        upscaler_badge.setText(t("upscaler_sdk_label", info=uinfo))
         if "PROTON_FSR4_UPGRADE=1" in uinfo and "will not hook" not in uinfo:
             upscaler_badge.setStyleSheet("color: #15803d; font-weight: bold;")
         elif "USE_OPTISCALER=1" in uinfo:
@@ -1330,16 +2291,16 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
         current_game["has_profile"] = True
         populate_table()
         warning_label.setText("\n".join(warns))
-        status_bar.showMessage(f"Saved {path}")
+        status_bar.showMessage(t("status_saved_profile", path=path))
 
     def on_dry_run() -> None:
         if not current_game:
             return
-        status_bar.showMessage(f"Running dry-run for AppID {current_game['appid']}...")
+        status_bar.showMessage(t("status_running_dry_run", appid=current_game["appid"]))
         app.processEvents()
         out = backend.dry_run(current_game["appid"], is_vr=bool(current_game.get("is_vr")))
         dry_run_box.setPlainText(out)
-        status_bar.showMessage("Dry-run complete.")
+        status_bar.showMessage(t("status_dry_run_complete"))
 
     def on_reset_profile() -> None:
         if not current_game:
@@ -1357,14 +2318,14 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     save_btn.clicked.connect(on_save_profile)
     dry_run_btn.clicked.connect(on_dry_run)
     reset_btn.clicked.connect(on_reset_profile)
-    tabs.addTab(tab_games, "1. Games & Profiles")
+    tabs.addTab(tab_games, t("tab_games"))
 
     # --- Tab 2: System & Network Live Telemetry ---
     tab_tel = QtWidgets.QWidget()
     tel_layout = QtWidgets.QVBoxLayout(tab_tel)
     tel_bar = QtWidgets.QHBoxLayout()
-    tel_refresh_btn = QtWidgets.QPushButton("Refresh Telemetry")
-    tel_auto_cb = QtWidgets.QCheckBox("Auto-refresh (3s)")
+    tel_refresh_btn = QtWidgets.QPushButton(t("btn_refresh_telemetry"))
+    tel_auto_cb = QtWidgets.QCheckBox(t("cb_auto_refresh"))
     tel_bar.addWidget(tel_refresh_btn)
     tel_bar.addWidget(tel_auto_cb)
     tel_bar.addStretch(1)
@@ -1372,7 +2333,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     tel_box = QtWidgets.QPlainTextEdit()
     tel_box.setReadOnly(True)
-    tel_box.setPlainText("Loading telemetry...")
+    tel_box.setPlainText(t("loading_telemetry"))
     tel_layout.addWidget(tel_box, 1)
 
     telemetry_worker: Any = None
@@ -1392,7 +2353,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
         telemetry_in_flight = False
         telemetry_worker = None
         tel_refresh_btn.setEnabled(True)
-        status_bar.showMessage("Telemetry updated.")
+        status_bar.showMessage(t("status_telemetry_updated"))
 
     bridge.telemetry_ready.connect(on_telemetry_ready, QtCore.Qt.ConnectionType.QueuedConnection)
 
@@ -1402,15 +2363,18 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
             return
         telemetry_in_flight = True
         tel_refresh_btn.setEnabled(False)
+        lang_snapshot = current_lang
 
         def _collect() -> None:
+            nonlocal last_telemetry_data
             if shutting_down or backend.is_cancelled():
                 return
             try:
                 telemetry = backend.collect_telemetry()
                 if shutting_down or backend.is_cancelled():
                     return
-                text = backend.format_telemetry_text(telemetry)
+                last_telemetry_data = telemetry
+                text = backend.format_telemetry_text(telemetry, lang=lang_snapshot)
             except Exception as exc:
                 if shutting_down or backend.is_cancelled():
                     return
@@ -1431,7 +2395,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     tel_timer.timeout.connect(refresh_telemetry)
     tel_refresh_btn.clicked.connect(refresh_telemetry)
     tel_auto_cb.stateChanged.connect(lambda _s: tel_timer.start() if tel_auto_cb.isChecked() else tel_timer.stop())
-    tabs.addTab(tab_tel, "2. System & Telemetry")
+    tabs.addTab(tab_tel, t("tab_telemetry"))
 
     # --- Tab 3: Library Sync & Maintenance ---
     tab_sync = QtWidgets.QWidget()
@@ -1441,10 +2405,10 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     sync_layout.addWidget(steam_banner)
 
     sync_btns = QtWidgets.QHBoxLayout()
-    btn_report = QtWidgets.QPushButton("Sync Report (--report)")
-    btn_san_dry = QtWidgets.QPushButton("Sanitize Preview (--sanitize --dry-run)")
-    btn_san_apply = QtWidgets.QPushButton("Apply Sanitize (--sanitize)")
-    btn_migrate = QtWidgets.QPushButton("Migrate cachy-run Profiles")
+    btn_report = QtWidgets.QPushButton(t("btn_sync_report"))
+    btn_san_dry = QtWidgets.QPushButton(t("btn_san_dry"))
+    btn_san_apply = QtWidgets.QPushButton(t("btn_san_apply"))
+    btn_migrate = QtWidgets.QPushButton(t("btn_migrate"))
     for b in (btn_report, btn_san_dry, btn_san_apply, btn_migrate):
         sync_btns.addWidget(b)
     sync_layout.addLayout(sync_btns)
@@ -1456,10 +2420,10 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     def update_steam_banner() -> bool:
         running = backend.is_steam_running()
         if running:
-            steam_banner.setText("WARNING: Steam is currently running. Close Steam before running write operations (--sanitize).")
+            steam_banner.setText(t("steam_running_warn"))
             steam_banner.setStyleSheet("color: #dc2626; font-weight: bold;")
         else:
-            steam_banner.setText("Steam is closed. Safe to run library sync and sanitize operations.")
+            steam_banner.setText(t("steam_closed_safe"))
             steam_banner.setStyleSheet("color: #16a34a; font-weight: bold;")
         return running
 
@@ -1468,35 +2432,37 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
         if needs_closed_steam and running:
             QtWidgets.QMessageBox.warning(
                 win,
-                "Steam Is Running",
-                "Close Steam completely before modifying localconfig.vdf.",
+                t("dlg_steam_running_title"),
+                t("dlg_steam_running_body"),
             )
             return
-        status_bar.showMessage(f"Running steam-auto-sync ({mode})...")
+        status_bar.showMessage(t("status_running_sync", mode=mode))
         app.processEvents()
         rc, out = backend.run_sync(mode)
-        sync_out.setPlainText(out or f"(completed with exit code {rc})")
-        status_bar.showMessage(f"Sync ({mode}) finished with exit code {rc}.")
+        sync_out.setPlainText(out or f"(exit code {rc})")
+        status_bar.showMessage(t("status_sync_finished", mode=mode, rc=rc))
 
     btn_report.clicked.connect(lambda: trigger_sync("report", False))
     btn_san_dry.clicked.connect(lambda: trigger_sync("sanitize_dry", False))
     btn_san_apply.clicked.connect(lambda: trigger_sync("sanitize", True))
     btn_migrate.clicked.connect(lambda: trigger_sync("migrate", False))
-    tabs.addTab(tab_sync, "3. Library Sync")
+    tabs.addTab(tab_sync, t("tab_sync"))
 
     # --- Tab 4: Last Launch Log & Crash Recovery ---
     tab_logs = QtWidgets.QWidget()
     logs_layout = QtWidgets.QVBoxLayout(tab_logs)
     logs_bar = QtWidgets.QHBoxLayout()
     log_combo = QtWidgets.QComboBox()
-    logs_refresh_btn = QtWidgets.QPushButton("Refresh Logs")
+    logs_refresh_btn = QtWidgets.QPushButton(t("btn_refresh_logs"))
+    target_appid_label = QtWidgets.QLabel(t("label_target_appid"))
     safe_appid_edit = QtWidgets.QLineEdit()
-    safe_appid_edit.setPlaceholderText("AppID")
+    safe_appid_edit.setPlaceholderText(t("col_appid"))
     safe_appid_edit.setMaximumWidth(120)
-    safe_mode_btn = QtWidgets.QPushButton("Apply Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1)")
+    safe_mode_btn = QtWidgets.QPushButton(t("btn_apply_safe_mode"))
+    safe_mode_btn.setToolTip(t("tip_safe_mode"))
     logs_bar.addWidget(log_combo, 1)
     logs_bar.addWidget(logs_refresh_btn)
-    logs_bar.addWidget(QtWidgets.QLabel("Target AppID:"))
+    logs_bar.addWidget(target_appid_label)
     logs_bar.addWidget(safe_appid_edit)
     logs_bar.addWidget(safe_mode_btn)
     logs_layout.addLayout(logs_bar)
@@ -1515,7 +2481,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     def display_selected_log() -> None:
         idx = log_combo.currentIndex()
         if idx < 0 or idx >= len(log_paths):
-            log_view.setPlainText("No last-launch logs found.")
+            log_view.setPlainText(t("no_logs_found"))
             crash_banner.setText("")
             return
         data = backend.read_log(log_paths[idx])
@@ -1523,7 +2489,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
         if data["appid"] and data["appid"].isdigit():
             safe_appid_edit.setText(data["appid"])
         if data["crash_hint"]:
-            crash_banner.setText(f"Crash Hint: {data['crash_hint']}")
+            crash_banner.setText(f"{t('crash_hint_prefix')} {data['crash_hint']}")
         else:
             crash_banner.setText("")
 
@@ -1540,49 +2506,51 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     def on_apply_safe_mode() -> None:
         appid = safe_appid_edit.text().strip()
         if not appid.isdigit():
-            QtWidgets.QMessageBox.warning(win, "Invalid AppID", "Enter a numeric Steam AppID first.")
+            QtWidgets.QMessageBox.warning(win, t("dlg_invalid_appid_title"), t("dlg_invalid_appid_body"))
             return
         path, _ = backend.apply_safe_mode(appid)
-        status_bar.showMessage(f"Applied Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1) to {path}")
+        status_bar.showMessage(t("status_saved_profile", path=path))
         QtWidgets.QMessageBox.information(
             win,
-            "Safe Mode Saved",
-            f"Saved USE_XWAYLAND=1 and USE_SAFEDX12=1 for AppID {appid} ({path}).",
+            t("dlg_safe_mode_title"),
+            t("dlg_safe_mode_body", appid=appid, path=path),
         )
         reload_games()
 
     log_combo.currentIndexChanged.connect(lambda _i: display_selected_log())
     logs_refresh_btn.clicked.connect(refresh_logs)
     safe_mode_btn.clicked.connect(on_apply_safe_mode)
-    tabs.addTab(tab_logs, "4. Logs & Recovery")
+    tabs.addTab(tab_logs, t("tab_logs"))
 
     # --- Tab 5: Benchmarks Comparison ---
     tab_bench = QtWidgets.QWidget()
     bench_layout = QtWidgets.QVBoxLayout(tab_bench)
     bench_bar = QtWidgets.QHBoxLayout()
     bench_filter_edit = QtWidgets.QLineEdit()
-    bench_filter_edit.setPlaceholderText("Filter benchmarks by AppID (blank = all runs)")
-    bench_refresh_btn = QtWidgets.QPushButton("Refresh Benchmarks")
+    bench_filter_edit.setPlaceholderText(t("bench_filter_placeholder"))
+    bench_refresh_btn = QtWidgets.QPushButton(t("btn_refresh_benchmarks"))
     bench_bar.addWidget(bench_filter_edit)
     bench_bar.addWidget(bench_refresh_btn)
     bench_layout.addLayout(bench_bar)
 
     bench_table = QtWidgets.QTableWidget(0, 11)
     bench_table.setHorizontalHeaderLabels([
-        "Timestamp", "AppID", "Avg FPS", "1% Low FPS", "P99 (ms)",
-        "Samples", "FSR4", "MLFG", "XWayland", "SafeDX12", "VRR Cap",
+        t("bcol_timestamp"), t("col_appid"), t("bcol_avg_fps"), t("bcol_low_1pct"), t("bcol_p99"),
+        t("bcol_samples"), "FSR4", "MLFG", "XWayland", "SafeDX12", t("bcol_vrr_cap"),
     ])
     bench_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
     bench_table.horizontalHeader().setStretchLastSection(True)
     bench_layout.addWidget(bench_table, 1)
 
-    bench_hint = QtWidgets.QLabel("Record silent frametime benchmarks with: BENCH=1 steam-auto-run %command%")
+    bench_hint = QtWidgets.QLabel(t("bench_hint"))
     bench_layout.addWidget(bench_hint)
 
     def refresh_benchmarks() -> None:
         flt = bench_filter_edit.text().strip()
         runs = backend.list_benchmarks(flt if flt.isdigit() else None)
         bench_table.setRowCount(len(runs))
+        on_s = t("val_on")
+        off_s = t("val_off")
         for row, r in enumerate(runs):
             vals = (
                 str(r.get("timestamp", ""))[:19].replace("T", " "),
@@ -1591,10 +2559,10 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
                 f"{float(r.get('low_1pct_fps', 0)):.2f}",
                 f"{float(r.get('p99_frametime_ms', 0)):.2f}",
                 str(r.get("samples", 0)),
-                "On" if r.get("fsr4") else "Off",
-                "On" if r.get("mlfg") else "Off",
-                "On" if r.get("xwayland") else "Off",
-                "On" if r.get("safedx12") else "Off",
+                on_s if r.get("fsr4") else off_s,
+                on_s if r.get("mlfg") else off_s,
+                on_s if r.get("xwayland") else off_s,
+                on_s if r.get("safedx12") else off_s,
                 str(r.get("vrr_cap", 0)),
             )
             for col, val in enumerate(vals):
@@ -1610,7 +2578,84 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     bench_filter_edit.textChanged.connect(lambda _t: refresh_benchmarks())
     bench_refresh_btn.clicked.connect(refresh_benchmarks)
     bench_jump_btn.clicked.connect(jump_to_game_benchmarks)
-    tabs.addTab(tab_bench, "5. Benchmarks")
+    tabs.addTab(tab_bench, t("tab_benchmarks"))
+
+    def apply_language(new_lang: str) -> None:
+        nonlocal current_lang
+        current_lang = normalize_lang(new_lang)
+        win.setWindowTitle(f"{t('app_title')} ({binding})")
+        lang_label.setText(t("lang_label"))
+        lang_combo.setToolTip(t("tip_lang_select"))
+        tabs.setTabText(0, t("tab_games"))
+        tabs.setTabText(1, t("tab_telemetry"))
+        tabs.setTabText(2, t("tab_sync"))
+        tabs.setTabText(3, t("tab_logs"))
+        tabs.setTabText(4, t("tab_benchmarks"))
+
+        search_edit.setPlaceholderText(t("search_placeholder"))
+        refresh_games_btn.setText(t("btn_refresh_library"))
+        refresh_games_btn.setToolTip(t("tip_refresh_library"))
+        table.setHorizontalHeaderLabels([
+            t("col_appid"), t("col_game_name"), t("col_source"),
+            t("col_auto_class"), t("col_synced"), t("col_profile"),
+        ])
+        if current_game:
+            selected_label.setText(
+                f"{current_game['name']} ({t('col_appid')} {current_game['appid']} | {t('col_source')}: {current_game['source']}) — "
+                f"{t('col_auto_class')}: {current_game['class']} | {t('col_synced')}: {current_game['synced']}"
+            )
+            upscaler_badge.setText(t("upscaler_sdk_label", info=current_game.get("upscaler_info", "None detected")))
+        else:
+            selected_label.setText(t("select_game_prompt"))
+        for key, cb in checkboxes.items():
+            cb.setText(t(f"toggle_{key}"))
+        vrr_label.setText(t("vrr_cap_label"))
+        vrr_edit.setPlaceholderText(t("vrr_cap_placeholder"))
+        save_btn.setText(t("btn_save_profile"))
+        save_btn.setToolTip(t("tip_save_profile"))
+        dry_run_btn.setText(t("btn_dry_run"))
+        dry_run_btn.setToolTip(t("tip_dry_run"))
+        bench_jump_btn.setText(t("btn_benchmarks"))
+        reset_btn.setText(t("btn_reset_profile"))
+        dry_run_box.setPlaceholderText(t("dry_run_placeholder"))
+        populate_table()
+
+        tel_refresh_btn.setText(t("btn_refresh_telemetry"))
+        tel_auto_cb.setText(t("cb_auto_refresh"))
+        if last_telemetry_data is not None:
+            tel_box.setPlainText(backend.format_telemetry_text(last_telemetry_data, lang=current_lang))
+        elif telemetry_in_flight:
+            tel_box.setPlainText(t("loading_telemetry"))
+
+        btn_report.setText(t("btn_sync_report"))
+        btn_san_dry.setText(t("btn_san_dry"))
+        btn_san_apply.setText(t("btn_san_apply"))
+        btn_migrate.setText(t("btn_migrate"))
+        update_steam_banner()
+
+        logs_refresh_btn.setText(t("btn_refresh_logs"))
+        target_appid_label.setText(t("label_target_appid"))
+        safe_appid_edit.setPlaceholderText(t("col_appid"))
+        safe_mode_btn.setText(t("btn_apply_safe_mode"))
+        safe_mode_btn.setToolTip(t("tip_safe_mode"))
+        display_selected_log()
+
+        bench_filter_edit.setPlaceholderText(t("bench_filter_placeholder"))
+        bench_refresh_btn.setText(t("btn_refresh_benchmarks"))
+        bench_table.setHorizontalHeaderLabels([
+            t("bcol_timestamp"), t("col_appid"), t("bcol_avg_fps"), t("bcol_low_1pct"), t("bcol_p99"),
+            t("bcol_samples"), "FSR4", "MLFG", "XWayland", "SafeDX12", t("bcol_vrr_cap"),
+        ])
+        bench_hint.setText(t("bench_hint"))
+        refresh_benchmarks()
+        status_bar.showMessage(t("status_ready"))
+
+    def on_lang_combo_changed(idx: int) -> None:
+        code = lang_combo.itemData(idx)
+        if isinstance(code, str):
+            apply_language(code)
+
+    lang_combo.currentIndexChanged.connect(on_lang_combo_changed)
 
     sigint_timer = QtCore.QTimer(win)
     sigint_timer.setInterval(100)
@@ -1657,7 +2702,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     update_steam_banner()
     refresh_logs()
     refresh_benchmarks()
-    status_bar.showMessage("Loading library and telemetry...")
+    status_bar.showMessage(t("status_loading"))
 
     win.show()
     QtCore.QTimer.singleShot(0, reload_games)
@@ -1674,29 +2719,46 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     return 0 if sigint_received else rc
 
 
-def run_curses_tui(backend: ProfilerBackend) -> int:
-    """Zero-dependency stdlib curses 5-view TUI."""
+def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
+    """Zero-dependency stdlib curses 5-view TUI with live 27-language switching."""
 
     def _main(stdscr: Any) -> int:
         curses.curs_set(0)
         stdscr.nodelay(False)
         stdscr.keypad(True)
 
+        lang_codes = [code for code, _ in SUPPORTED_LANGUAGES]
+        current_lang = normalize_lang(lang)
+        lang_idx = lang_codes.index(current_lang) if current_lang in lang_codes else 0
+
+        def t(key: str, **kwargs: Any) -> str:
+            return tr(current_lang, key, **kwargs)
+
+        def get_tab_names() -> tuple[str, ...]:
+            return (
+                t("tui_tab_games"),
+                t("tui_tab_telemetry"),
+                t("tui_tab_sync"),
+                t("tui_tab_logs"),
+                t("tui_tab_benchmarks"),
+            )
+
         active_tab = 0
-        tab_names = ("1:Games", "2:Telemetry", "3:Sync", "4:Logs", "5:Bench")
         games = backend.discover_games()
         search_query = ""
         selected_idx = 0
         scroll = 0
-        status_msg = "Tabs: 1-5/Tab | q:Quit"
+        status_msg = t("tui_status_help", lang=current_lang)
         profile_cache: dict[str, str] = {}
         last_appid = ""
         output_lines: list[str] = []
-        telemetry_lines = backend.format_telemetry_text(backend.collect_telemetry()).splitlines()
+        telemetry_data = backend.collect_telemetry()
+        telemetry_lines = backend.format_telemetry_text(telemetry_data, lang=current_lang).splitlines()
         sync_lines = ["Press [a] Report, [d] Sanitize Dry-Run, [s] Apply Sanitize, [m] Migrate cachy-run"]
         logs = backend.list_logs()
         log_idx = 0
-        bench_lines = backend.format_benchmarks_text(backend.list_benchmarks()).splitlines()
+        bench_runs = backend.list_benchmarks()
+        bench_lines = backend.format_benchmarks_text(bench_runs, lang=current_lang).splitlines()
 
         def get_filtered() -> list[dict[str, Any]]:
             q = search_query.lower()
@@ -1712,8 +2774,9 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
         while True:
             stdscr.erase()
             max_y, max_x = stdscr.getmaxyx()
-            header = " Steam Auto-Profiler TUI  |  " + "  ".join(
-                f"[{t}]" if i == active_tab else f" {t} " for i, t in enumerate(tab_names)
+            tab_names = get_tab_names()
+            header = f" Steam Auto-Profiler [{current_lang}]  |  " + "  ".join(
+                f"[{tb}]" if i == active_tab else f" {tb} " for i, tb in enumerate(tab_names)
             )
             stdscr.addnstr(0, 0, header.ljust(max_x), max_x - 1, curses.A_REVERSE)
 
@@ -1757,11 +2820,11 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
                         max_x - split_x - 1,
                     )
                     hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h")
-                    for i, ((k, label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
+                    for i, ((k, _label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
                         if 4 + i >= max_y - 2:
                             break
-                        val = "ON " if profile_cache.get(k, "0") == "1" else "OFF"
-                        stdscr.addnstr(4 + i, split_x, f"[{hk}] {val} {label}", max_x - split_x - 1)
+                        val = t("val_on") if profile_cache.get(k, "0") == "1" else t("val_off")
+                        stdscr.addnstr(4 + i, split_x, f"[{hk}] {val:<4} {t(f'toggle_{k}')}", max_x - split_x - 1)
                     base_y = 4 + len(PROFILE_TOGGLES)
                     if base_y < max_y - 2:
                         stdscr.addnstr(
@@ -1820,6 +2883,13 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
             ch = stdscr.getch()
             if ch in (ord("q"), ord("Q")):
                 return 0
+            if ch == ord("L"):
+                lang_idx = (lang_idx + 1) % len(lang_codes)
+                current_lang = lang_codes[lang_idx]
+                telemetry_lines = backend.format_telemetry_text(telemetry_data, lang=current_lang).splitlines()
+                bench_lines = backend.format_benchmarks_text(bench_runs, lang=current_lang).splitlines()
+                status_msg = t("tui_status_help", lang=current_lang)
+                continue
             if ch in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5")):
                 active_tab = ch - ord("1")
                 scroll = 0
@@ -1887,9 +2957,10 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
                 elif ch in (curses.KEY_UP, ord("k")):
                     scroll = max(0, scroll - 1)
                 elif ch == ord("r"):
-                    telemetry_lines = backend.format_telemetry_text(backend.collect_telemetry()).splitlines()
+                    telemetry_data = backend.collect_telemetry()
+                    telemetry_lines = backend.format_telemetry_text(telemetry_data, lang=current_lang).splitlines()
                     scroll = 0
-                    status_msg = "Telemetry refreshed."
+                    status_msg = t("status_telemetry_updated")
 
             elif active_tab == 2:
                 if ch in (curses.KEY_DOWN, ord("j")):
@@ -1944,9 +3015,10 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
                 elif ch in (curses.KEY_UP, ord("k")):
                     scroll = max(0, scroll - 1)
                 elif ch == ord("r"):
-                    bench_lines = backend.format_benchmarks_text(backend.list_benchmarks()).splitlines()
+                    bench_runs = backend.list_benchmarks()
+                    bench_lines = backend.format_benchmarks_text(bench_runs, lang=current_lang).splitlines()
                     scroll = 0
-                    status_msg = "Benchmarks refreshed."
+                    status_msg = t("status_ready")
 
     try:
         return curses.wrapper(_main)
@@ -1963,24 +3035,30 @@ def main() -> int:
     mode.add_argument("--gui", action="store_true", help="Launch native Qt6 GUI (PySide6/PyQt6)")
     mode.add_argument("--tui", action="store_true", help="Launch terminal curses TUI")
     mode.add_argument("--check", action="store_true", help="Run headless CI self-check and exit")
+    parser.add_argument(
+        "--lang",
+        default=None,
+        help="UI language code (e.g. en, fi, ru, uk, pl, de, ja, zh-CN; auto-detected from locale by default)",
+    )
     args = parser.parse_args()
 
+    active_lang = normalize_lang(args.lang) if args.lang else detect_system_lang()
     backend = ProfilerBackend()
 
     try:
         if args.check:
-            return run_self_check(backend)
+            return run_self_check(backend, lang=active_lang)
         if args.gui:
-            return run_qt_gui(backend)
+            return run_qt_gui(backend, lang=active_lang)
         if args.tui:
-            return run_curses_tui(backend)
+            return run_curses_tui(backend, lang=active_lang)
 
         qt_name, _ = detect_qt_binding()
         has_display = bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
         if qt_name and has_display:
-            return run_qt_gui(backend)
+            return run_qt_gui(backend, lang=active_lang)
         if sys.stdin.isatty() and sys.stdout.isatty():
-            return run_curses_tui(backend)
+            return run_curses_tui(backend, lang=active_lang)
         print(
             "No graphical display or interactive TTY detected. Run with --check, --tui, or --gui.",
             file=sys.stderr,

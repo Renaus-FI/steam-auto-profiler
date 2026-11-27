@@ -21,7 +21,7 @@ PID=""
 
 usage() { echo "Usage: steam-net-boost {on|off|status} [--iface IFACE] [--pid PID]" >&2; }
 valid_iface() {
-    [[ "$1" =~ ^[a-zA-Z0-9_.:-]+$ && -d "/sys/class/net/$1" ]]
+    [[ "$1" =~ ^[a-zA-Z0-9_.:-]+$ && "$1" != *..* && -d "/sys/class/net/$1" ]]
 }
 default_iface() {
     ip -o -4 route show to default 2>/dev/null | awk 'NR==1 {print $5; exit}'
@@ -151,6 +151,7 @@ off() {
 }
 status() {
     local state="$STATE_DIR/$IFACE.state" count=0 static=no f p qdisc
+    [[ ! -L "$STATE_DIR" ]] || { echo "Refusing symlink state directory" >&2; exit 1; }
     if [[ -d "$STATE_DIR" ]]; then
         if [[ -r "$STATE_DIR" ]]; then
             if [[ -r "$state" ]]; then
@@ -179,17 +180,27 @@ status() {
         "$IFACE" "$count" "${qdisc:-unknown}" "$static" "$(eee_state "$IFACE")"
 }
 
+with_state_lock() {
+    local fn="$1"
+    if command -v flock >/dev/null 2>&1; then
+        (
+            flock -x 9
+            "$fn"
+        ) 9>"$STATE_DIR/.lock"
+    else
+        "$fn"
+    fi
+}
+
 parse "$@"
 case "$MODE" in
     on)
         ensure_state
-        prune_stale
-        on
+        with_state_lock on
         ;;
     off)
         ensure_state
-        prune_stale
-        off
+        with_state_lock off
         ;;
     status)
         status

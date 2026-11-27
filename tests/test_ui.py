@@ -492,6 +492,110 @@ class UiTests(unittest.TestCase):
             self.assertNotIn("QThread", stderr)
             self.assertLess(sig_elapsed, 3.0)
 
+    def test_i18n_catalog_locale_detection_and_cli_lang_flag(self):
+        ui = _load_ui_module()
+        expected_langs = {
+            "en", "fi",
+            "ru", "uk", "be", "kk", "uz", "hy", "az", "ky", "tg",
+            "pl", "cs", "sk", "bg", "sr", "hr", "sl",
+            "de", "fr", "es", "pt", "it", "ja", "ko", "zh-CN", "tr",
+        }
+        supported_codes = {code for code, _ in ui.SUPPORTED_LANGUAGES}
+        self.assertEqual(supported_codes, expected_langs)
+
+        en_keys = set(ui.TRANSLATIONS["en"].keys())
+        self.assertEqual(en_keys, set(ui._I18N_KEYS))
+        for code in expected_langs:
+            self.assertIn(code, ui.TRANSLATIONS)
+            self.assertEqual(set(ui.TRANSLATIONS[code].keys()), en_keys, f"Key mismatch in {code}")
+            for k, val in ui.TRANSLATIONS[code].items():
+                self.assertTrue(isinstance(val, str) and val.strip(), f"Empty translation {code}.{k}")
+            # Verify fallback for unknown key gracefully returns key itself
+            self.assertEqual(ui.tr(code, "__nonexistent_key__"), "__nonexistent_key__")
+
+        # Locale normalization & env precedence
+        self.assertEqual(ui.normalize_lang("zh_CN.UTF-8"), "zh-CN")
+        self.assertEqual(ui.normalize_lang("fi_FI.UTF-8"), "fi")
+        self.assertEqual(ui.normalize_lang("uk_UA.UTF-8"), "uk")
+        self.assertEqual(ui.normalize_lang("pt_BR.UTF-8"), "pt")
+        self.assertEqual(ui.normalize_lang("C.UTF-8"), "en")
+        self.assertEqual(ui.normalize_lang("xx_YY"), "en")
+        self.assertEqual(ui.detect_system_lang({"LC_ALL": "fi_FI.UTF-8", "LANG": "ru_RU.UTF-8"}), "fi")
+        self.assertEqual(ui.detect_system_lang({"LC_MESSAGES": "uk_UA.UTF-8", "LANG": "de_DE.UTF-8"}), "uk")
+        self.assertEqual(ui.detect_system_lang({"LANG": "ja_JP.UTF-8"}), "ja")
+        self.assertEqual(ui.detect_system_lang({"LANG": "POSIX"}), "en")
+
+        # CLI --lang and LC_ALL check
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env.pop("DISPLAY", None)
+            env.pop("WAYLAND_DISPLAY", None)
+            env["HOME"] = tmp
+            env["XDG_CONFIG_HOME"] = f"{tmp}/.config"
+            env["XDG_STATE_HOME"] = f"{tmp}/.local/state"
+            env["LC_ALL"] = "uk_UA.UTF-8"
+
+            res_auto = subprocess.run([str(UI), "--check"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_auto.returncode, 0, res_auto.stderr)
+            payload_auto = json.loads(res_auto.stdout)
+            self.assertEqual(payload_auto["language"], "uk")
+            self.assertTrue(payload_auto["i18n_verified"])
+            self.assertEqual(set(payload_auto["supported_languages"]), expected_langs)
+
+            res_explicit = subprocess.run(
+                [str(UI), "--check", "--lang", "fi"], env=env, text=True, capture_output=True, check=False
+            )
+            self.assertEqual(res_explicit.returncode, 0, res_explicit.stderr)
+            payload_fi = json.loads(res_explicit.stdout)
+            self.assertEqual(payload_fi["language"], "fi")
+
+    def test_multilingual_docs_completeness_links_and_privacy(self):
+        import re
+
+        expected_guides = [
+            ROOT / "docs" / "USER_GUIDE.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+            ROOT / "docs" / "i18n" / "nordic" / "USER_GUIDE.fi.md",
+            *[ROOT / "docs" / "i18n" / "cis" / f"USER_GUIDE.{c}.md" for c in ("ru", "uk", "be", "kk", "uz", "hy", "az", "ky", "tg")],
+            *[ROOT / "docs" / "i18n" / "slavic" / f"USER_GUIDE.{c}.md" for c in ("pl", "cs", "sk", "bg", "sr", "hr", "sl")],
+            *[ROOT / "docs" / "i18n" / "global" / f"USER_GUIDE.{c}.md" for c in ("es", "de", "fr", "pt", "it", "ja", "ko", "zh-CN", "tr")],
+        ]
+        for guide in expected_guides:
+            self.assertTrue(guide.is_file(), f"Missing doc: {guide}")
+            content = guide.read_text(encoding="utf-8")
+            self.assertGreaterEqual(len(content.splitlines()), 100, f"Guide looks like a stub: {guide}")
+            for token in ("steam-auto-run", "vr-run", "steam-auto-ui", "PROTON_ADD_CONFIG", "AUTO_HDR_SWITCH=1", "BENCH=1"):
+                self.assertIn(token, content, f"Missing token {token} in {guide}")
+
+        # Verify all relative markdown links in README and i18n index files resolve cleanly
+        index_files = [
+            ROOT / "README.md",
+            ROOT / "docs" / "i18n" / "README.md",
+            ROOT / "docs" / "i18n" / "nordic" / "README.md",
+            ROOT / "docs" / "i18n" / "cis" / "README.md",
+            ROOT / "docs" / "i18n" / "slavic" / "README.md",
+            ROOT / "docs" / "i18n" / "global" / "README.md",
+        ]
+        link_re = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+        for idx_file in index_files:
+            self.assertTrue(idx_file.is_file(), f"Missing index: {idx_file}")
+            text = idx_file.read_text(encoding="utf-8")
+            for target in link_re.findall(text):
+                if target.startswith(("http://", "https://", "#", "mailto:")):
+                    continue
+                target_path = (idx_file.parent / target.split("#", 1)[0]).resolve()
+                self.assertTrue(target_path.exists(), f"Broken link '{target}' in {idx_file}")
+
+        # Ensure zero hardcoded personal home paths in repo source/docs/tests
+        home_re = re.compile(r"/home/(?!user\b)[a-z_][a-z0-9_-]{2,}\b")
+        for scan_root in (ROOT / "bin", ROOT / "docs", ROOT / "tests", ROOT / "install.sh", ROOT / "README.md"):
+            paths = [scan_root] if scan_root.is_file() else [p for p in scan_root.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+            for p in paths:
+                self.assertIsNone(
+                    home_re.search(p.read_text(encoding="utf-8", errors="ignore")),
+                    f"Hardcoded personal path found in {p}",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

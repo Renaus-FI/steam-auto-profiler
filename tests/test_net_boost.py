@@ -92,7 +92,7 @@ class NetBoostTests(unittest.TestCase):
                 self.assertIn("interface=lo", result.stdout)
                 self.assertIn("active_sessions=", result.stdout)
 
-            for iface in ("eth0; rm -rf /", "../bad"):
+            for iface in ("eth0; rm -rf /", "../bad", "..", "eth0..1"):
                 result = subprocess.run(
                     [str(NET), "status", "--iface", iface],
                     env=env, text=True, capture_output=True,

@@ -221,6 +221,23 @@ class VrRunTests(unittest.TestCase):
             self.assertIn("MESA_VK_DEVICE_SELECT=10de:2684!", res_nv.stdout)
             self.assertNotIn("AMD_VULKAN_ICD=", res_nv.stdout)
 
+            # Higher-VRAM primary dGPU (card0, 16 GiB) must not be overwritten by smaller secondary GPU (card1, 4 GiB)
+            (igpu / "vendor").write_text("0x1002\n", encoding="utf-8")
+            (igpu / "device").write_text("0x7550\n", encoding="utf-8")
+            (igpu / "mem_info_vram_total").write_text("17179869184\n", encoding="utf-8")
+            (dgpu / "vendor").write_text("0x1002\n", encoding="utf-8")
+            (dgpu / "device").write_text("0x744c\n", encoding="utf-8")
+            (dgpu / "mem_info_vram_total").write_text("4294967296\n", encoding="utf-8")
+            res_multi = subprocess.run(
+                [str(VR_RUN), "--dry-run"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_multi.returncode, 0, res_multi.stderr)
+            self.assertIn("MESA_VK_DEVICE_SELECT=1002:7550!", res_multi.stdout)
+
     def test_scheduler_chain_uses_game_performance_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

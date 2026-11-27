@@ -444,7 +444,7 @@ fi
 if [[ "$GPU_VENDOR" == "amd" ]]; then
     COMPAT_TOKENS+=("nativeags")
 fi
-if [[ "${USE_SAFEDX12:-0}" -eq 0 ]]; then
+if [[ "${SAFEDX12:-0}" -ne 1 && "${USE_SAFEDX12:-0}" -eq 0 ]]; then
     COMPAT_TOKENS+=("vkd3dbindlesstb")
 fi
 if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]]; then
@@ -453,7 +453,8 @@ if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]]; then
         COMPAT_TOKENS+=("vkreflex")
     fi
 fi
-if [[ "$AUTO_CLASS" == "native-fsr4" || "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
+if [[ "${FSR4:-${USE_FSR4:-1}}" -ne 0 ]] &&
+   [[ "$AUTO_CLASS" == "native-fsr4" || "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
       "${FSR4:-0}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("fsr4")
 fi

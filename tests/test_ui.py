@@ -107,6 +107,7 @@ class UiTests(unittest.TestCase):
             "USE_TRANSFER_QUEUE",
             "USE_NATIVE_ANTILAG",
             "USE_REFLEX_LAYER",
+            "USE_VK_VIDEO_DECODE",
             "USE_BLEEDING_EDGE",
             "USE_STEAM_CONTROLLER",
         ):
@@ -225,11 +226,15 @@ class UiTests(unittest.TestCase):
                 self.assertEqual(loaded["USE_SHARPEN"], "1")
                 self.assertEqual(loaded["USE_SDL"], "1")
 
-                # Safe mode sets XWayland + SafeDX12 while preserving USE_SDL
+                # Safe mode sets XWayland + SafeDX12 and disables bleeding-edge/experimental flags while preserving USE_SDL
                 backend.apply_safe_mode("361420")
                 safe = backend.load_profile("361420")
                 self.assertEqual(safe["USE_XWAYLAND"], "1")
                 self.assertEqual(safe["USE_SAFEDX12"], "1")
+                self.assertEqual(safe["USE_BLEEDING_EDGE"], "0")
+                self.assertEqual(safe["USE_TRANSFER_QUEUE"], "0")
+                self.assertEqual(safe["USE_REFLEX_LAYER"], "0")
+                self.assertEqual(safe["USE_VK_VIDEO_DECODE"], "0")
                 self.assertEqual(safe["USE_SDL"], "1")
 
                 # Log parsing extracts appid + crash_hint
@@ -259,6 +264,96 @@ class UiTests(unittest.TestCase):
                     os.environ.pop("XDG_STATE_HOME", None)
                 else:
                     os.environ["XDG_STATE_HOME"] = orig_state
+
+    def test_load_profile_smart_defaults_inheritance_and_reset(self):
+        ui = _load_ui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            drm = home / "drm-rdna4"
+            dev = drm / "card0" / "device"
+            dev.mkdir(parents=True)
+            (dev / "vendor").write_text("0x1002\n", encoding="utf-8")
+            (dev / "device").write_text("0x7550\n", encoding="utf-8")
+            (dev / "uevent").write_text("PCI_ID=1002:7550\n", encoding="utf-8")
+
+            steamapps = home / ".local/share/Steam/steamapps"
+            fh_dir = steamapps / "common/Forza_Horizon_6"
+            fh_dir.mkdir(parents=True)
+            (fh_dir / "ForzaHorizon6.exe").touch()
+            (fh_dir / "sl.reflex.dll").touch()
+            (fh_dir / "amd_fidelityfx_upscaler_dx12.dll").touch()
+            (steamapps / "appmanifest_990001.acf").write_text(
+                '"AppState"\n{\n\t"appid"\t\t"990001"\n\t"installdir"\t\t"Forza_Horizon_6"\n\t"name"\t\t"Forza Horizon 6"\n}\n',
+                encoding="utf-8",
+            )
+
+            orig_env = {k: os.environ.get(k) for k in ("XDG_CONFIG_HOME", "SAP_DRM_DIR")}
+            os.environ["XDG_CONFIG_HOME"] = str(home / ".config")
+            os.environ["SAP_DRM_DIR"] = str(drm)
+            try:
+                backend = ui.ProfilerBackend(home=home)
+
+                # Non-anticheat RDNA 4 title with Reflex DLL loads smart defaults ON
+                fh_prof = backend.load_profile("990001")
+                self.assertEqual(fh_prof["USE_BLEEDING_EDGE"], "1")
+                self.assertEqual(fh_prof["USE_TRANSFER_QUEUE"], "1")
+                self.assertEqual(fh_prof["USE_NATIVE_ANTILAG"], "1")
+                self.assertEqual(fh_prof["USE_VK_VIDEO_DECODE"], "1")
+                self.assertEqual(fh_prof["USE_REFLEX_LAYER"], "1")
+                self.assertEqual(fh_prof["USE_MLFG"], "0")
+                self.assertEqual(fh_prof["USE_OPTISCALER"], "0")
+
+                # Competitive anti-cheat titles (Hunt 594650, Overwatch 2357570) disable BLEEDING_EDGE & REFLEX_LAYER
+                hunt_prof = backend.load_profile("594650")
+                self.assertEqual(hunt_prof["USE_BLEEDING_EDGE"], "0")
+                self.assertEqual(hunt_prof["USE_REFLEX_LAYER"], "0")
+                self.assertEqual(hunt_prof["USE_XWAYLAND"], "1")
+                self.assertEqual(hunt_prof["USE_SAFEDX12"], "1")
+                self.assertEqual(hunt_prof["USE_TRANSFER_QUEUE"], "1")
+                self.assertEqual(hunt_prof["USE_NATIVE_ANTILAG"], "1")
+                self.assertEqual(hunt_prof["USE_VK_VIDEO_DECODE"], "1")
+
+                ow_prof = backend.load_profile("2357570")
+                self.assertEqual(ow_prof["USE_BLEEDING_EDGE"], "0")
+                self.assertEqual(ow_prof["USE_REFLEX_LAYER"], "0")
+                self.assertEqual(ow_prof["USE_TRANSFER_QUEUE"], "1")
+                self.assertEqual(ow_prof["USE_NATIVE_ANTILAG"], "1")
+                self.assertEqual(ow_prof["USE_VK_VIDEO_DECODE"], "1")
+
+                # Legacy .env missing new keys inherits smart defaults; explicit =0 overrides them
+                backend.profile_dir.mkdir(parents=True, exist_ok=True)
+                (backend.profile_dir / "990001.env").write_text("USE_SDL=1\n", encoding="utf-8")
+                inherited = backend.load_profile("990001")
+                self.assertEqual(inherited["USE_SDL"], "1")
+                self.assertEqual(inherited["USE_BLEEDING_EDGE"], "1")
+                self.assertEqual(inherited["USE_TRANSFER_QUEUE"], "1")
+                self.assertEqual(inherited["USE_VK_VIDEO_DECODE"], "1")
+
+                (backend.profile_dir / "990001.env").write_text("USE_BLEEDING_EDGE=0\nUSE_TRANSFER_QUEUE=0\n", encoding="utf-8")
+                overridden = backend.load_profile("990001")
+                self.assertEqual(overridden["USE_BLEEDING_EDGE"], "0")
+                self.assertEqual(overridden["USE_TRANSFER_QUEUE"], "0")
+                self.assertEqual(overridden["USE_NATIVE_ANTILAG"], "1")
+
+                # Reset Profile restores smart defaults immediately
+                backend.reset_profile("990001")
+                reloaded = backend.load_profile("990001")
+                self.assertEqual(reloaded["USE_BLEEDING_EDGE"], "1")
+                self.assertEqual(reloaded["USE_TRANSFER_QUEUE"], "1")
+
+                # discover_games() populates smart_defaults for fast zero-subprocess load_profile(appid, game=...)
+                games = backend.discover_games()
+                self.assertEqual(len(games), 1)
+                from_game = backend.load_profile("990001", game=games[0])
+                self.assertEqual(from_game["USE_BLEEDING_EDGE"], "1")
+                self.assertEqual(from_game["USE_REFLEX_LAYER"], "1")
+                self.assertEqual(from_game["USE_VK_VIDEO_DECODE"], "1")
+            finally:
+                for k, v in orig_env.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
 
     def test_tc_qdisc_lan_wan_parser(self):
         ui = _load_ui_module()

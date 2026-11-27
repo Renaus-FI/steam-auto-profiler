@@ -255,6 +255,33 @@ class ReleaseHardeningTests(unittest.TestCase):
             remaining = list(cfg_dir.glob("localconfig.vdf.bak.*"))
             self.assertLessEqual(len(remaining), 2, f"Expected <= 2 backups, got {remaining}")
 
+    def test_conservative_profile_and_env_override_hardening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            drm = tmp_path / "drm-rdna4"
+            dev = drm / "card0" / "device"
+            dev.mkdir(parents=True)
+            (dev / "vendor").write_text("0x1002\n", encoding="utf-8")
+            (dev / "device").write_text("0x7550\n", encoding="utf-8")
+            (dev / "uevent").write_text("PCI_ID=1002:7550\n", encoding="utf-8")
+
+            profiles = tmp_path / ".config" / "steam-auto-profiler" / "profiles"
+            profiles.mkdir(parents=True, exist_ok=True)
+            (profiles / "999002.env").write_text("USE_CONSERVATIVE=1\n", encoding="utf-8")
+
+            env = self._base_env(tmp_path)
+            env["SAP_DRM_DIR"] = str(drm)
+            res = subprocess.run(
+                [str(BIN_DIR / "steam-auto-run"), "--dry-run", "999002"],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn("Conservative: enabled", res.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=1", res.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

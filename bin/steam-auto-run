@@ -53,7 +53,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH|CONSERVATIVE)
                 ;;
             *) continue ;;
         esac
@@ -114,11 +114,12 @@ Environment overrides:
   AUTO_HDR_SWITCH=1 Toggle KDE Plasma 6 HDR on launch and restore SDR on exit
   BENCH=1           Enable silent MangoHud CSV benchmark logging on exit
   BENCH_DURATION=60 Benchmark logging duration in seconds (default: 60)
-  TRANSFER_QUEUE=1  Enable RDNA 3/4 SDMA transfer queue (RADV_PERFTEST=...,transfer_queue)
-  NATIVE_ANTILAG=1  Use Mesa 26.3+/27.0 native RADV VK_AMD_anti_lag (no legacy layer)
-  REFLEX_LAYER=1    Enable Reflex -> Anti-Lag 2 translation layer (off in anti-cheat/MLFG)
-  VK_VIDEO_DECODE=1 Enable Mesa 27.0 Vulkan video decode (RADV_EXPERIMENTAL=video_decode)
-  BLEEDING_EDGE=1   Enable Ultra Bleeding-Edge experimental Mesa 27 / VKD3D / Proton 11 stack (non-anticheat)
+  TRANSFER_QUEUE=0|1  RDNA 3/4 SDMA transfer queue (default 1 on AMD RDNA 3/4; 0 opts out)
+  NATIVE_ANTILAG=0|1  Mesa 26.3+/27.0 native RADV VK_AMD_anti_lag (default 1 on AMD; 0 uses legacy layer)
+  REFLEX_LAYER=0|1    Reflex -> Anti-Lag 2 layer (auto 1 on AMD non-anticheat with Reflex/DLSS DLLs; off in anti-cheat/MLFG)
+  VK_VIDEO_DECODE=0|1 Mesa 27.0 Vulkan video decode RADV_EXPERIMENTAL=video_decode (default 1 on AMD; 0 opts out)
+  BLEEDING_EDGE=0|1   Ultra Bleeding-Edge Mesa 27 / VKD3D 12_2 / SM 6_8 / Proton 11 stack (default 1 on non-anticheat Proton; 0 opts out)
+  CONSERVATIVE=1      Master opt-out disabling all experimental defaults (BLEEDING_EDGE, TRANSFER_QUEUE, NATIVE_ANTILAG, REFLEX_LAYER, VK_VIDEO_DECODE)
   USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off
                     Route Steam Controller 2026 / Puck (28de:{1302,1304,1005,1007}) via native Wayland+HDR + forceinputappid (default on Wayland), XWayland fallback, or off (legacy 1/0 supported)
 EOF
@@ -129,6 +130,14 @@ UDEV_RULES_DIR="${SAP_UDEV_RULES_DIR:-/etc/udev/rules.d}"
 
 is_wayland_session() {
     [[ -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ]]
+}
+
+apply_bool_override() {
+    local target_var="$1" raw_val="$2"
+    case "${raw_val,,}" in
+        1|true|on|yes) printf -v "$target_var" '1' ;;
+        0|false|off|no) printf -v "$target_var" '0' ;;
+    esac
 }
 
 dedupe_csv_tokens() {
@@ -1000,63 +1009,72 @@ if [[ -n "${AUTO_HDR_SWITCH+x}" ]]; then
     ORIG_AUTO_HDR_SWITCH_SET=1
     ORIG_AUTO_HDR_SWITCH="$AUTO_HDR_SWITCH"
 fi
-ORIG_USE_TRANSFER_QUEUE_SET=0
-ORIG_USE_TRANSFER_QUEUE=""
-if [[ -n "${USE_TRANSFER_QUEUE+x}" ]]; then
-    ORIG_USE_TRANSFER_QUEUE_SET=1
-    ORIG_USE_TRANSFER_QUEUE="$USE_TRANSFER_QUEUE"
-fi
-ORIG_USE_NATIVE_ANTILAG_SET=0
-ORIG_USE_NATIVE_ANTILAG=""
-if [[ -n "${USE_NATIVE_ANTILAG+x}" ]]; then
-    ORIG_USE_NATIVE_ANTILAG_SET=1
-    ORIG_USE_NATIVE_ANTILAG="$USE_NATIVE_ANTILAG"
-fi
-ORIG_USE_REFLEX_LAYER_SET=0
-ORIG_USE_REFLEX_LAYER=""
-if [[ -n "${USE_REFLEX_LAYER+x}" ]]; then
-    ORIG_USE_REFLEX_LAYER_SET=1
-    ORIG_USE_REFLEX_LAYER="$USE_REFLEX_LAYER"
-fi
-ORIG_USE_VK_VIDEO_DECODE_SET=0
-ORIG_USE_VK_VIDEO_DECODE=""
-if [[ -n "${USE_VK_VIDEO_DECODE+x}" ]]; then
-    ORIG_USE_VK_VIDEO_DECODE_SET=1
-    ORIG_USE_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"
-fi
-ORIG_USE_BLEEDING_EDGE_SET=0
-ORIG_USE_BLEEDING_EDGE=""
-if [[ -n "${USE_BLEEDING_EDGE+x}" ]]; then
-    ORIG_USE_BLEEDING_EDGE_SET=1
-    ORIG_USE_BLEEDING_EDGE="$USE_BLEEDING_EDGE"
-fi
-ORIG_USE_STEAM_CONTROLLER_SET=0
-ORIG_USE_STEAM_CONTROLLER=""
-if [[ -n "${USE_STEAM_CONTROLLER+x}" ]]; then
-    ORIG_USE_STEAM_CONTROLLER_SET=1
-    ORIG_USE_STEAM_CONTROLLER="$USE_STEAM_CONTROLLER"
-fi
+ORIG_USE_TRANSFER_QUEUE_SET=0; ORIG_USE_TRANSFER_QUEUE=""
+if [[ -n "${USE_TRANSFER_QUEUE+x}" ]]; then ORIG_USE_TRANSFER_QUEUE_SET=1; ORIG_USE_TRANSFER_QUEUE="$USE_TRANSFER_QUEUE"; fi
+ORIG_USE_NATIVE_ANTILAG_SET=0; ORIG_USE_NATIVE_ANTILAG=""
+if [[ -n "${USE_NATIVE_ANTILAG+x}" ]]; then ORIG_USE_NATIVE_ANTILAG_SET=1; ORIG_USE_NATIVE_ANTILAG="$USE_NATIVE_ANTILAG"; fi
+ORIG_USE_REFLEX_LAYER_SET=0; ORIG_USE_REFLEX_LAYER=""
+if [[ -n "${USE_REFLEX_LAYER+x}" ]]; then ORIG_USE_REFLEX_LAYER_SET=1; ORIG_USE_REFLEX_LAYER="$USE_REFLEX_LAYER"; fi
+ORIG_USE_VK_VIDEO_DECODE_SET=0; ORIG_USE_VK_VIDEO_DECODE=""
+if [[ -n "${USE_VK_VIDEO_DECODE+x}" ]]; then ORIG_USE_VK_VIDEO_DECODE_SET=1; ORIG_USE_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"; fi
+ORIG_USE_BLEEDING_EDGE_SET=0; ORIG_USE_BLEEDING_EDGE=""
+if [[ -n "${USE_BLEEDING_EDGE+x}" ]]; then ORIG_USE_BLEEDING_EDGE_SET=1; ORIG_USE_BLEEDING_EDGE="$USE_BLEEDING_EDGE"; fi
+ORIG_USE_CONSERVATIVE_SET=0; ORIG_USE_CONSERVATIVE=""
+if [[ -n "${USE_CONSERVATIVE+x}" ]]; then ORIG_USE_CONSERVATIVE_SET=1; ORIG_USE_CONSERVATIVE="$USE_CONSERVATIVE"; fi
+ORIG_CONSERVATIVE_SET=0; ORIG_CONSERVATIVE=""
+if [[ -n "${CONSERVATIVE+x}" ]]; then ORIG_CONSERVATIVE_SET=1; ORIG_CONSERVATIVE="$CONSERVATIVE"; fi
+ORIG_USE_STEAM_CONTROLLER_SET=0; ORIG_USE_STEAM_CONTROLLER=""
+if [[ -n "${USE_STEAM_CONTROLLER+x}" ]]; then ORIG_USE_STEAM_CONTROLLER_SET=1; ORIG_USE_STEAM_CONTROLLER="$USE_STEAM_CONTROLLER"; fi
+ORIG_USE_XWAYLAND_SET=0; ORIG_USE_XWAYLAND=""
+if [[ -n "${USE_XWAYLAND+x}" ]]; then ORIG_USE_XWAYLAND_SET=1; ORIG_USE_XWAYLAND="$USE_XWAYLAND"; fi
+ORIG_USE_MLFG_SET=0; ORIG_USE_MLFG=""
+if [[ -n "${USE_MLFG+x}" ]]; then ORIG_USE_MLFG_SET=1; ORIG_USE_MLFG="$USE_MLFG"; fi
+ORIG_USE_OPTISCALER_SET=0; ORIG_USE_OPTISCALER=""
+if [[ -n "${USE_OPTISCALER+x}" ]]; then ORIG_USE_OPTISCALER_SET=1; ORIG_USE_OPTISCALER="$USE_OPTISCALER"; fi
+ORIG_USE_SHARPEN_SET=0; ORIG_USE_SHARPEN=""
+if [[ -n "${USE_SHARPEN+x}" ]]; then ORIG_USE_SHARPEN_SET=1; ORIG_USE_SHARPEN="$USE_SHARPEN"; fi
+ORIG_USE_NET_OPT_SET=0; ORIG_USE_NET_OPT=""
+if [[ -n "${USE_NET_OPT+x}" ]]; then ORIG_USE_NET_OPT_SET=1; ORIG_USE_NET_OPT="$USE_NET_OPT"; fi
+ORIG_USE_SDL_SET=0; ORIG_USE_SDL=""
+if [[ -n "${USE_SDL+x}" ]]; then ORIG_USE_SDL_SET=1; ORIG_USE_SDL="$USE_SDL"; fi
+ORIG_USE_CEF_FIX_SET=0; ORIG_USE_CEF_FIX=""
+if [[ -n "${USE_CEF_FIX+x}" ]]; then ORIG_USE_CEF_FIX_SET=1; ORIG_USE_CEF_FIX="$USE_CEF_FIX"; fi
+ORIG_USE_FSR_HUD_SET=0; ORIG_USE_FSR_HUD=""
+if [[ -n "${USE_FSR_HUD+x}" ]]; then ORIG_USE_FSR_HUD_SET=1; ORIG_USE_FSR_HUD="$USE_FSR_HUD"; fi
+ORIG_USE_VULKAN_SET=0; ORIG_USE_VULKAN=""
+if [[ -n "${USE_VULKAN+x}" ]]; then ORIG_USE_VULKAN_SET=1; ORIG_USE_VULKAN="$USE_VULKAN"; fi
+ORIG_USE_SAFEDX12_SET=0; ORIG_USE_SAFEDX12=""
+if [[ -n "${USE_SAFEDX12+x}" ]]; then ORIG_USE_SAFEDX12_SET=1; ORIG_USE_SAFEDX12="$USE_SAFEDX12"; fi
+ORIG_USE_KEEP_OVERLAY_SET=0; ORIG_USE_KEEP_OVERLAY=""
+if [[ -n "${USE_KEEP_OVERLAY+x}" ]]; then ORIG_USE_KEEP_OVERLAY_SET=1; ORIG_USE_KEEP_OVERLAY="$USE_KEEP_OVERLAY"; fi
+ORIG_USE_NO_NTSYNC_SET=0; ORIG_USE_NO_NTSYNC=""
+if [[ -n "${USE_NO_NTSYNC+x}" ]]; then ORIG_USE_NO_NTSYNC_SET=1; ORIG_USE_NO_NTSYNC="$USE_NO_NTSYNC"; fi
+ORIG_USE_NO_DECORATION_SET=0; ORIG_USE_NO_DECORATION=""
+if [[ -n "${USE_NO_DECORATION+x}" ]]; then ORIG_USE_NO_DECORATION_SET=1; ORIG_USE_NO_DECORATION="$USE_NO_DECORATION"; fi
+ORIG_USE_FSR4_SET=0; ORIG_USE_FSR4=""
+if [[ -n "${USE_FSR4+x}" ]]; then ORIG_USE_FSR4_SET=1; ORIG_USE_FSR4="$USE_FSR4"; fi
 
 USE_XWAYLAND=0
-USE_MLFG="${USE_MLFG:-0}"
+USE_MLFG=0
 USE_OPTISCALER=0
 USE_SHARPEN=0
 USE_NET_OPT=0
 USE_SDL=0
 USE_CEF_FIX=0
-USE_FSR_HUD="${USE_FSR_HUD:-0}"
+USE_FSR_HUD=0
 USE_VULKAN=0
 USE_SAFEDX12=0
 USE_KEEP_OVERLAY=0
 USE_NO_NTSYNC=0
 USE_NO_DECORATION=0
 USE_HDR="${USE_HDR:-0}"
-USE_TRANSFER_QUEUE="${USE_TRANSFER_QUEUE:-0}"
-USE_NATIVE_ANTILAG="${USE_NATIVE_ANTILAG:-0}"
-USE_REFLEX_LAYER="${USE_REFLEX_LAYER:-0}"
-USE_VK_VIDEO_DECODE="${USE_VK_VIDEO_DECODE:-0}"
-USE_BLEEDING_EDGE="${USE_BLEEDING_EDGE:-0}"
-USE_STEAM_CONTROLLER="${USE_STEAM_CONTROLLER:-auto}"
+USE_TRANSFER_QUEUE=0
+USE_NATIVE_ANTILAG=0
+USE_REFLEX_LAYER=0
+USE_VK_VIDEO_DECODE=0
+USE_BLEEDING_EDGE=0
+USE_CONSERVATIVE=0
+USE_STEAM_CONTROLLER="auto"
 AUTO_HDR_SWITCH="${AUTO_HDR_SWITCH:-0}"
 BENCH="${BENCH:-0}"
 BENCH_DURATION="${BENCH_DURATION:-60}"
@@ -1072,21 +1090,38 @@ AUTO_CEF_FIX=0
 AUTO_XWAYLAND=0
 AUTO_SAFEDX12=0
 AUTO_NATIVE_AGS=1
-AUTO_BLEEDING_EDGE=0
+AUTO_NATIVE_LINUX=0
+AUTO_TRANSFER_QUEUE=0
+AUTO_NATIVE_ANTILAG=0
+AUTO_REFLEX_LAYER=0
+AUTO_VK_VIDEO_DECODE=0
+AUTO_BLEEDING_EDGE=1
 AUTO_REASON=""
+
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    AUTO_NATIVE_ANTILAG=1
+    AUTO_VK_VIDEO_DECODE=1
+    if [[ "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ]]; then
+        AUTO_TRANSFER_QUEUE=1
+    fi
+fi
 
 if [[ -n "$DETECT_BIN" ]]; then
     eval "$("$DETECT_BIN" "$APPID")"
 fi
 
-# Seed all optional profile keys from detector defaults before a profile is loaded.
-# This keeps legacy/minimal .env files from erasing heuristic behavior.
+# Seed all optional profile keys from detector smart defaults before a profile is loaded.
+# Legacy/minimal .env files missing v2.2 keys inherit smart defaults instead of forcing 0.
 USE_OPTISCALER="${AUTO_OPTISCALER:-0}"
 USE_SHARPEN="${AUTO_SHARPEN:-0}"
 USE_NET_OPT="${AUTO_NET_OPT:-0}"
 USE_CEF_FIX="${AUTO_CEF_FIX:-0}"
 USE_XWAYLAND="${AUTO_XWAYLAND:-0}"
 USE_SAFEDX12="${AUTO_SAFEDX12:-0}"
+USE_TRANSFER_QUEUE="${AUTO_TRANSFER_QUEUE:-0}"
+USE_NATIVE_ANTILAG="${AUTO_NATIVE_ANTILAG:-0}"
+USE_REFLEX_LAYER="${AUTO_REFLEX_LAYER:-0}"
+USE_VK_VIDEO_DECODE="${AUTO_VK_VIDEO_DECODE:-0}"
 USE_BLEEDING_EDGE="${AUTO_BLEEDING_EDGE:-0}"
 if [[ "${AUTO_NATIVE_AGS:-1}" -eq 0 ]]; then
     export PROTON_NATIVE_AGS=0
@@ -1100,6 +1135,9 @@ if [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" && "${FORCE_GUI:-0}" -ne 1 ]]; th
     load_profile_safe "$PROFILE_FILE"
     if [[ "${USE_RCAS:-0}" -eq 1 ]]; then
         USE_SHARPEN=1
+    fi
+    if [[ "${CONSERVATIVE:-0}" -eq 1 && "$ORIG_CONSERVATIVE_SET" -eq 0 ]]; then
+        USE_CONSERVATIVE=1
     fi
     SKIP_GUI=1
     [[ "${PARTIAL_PROFILE:-0}" -eq 1 ]] && SKIP_GUI=0
@@ -1127,21 +1165,6 @@ if [[ "$ORIG_WAYLANDDRV_SHORTCUT_INHIBIT_SET" -eq 1 ]]; then
 fi
 if [[ "$ORIG_AUTO_HDR_SWITCH_SET" -eq 1 ]]; then
     AUTO_HDR_SWITCH="$ORIG_AUTO_HDR_SWITCH"
-fi
-if [[ "$ORIG_USE_TRANSFER_QUEUE_SET" -eq 1 ]]; then
-    USE_TRANSFER_QUEUE="$ORIG_USE_TRANSFER_QUEUE"
-fi
-if [[ "$ORIG_USE_NATIVE_ANTILAG_SET" -eq 1 ]]; then
-    USE_NATIVE_ANTILAG="$ORIG_USE_NATIVE_ANTILAG"
-fi
-if [[ "$ORIG_USE_REFLEX_LAYER_SET" -eq 1 ]]; then
-    USE_REFLEX_LAYER="$ORIG_USE_REFLEX_LAYER"
-fi
-if [[ "$ORIG_USE_VK_VIDEO_DECODE_SET" -eq 1 ]]; then
-    USE_VK_VIDEO_DECODE="$ORIG_USE_VK_VIDEO_DECODE"
-fi
-if [[ "$ORIG_USE_BLEEDING_EDGE_SET" -eq 1 ]]; then
-    USE_BLEEDING_EDGE="$ORIG_USE_BLEEDING_EDGE"
 fi
 if [[ "$ORIG_USE_STEAM_CONTROLLER_SET" -eq 1 ]]; then
     USE_STEAM_CONTROLLER="$ORIG_USE_STEAM_CONTROLLER"
@@ -1279,26 +1302,60 @@ EOF
     exit 0
 fi
 
-[[ "${XWAYLAND:-0}" -eq 1 ]] && USE_XWAYLAND=1
-[[ "${MLFG:-0}" -eq 1 ]] && USE_MLFG=1
-[[ "${USE_MLFG:-0}" -eq 1 ]] && USE_MLFG=1
-[[ "${OPTISCALER:-0}" -eq 1 ]] && USE_OPTISCALER=1
-[[ "${SHARPEN:-0}" -eq 1 || "${RCAS:-0}" -eq 1 ]] && USE_SHARPEN=1
-[[ "${NETOPT:-0}" -eq 1 ]] && USE_NET_OPT=1
-[[ "${CEF:-0}" -eq 1 ]] && USE_CEF_FIX=1
-[[ "${VULKAN:-0}" -eq 1 ]] && USE_VULKAN=1
-[[ "${SDL:-0}" -eq 1 ]] && USE_SDL=1
-[[ "${FSR_HUD:-0}" -eq 1 ]] && USE_FSR_HUD=1
-[[ "${USE_FSR_HUD:-0}" -eq 1 ]] && USE_FSR_HUD=1
-[[ "${KEEP_OVERLAY:-0}" -eq 1 ]] && USE_KEEP_OVERLAY=1
-[[ "${SAFEDX12:-0}" -eq 1 ]] && USE_SAFEDX12=1
-[[ "${NO_NTSYNC:-0}" -eq 1 ]] && USE_NO_NTSYNC=1
-[[ "${NO_DECORATION:-0}" -eq 1 ]] && USE_NO_DECORATION=1
-[[ "${TRANSFER_QUEUE:-0}" -eq 1 ]] && USE_TRANSFER_QUEUE=1
-[[ "${NATIVE_ANTILAG:-0}" -eq 1 ]] && USE_NATIVE_ANTILAG=1
-[[ "${REFLEX_LAYER:-0}" -eq 1 ]] && USE_REFLEX_LAYER=1
-[[ "${VK_VIDEO_DECODE:-0}" -eq 1 ]] && USE_VK_VIDEO_DECODE=1
-[[ "${BLEEDING_EDGE:-0}" -eq 1 ]] && USE_BLEEDING_EDGE=1
+# Master conservative switch disables all experimental defaults before explicit per-flag env overrides.
+if [[ "$ORIG_USE_CONSERVATIVE_SET" -eq 1 ]]; then
+    apply_bool_override USE_CONSERVATIVE "$ORIG_USE_CONSERVATIVE"
+fi
+if [[ "$ORIG_CONSERVATIVE_SET" -eq 1 ]]; then
+    apply_bool_override USE_CONSERVATIVE "$ORIG_CONSERVATIVE"
+fi
+if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
+    USE_BLEEDING_EDGE=0
+    USE_TRANSFER_QUEUE=0
+    USE_NATIVE_ANTILAG=0
+    USE_REFLEX_LAYER=0
+    USE_VK_VIDEO_DECODE=0
+fi
+
+# Caller-level USE_* and shorthand environment overrides (supporting both explicit =0 and =1)
+[[ "$ORIG_USE_XWAYLAND_SET" -eq 1 ]] && apply_bool_override USE_XWAYLAND "$ORIG_USE_XWAYLAND"
+[[ -n "${XWAYLAND+x}" ]] && apply_bool_override USE_XWAYLAND "$XWAYLAND"
+[[ "$ORIG_USE_MLFG_SET" -eq 1 ]] && apply_bool_override USE_MLFG "$ORIG_USE_MLFG"
+[[ -n "${MLFG+x}" ]] && apply_bool_override USE_MLFG "$MLFG"
+[[ "$ORIG_USE_OPTISCALER_SET" -eq 1 ]] && apply_bool_override USE_OPTISCALER "$ORIG_USE_OPTISCALER"
+[[ -n "${OPTISCALER+x}" ]] && apply_bool_override USE_OPTISCALER "$OPTISCALER"
+[[ "$ORIG_USE_SHARPEN_SET" -eq 1 ]] && apply_bool_override USE_SHARPEN "$ORIG_USE_SHARPEN"
+[[ -n "${RCAS+x}" ]] && apply_bool_override USE_SHARPEN "$RCAS"
+[[ -n "${SHARPEN+x}" ]] && apply_bool_override USE_SHARPEN "$SHARPEN"
+[[ "$ORIG_USE_NET_OPT_SET" -eq 1 ]] && apply_bool_override USE_NET_OPT "$ORIG_USE_NET_OPT"
+[[ -n "${NETOPT+x}" ]] && apply_bool_override USE_NET_OPT "$NETOPT"
+[[ "$ORIG_USE_CEF_FIX_SET" -eq 1 ]] && apply_bool_override USE_CEF_FIX "$ORIG_USE_CEF_FIX"
+[[ -n "${CEF+x}" ]] && apply_bool_override USE_CEF_FIX "$CEF"
+[[ "$ORIG_USE_VULKAN_SET" -eq 1 ]] && apply_bool_override USE_VULKAN "$ORIG_USE_VULKAN"
+[[ -n "${VULKAN+x}" ]] && apply_bool_override USE_VULKAN "$VULKAN"
+[[ "$ORIG_USE_SDL_SET" -eq 1 ]] && apply_bool_override USE_SDL "$ORIG_USE_SDL"
+[[ -n "${SDL+x}" ]] && apply_bool_override USE_SDL "$SDL"
+[[ "$ORIG_USE_FSR_HUD_SET" -eq 1 ]] && apply_bool_override USE_FSR_HUD "$ORIG_USE_FSR_HUD"
+[[ -n "${FSR_HUD+x}" ]] && apply_bool_override USE_FSR_HUD "$FSR_HUD"
+[[ "$ORIG_USE_KEEP_OVERLAY_SET" -eq 1 ]] && apply_bool_override USE_KEEP_OVERLAY "$ORIG_USE_KEEP_OVERLAY"
+[[ -n "${KEEP_OVERLAY+x}" ]] && apply_bool_override USE_KEEP_OVERLAY "$KEEP_OVERLAY"
+[[ "$ORIG_USE_SAFEDX12_SET" -eq 1 ]] && apply_bool_override USE_SAFEDX12 "$ORIG_USE_SAFEDX12"
+[[ -n "${SAFEDX12+x}" ]] && apply_bool_override USE_SAFEDX12 "$SAFEDX12"
+[[ "$ORIG_USE_NO_NTSYNC_SET" -eq 1 ]] && apply_bool_override USE_NO_NTSYNC "$ORIG_USE_NO_NTSYNC"
+[[ -n "${NO_NTSYNC+x}" ]] && apply_bool_override USE_NO_NTSYNC "$NO_NTSYNC"
+[[ "$ORIG_USE_NO_DECORATION_SET" -eq 1 ]] && apply_bool_override USE_NO_DECORATION "$ORIG_USE_NO_DECORATION"
+[[ -n "${NO_DECORATION+x}" ]] && apply_bool_override USE_NO_DECORATION "$NO_DECORATION"
+[[ "$ORIG_USE_TRANSFER_QUEUE_SET" -eq 1 ]] && apply_bool_override USE_TRANSFER_QUEUE "$ORIG_USE_TRANSFER_QUEUE"
+[[ -n "${TRANSFER_QUEUE+x}" ]] && apply_bool_override USE_TRANSFER_QUEUE "$TRANSFER_QUEUE"
+[[ "$ORIG_USE_NATIVE_ANTILAG_SET" -eq 1 ]] && apply_bool_override USE_NATIVE_ANTILAG "$ORIG_USE_NATIVE_ANTILAG"
+[[ -n "${NATIVE_ANTILAG+x}" ]] && apply_bool_override USE_NATIVE_ANTILAG "$NATIVE_ANTILAG"
+[[ "$ORIG_USE_REFLEX_LAYER_SET" -eq 1 ]] && apply_bool_override USE_REFLEX_LAYER "$ORIG_USE_REFLEX_LAYER"
+[[ -n "${REFLEX_LAYER+x}" ]] && apply_bool_override USE_REFLEX_LAYER "$REFLEX_LAYER"
+[[ "$ORIG_USE_VK_VIDEO_DECODE_SET" -eq 1 ]] && apply_bool_override USE_VK_VIDEO_DECODE "$ORIG_USE_VK_VIDEO_DECODE"
+[[ -n "${VK_VIDEO_DECODE+x}" ]] && apply_bool_override USE_VK_VIDEO_DECODE "$VK_VIDEO_DECODE"
+[[ "$ORIG_USE_BLEEDING_EDGE_SET" -eq 1 ]] && apply_bool_override USE_BLEEDING_EDGE "$ORIG_USE_BLEEDING_EDGE"
+[[ -n "${BLEEDING_EDGE+x}" ]] && apply_bool_override USE_BLEEDING_EDGE "$BLEEDING_EDGE"
+[[ "$ORIG_USE_FSR4_SET" -eq 1 ]] && apply_bool_override USE_FSR4 "$ORIG_USE_FSR4"
 if [[ -n "${STEAM_CONTROLLER:-}" ]]; then
     USE_STEAM_CONTROLLER="$STEAM_CONTROLLER"
 fi
@@ -1377,6 +1434,7 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     export PROTON_USE_OPTISCALER=0
     export LOW_LATENCY_LAYER=0
     export LOW_LATENCY_LAYER_REFLEX=0
+    unset PROTON_USE_WOW64 PROTON_MEDIA_FORCE_GST VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL WAYLANDDRV_RAWINPUT
     # Async shader pipelines must stay disabled for anti-cheat/multiplayer titles.
     export PROTON_DXVK_SAREK=0
     export PROTON_DXVK_GPLASYNC=0
@@ -1390,14 +1448,16 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     export PROTON_VKD3D_LOWLATENCY=1
 fi
 
-# Ultra Bleeding-Edge / Unstable Experimental Mode (non-anticheat titles only)
-if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" ]]; then
-    USE_TRANSFER_QUEUE=1
-    USE_VK_VIDEO_DECODE=1
-    FSR4=1
-    export PROTON_FSR4_UPGRADE=1
-    unset PROTON_FSR4_RDNA3_UPGRADE
-    export PROTON_NATIVE_AGS=1
+if [[ "${AUTO_NATIVE_LINUX:-0}" -eq 1 ]]; then
+    USE_BLEEDING_EDGE=0
+    USE_REFLEX_LAYER=0
+fi
+
+# Ultra Bleeding-Edge Experimental Mode (default on non-anticheat Proton titles; opt-out via BLEEDING_EDGE=0 or CONSERVATIVE=1)
+if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "${AUTO_NATIVE_LINUX:-0}" -eq 0 && "$APPID" != "594650" ]]; then
+    if [[ "$GPU_VENDOR" == "amd" ]]; then
+        export PROTON_NATIVE_AGS=1
+    fi
     export PROTON_USE_WOW64=1
     export PROTON_MEDIA_FORCE_GST=1
     if [[ "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 ]]; then
@@ -1511,10 +1571,7 @@ else
     fi
 fi
 
-if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" ]]; then
-    export PROTON_FSR4_UPGRADE=1
-    unset PROTON_FSR4_RDNA3_UPGRADE
-elif [[ "${FSR4:-1}" -eq 1 ]]; then
+if [[ "${FSR4:-1}" -eq 1 ]]; then
     if [[ "$AUTO_RDNA4" -eq 1 ]]; then
         export PROTON_FSR4_UPGRADE=1
         unset PROTON_FSR4_RDNA3_UPGRADE
@@ -1564,7 +1621,9 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
     export PROTON_NATIVE_AGS="${PROTON_NATIVE_AGS:-1}"
     # Migrate any legacy RADV_PERFTEST=video_decode token to Mesa 27.0 RADV_EXPERIMENTAL=video_decode.
     if [[ ",${RADV_PERFTEST:-}," == *",video_decode,"* ]]; then
-        USE_VK_VIDEO_DECODE=1
+        if [[ "$USE_CONSERVATIVE" -eq 0 && "${VK_VIDEO_DECODE:-1}" != "0" && "${ORIG_USE_VK_VIDEO_DECODE:-1}" != "0" ]]; then
+            USE_VK_VIDEO_DECODE=1
+        fi
         _radv_clean=""
         IFS=',' read -r -a _radv_parts <<<"${RADV_PERFTEST}"
         for _radv_tok in "${_radv_parts[@]}"; do
@@ -1693,6 +1752,9 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "GPU: ${GPU_VENDOR}"
     echo "VRR cap: ${AUTO_VRR_CAP}"
     echo "Compat tokens: ${PROTON_ADD_CONFIG:-none}"
+    if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
+        echo "Conservative: enabled"
+    fi
     if [[ "$USE_BLEEDING_EDGE" -eq 1 ]]; then
         echo "Bleeding-edge: enabled"
     fi
@@ -1729,11 +1791,11 @@ save_safe_mode_profile() {
     mkdir -p "$(dirname "$target")"
     tmp_file="${target}.tmp.$$"
     if [[ -f "$target" ]]; then
-        grep -vE '^[[:space:]]*(USE_XWAYLAND|USE_SAFEDX12)=' "$target" > "$tmp_file" || true
+        grep -vE '^[[:space:]]*(USE_XWAYLAND|USE_SAFEDX12|USE_BLEEDING_EDGE|USE_TRANSFER_QUEUE|USE_REFLEX_LAYER|USE_VK_VIDEO_DECODE)=' "$target" > "$tmp_file" || true
     else
         : > "$tmp_file"
     fi
-    printf 'USE_XWAYLAND=1\nUSE_SAFEDX12=1\n' >> "$tmp_file"
+    printf 'USE_XWAYLAND=1\nUSE_SAFEDX12=1\nUSE_BLEEDING_EDGE=0\nUSE_TRANSFER_QUEUE=0\nUSE_REFLEX_LAYER=0\nUSE_VK_VIDEO_DECODE=0\n' >> "$tmp_file"
     mv -f "$tmp_file" "$target"
 }
 
@@ -2056,13 +2118,15 @@ CRASH_THRESHOLD_SEC="${SAP_CRASH_THRESHOLD_SEC:-20}"
 if [[ "$launch_exit" -ne 0 &&
       "${NATIVE_RUNTIME:-0}" -ne 1 &&
       "$LAUNCH_DURATION" -lt "$CRASH_THRESHOLD_SEC" &&
-      ( "$USE_XWAYLAND" -eq 0 || "$USE_SAFEDX12" -eq 0 ) ]]; then
-    CRASH_HINT="fast_crash_detected duration=${LAUNCH_DURATION}s exit_code=${launch_exit} suggested_safe_mode=USE_XWAYLAND=1,USE_SAFEDX12=1"
+      ( "$USE_XWAYLAND" -eq 0 || "$USE_SAFEDX12" -eq 0 ||
+        "$USE_BLEEDING_EDGE" -eq 1 || "$USE_TRANSFER_QUEUE" -eq 1 ||
+        "$USE_REFLEX_LAYER" -eq 1 || "$USE_VK_VIDEO_DECODE" -eq 1 ) ]]; then
+    CRASH_HINT="fast_crash_detected duration=${LAUNCH_DURATION}s exit_code=${launch_exit} suggested_safe_mode=USE_XWAYLAND=1,USE_SAFEDX12=1,USE_BLEEDING_EDGE=0,USE_TRANSFER_QUEUE=0,USE_REFLEX_LAYER=0,USE_VK_VIDEO_DECODE=0"
     if [[ "${NO_GUI:-0}" -ne 1 &&
           "$GAMESCOPE_SESSION" -eq 0 &&
           -n "$PROFILE_FILE" &&
           (-n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}") ]]; then
-        CRASH_PROMPT="Title (AppID: ${APPID}) exited with code ${launch_exit} after ${LAUNCH_DURATION}s while experimental Wayland/DX12 options were active.\n\nSave Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1) for the next launch?"
+        CRASH_PROMPT="Title (AppID: ${APPID}) exited with code ${launch_exit} after ${LAUNCH_DURATION}s while experimental Wayland/DX12/Mesa flags were active.\n\nSave Safe Mode (USE_XWAYLAND=1, USE_SAFEDX12=1, USE_BLEEDING_EDGE=0, USE_TRANSFER_QUEUE=0, USE_REFLEX_LAYER=0, USE_VK_VIDEO_DECODE=0) for the next launch?"
         SAVE_SAFE_MODE=0
         if command -v kdialog >/dev/null 2>&1; then
             if env -u LD_LIBRARY_PATH -u LD_PRELOAD QT_QPA_PLATFORM="wayland;xcb" \

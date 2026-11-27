@@ -415,6 +415,21 @@ class SyncTests(unittest.TestCase):
             )
             self.assertEqual(prof_case.get("USE_STEAM_CONTROLLER"), expected)
 
+        # v2.2.0 explicit =0 opt-outs and CONSERVATIVE=1 migrate cleanly
+        rep_opt0, prof_opt0 = module.sanitize_launch_option(
+            "361422",
+            "CONSERVATIVE=1 BLEEDING_EDGE=0 TRANSFER_QUEUE=0 NATIVE_ANTILAG=0 REFLEX_LAYER=0 VK_VIDEO_DECODE=0 %command%",
+            profile_dir,
+            dry_run=True,
+        )
+        self.assertEqual(rep_opt0, "steam-auto-run %command%")
+        self.assertEqual(prof_opt0.get("USE_CONSERVATIVE"), "1")
+        self.assertEqual(prof_opt0.get("USE_BLEEDING_EDGE"), "0")
+        self.assertEqual(prof_opt0.get("USE_TRANSFER_QUEUE"), "0")
+        self.assertEqual(prof_opt0.get("USE_NATIVE_ANTILAG"), "0")
+        self.assertEqual(prof_opt0.get("USE_REFLEX_LAYER"), "0")
+        self.assertEqual(prof_opt0.get("USE_VK_VIDEO_DECODE"), "0")
+
 
 if __name__ == "__main__":
     unittest.main()

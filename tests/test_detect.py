@@ -98,7 +98,28 @@ class DetectTests(unittest.TestCase):
         self.assertFalse(report["has_dlss"])
         self.assertFalse(report["has_xess"])
         self.assertFalse(report["has_fsr"])
-        self.assertNotIn("fsr4", report["proton_add_config"].split(","))
+        self.assertFalse(report["has_reflex"])
+        # v2.2.0: non-anticheat Proton titles default to bleeding_edge=True (wow64 + fsr4)
+        self.assertTrue(report["bleeding_edge"])
+        tokens = report["proton_add_config"].split(",")
+        self.assertIn("wow64", tokens)
+        self.assertIn("fsr4", tokens)
+
+        # Opting out via CONSERVATIVE=1 or BLEEDING_EDGE=0 restores baseline tokens
+        env = os.environ.copy()
+        env["HOME"] = str(self.home)
+        env["CONSERVATIVE"] = "1"
+        cons_raw = subprocess.run(
+            [str(DETECT), "--json", "1004"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        cons = json.loads(cons_raw)
+        self.assertFalse(cons["bleeding_edge"])
+        self.assertNotIn("wow64", cons["proton_add_config"].split(","))
+        self.assertNotIn("fsr4", cons["proton_add_config"].split(","))
 
     def test_saved_profile_overrides_compat_tokens(self):
         self.create_game("1005", "Profiled", files=("Game.exe",))
@@ -230,7 +251,7 @@ class DetectTests(unittest.TestCase):
         self.assertNotIn("nativeags", tokens)
         self.assertNotIn("wow64", tokens)
 
-        # Standard title with BLEEDING_EDGE=1 enables bleeding_edge + wow64 + fsr4 tokens
+        # Standard title defaults to bleeding_edge + wow64 + fsr4 tokens
         self.create_game("2099", "Standard Experimental", files=("game.exe",))
         raw_std = subprocess.run(
             [str(DETECT), "--json", "2099"],
@@ -244,6 +265,71 @@ class DetectTests(unittest.TestCase):
         std_tokens = std_report["proton_add_config"].split(",")
         self.assertIn("wow64", std_tokens)
         self.assertIn("fsr4", std_tokens)
+
+    def test_smart_experimental_defaults_rdna4_reflex_and_guards(self):
+        drm = self.home / "drm-rdna4"
+        dev = drm / "card0" / "device"
+        dev.mkdir(parents=True)
+        (dev / "vendor").write_text("0x1002\n", encoding="utf-8")
+        (dev / "device").write_text("0x7550\n", encoding="utf-8")
+        (dev / "uevent").write_text("PCI_ID=1002:7550\n", encoding="utf-8")
+
+        base_env = os.environ.copy()
+        for k in ("BLEEDING_EDGE", "TRANSFER_QUEUE", "NATIVE_ANTILAG", "REFLEX_LAYER", "VK_VIDEO_DECODE", "CONSERVATIVE", "MLFG"):
+            base_env.pop(k, None)
+        base_env["HOME"] = str(self.home)
+        base_env["SAP_DRM_DIR"] = str(drm)
+
+        # 1) Non-anticheat title with sl.reflex.dll auto-enables all RDNA 4 + Reflex + Bleeding-Edge defaults
+        self.create_game("3101", "Forza Horizon 6", files=("ForzaHorizon6.exe", "sl.reflex.dll", "amd_fidelityfx_upscaler_dx12.dll"))
+        rep_fh = json.loads(subprocess.run(
+            [str(DETECT), "--json", "3101"], env=base_env, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertTrue(rep_fh["has_reflex"])
+        self.assertTrue(rep_fh["reflex_layer"])
+        self.assertTrue(rep_fh["transfer_queue"])
+        self.assertTrue(rep_fh["native_antilag"])
+        self.assertTrue(rep_fh["vk_video_decode"])
+        self.assertTrue(rep_fh["bleeding_edge"])
+        self.assertEqual(rep_fh["smart_defaults"]["USE_BLEEDING_EDGE"], "1")
+        self.assertEqual(rep_fh["smart_defaults"]["USE_REFLEX_LAYER"], "1")
+        self.assertEqual(rep_fh["smart_defaults"]["USE_TRANSFER_QUEUE"], "1")
+        self.assertEqual(rep_fh["smart_defaults"]["USE_NATIVE_ANTILAG"], "1")
+        self.assertEqual(rep_fh["smart_defaults"]["USE_VK_VIDEO_DECODE"], "1")
+        self.assertIn("lowlatencylayer", rep_fh["proton_add_config"].split(","))
+        self.assertIn("wow64", rep_fh["proton_add_config"].split(","))
+
+        # 2) MLFG=1 disables native_antilag and reflex_layer
+        rep_mlfg = json.loads(subprocess.run(
+            [str(DETECT), "--json", "3101"], env={**base_env, "MLFG": "1"}, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertFalse(rep_mlfg["native_antilag"])
+        self.assertFalse(rep_mlfg["reflex_layer"])
+        self.assertNotIn("lowlatencylayer", rep_mlfg["proton_add_config"].split(","))
+
+        # 3) competitive-anticheat with sl.reflex.dll keeps driver-level RDNA 4 defaults but blocks bleeding_edge & reflex_layer
+        self.create_game("3102", "AC Reflex Shooter", files=("game.exe", "sl.reflex.dll", "EasyAntiCheat/EasyAntiCheat.exe"))
+        rep_ac = json.loads(subprocess.run(
+            [str(DETECT), "--json", "3102"], env=base_env, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertEqual(rep_ac["class"], "competitive-anticheat")
+        self.assertTrue(rep_ac["has_reflex"])
+        self.assertTrue(rep_ac["transfer_queue"])
+        self.assertTrue(rep_ac["native_antilag"])
+        self.assertTrue(rep_ac["vk_video_decode"])
+        self.assertFalse(rep_ac["reflex_layer"])
+        self.assertFalse(rep_ac["bleeding_edge"])
+        self.assertNotIn("lowlatencylayer", rep_ac["proton_add_config"].split(","))
+        self.assertNotIn("wow64", rep_ac["proton_add_config"].split(","))
+
+        # 4) Native Linux game hard-forces bleeding_edge=False and reflex_layer=False
+        self.create_game("3103", "Native Linux Title", files=("game.x86_64",))
+        rep_nat = json.loads(subprocess.run(
+            [str(DETECT), "--json", "3103"], env={**base_env, "BLEEDING_EDGE": "1"}, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertEqual(rep_nat["runtime"], "native_linux")
+        self.assertFalse(rep_nat["bleeding_edge"])
+        self.assertFalse(rep_nat["reflex_layer"])
 
 
 if __name__ == "__main__":

@@ -562,9 +562,30 @@ class RunTests(unittest.TestCase):
             saved_profile = (profile_dir / "361420.env").read_text(encoding="utf-8")
             self.assertIn("USE_XWAYLAND=1", saved_profile)
             self.assertIn("USE_SAFEDX12=1", saved_profile)
+            self.assertIn("USE_BLEEDING_EDGE=0", saved_profile)
+            self.assertIn("USE_TRANSFER_QUEUE=0", saved_profile)
+            self.assertIn("USE_REFLEX_LAYER=0", saved_profile)
+            self.assertIn("USE_VK_VIDEO_DECODE=0", saved_profile)
             self.assertIn("USE_SDL=1", saved_profile)
             gui_log = (state_dir / "last-361420.log").read_text(encoding="utf-8")
             self.assertIn("crash_recovery=safe_mode_saved", gui_log)
+
+            # Next launch honors the saved safe-mode rollback (bleeding-edge & experimental flags off)
+            rdna4_drm = self._make_mock_drm(home / "rdna4-crash", "0x1002", "0x7550")
+            res_after = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "SAP_DRM_DIR": str(rdna4_drm)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_after.returncode, 0, res_after.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_after.stdout)
+            self.assertNotIn("VKD3D_CONFIG=", res_after.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_after.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_after.stdout)
+            self.assertNotIn("transfer_queue", res_after.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_after.stdout)
 
     def test_profile_use_fsr4_zero_disables_fsr4(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -767,7 +788,7 @@ class RunTests(unittest.TestCase):
             rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
             rdna2_drm = self._make_mock_drm(home / "rdna2", "0x1002", "0x73bf")
             base_env = os.environ.copy()
-            for key in ("RADV_PERFTEST", "TRANSFER_QUEUE", "USE_TRANSFER_QUEUE"):
+            for key in ("RADV_PERFTEST", "TRANSFER_QUEUE", "USE_TRANSFER_QUEUE", "CONSERVATIVE", "USE_CONSERVATIVE"):
                 base_env.pop(key, None)
             base_env.update({
                 "HOME": str(home),
@@ -776,7 +797,7 @@ class RunTests(unittest.TestCase):
                 "SAP_DRM_DIR": str(rdna4_drm),
             })
 
-            # Default keeps RADV_PERFTEST=sam without transfer_queue
+            # v2.2.0: RDNA 4 defaults to RADV_PERFTEST=sam,transfer_queue automatically
             res_default = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
                 env=base_env,
@@ -785,24 +806,24 @@ class RunTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(res_default.returncode, 0, res_default.stderr)
-            self.assertIn("RADV_PERFTEST=sam\n", res_default.stdout)
-            self.assertNotIn("transfer_queue", res_default.stdout)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue\n", res_default.stdout)
 
-            # Env override TRANSFER_QUEUE=1 appends transfer_queue on RDNA 4
-            res_env = subprocess.run(
+            # Explicit env opt-out TRANSFER_QUEUE=0 reverts to RADV_PERFTEST=sam
+            res_optout = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
-                env={**base_env, "TRANSFER_QUEUE": "1"},
+                env={**base_env, "TRANSFER_QUEUE": "0"},
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertEqual(res_env.returncode, 0, res_env.stderr)
-            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res_env.stdout)
+            self.assertEqual(res_optout.returncode, 0, res_optout.stderr)
+            self.assertIn("RADV_PERFTEST=sam\n", res_optout.stdout)
+            self.assertNotIn("transfer_queue", res_optout.stdout)
 
-            # Profile USE_TRANSFER_QUEUE=1 appends transfer_queue on RDNA 4
+            # Profile USE_TRANSFER_QUEUE=0 overrides smart default on RDNA 4
             profile_dir = home / ".config/steam-auto-profiler/profiles"
             profile_dir.mkdir(parents=True, exist_ok=True)
-            (profile_dir / "361420.env").write_text("USE_TRANSFER_QUEUE=1\n", encoding="utf-8")
+            (profile_dir / "361420.env").write_text("USE_TRANSFER_QUEUE=0\n", encoding="utf-8")
             res_prof = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
                 env=base_env,
@@ -811,12 +832,13 @@ class RunTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(res_prof.returncode, 0, res_prof.stderr)
-            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res_prof.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_prof.stdout)
+            self.assertNotIn("transfer_queue", res_prof.stdout)
 
             # Older non-RDNA3/4 AMD GPU does not append transfer_queue
             res_old = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
-                env={**base_env, "SAP_DRM_DIR": str(rdna2_drm)},
+                env={**base_env, "SAP_DRM_DIR": str(rdna2_drm), "TRANSFER_QUEUE": "1"},
                 text=True,
                 capture_output=True,
                 check=False,
@@ -953,14 +975,14 @@ class RunTests(unittest.TestCase):
 
             res_vid = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
-                env={**env, "USE_VK_VIDEO_DECODE": "1"},
+                env=env,
                 text=True,
                 capture_output=True,
                 check=False,
             )
             self.assertEqual(res_vid.returncode, 0, res_vid.stderr)
             self.assertIn("RADV_EXPERIMENTAL=video_decode", res_vid.stdout)
-            self.assertIn("RADV_PERFTEST=sam\n", res_vid.stdout)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue\n", res_vid.stdout)
             for retired in (
                 "PROTON_ENABLE_HDR=",
                 "PROTON_VKREFLEX=",
@@ -981,7 +1003,18 @@ class RunTests(unittest.TestCase):
             )
             self.assertEqual(res_mig.returncode, 0, res_mig.stderr)
             self.assertIn("RADV_EXPERIMENTAL=video_decode", res_mig.stdout)
-            self.assertIn("RADV_PERFTEST=sam\n", res_mig.stdout)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue\n", res_mig.stdout)
+
+            # Explicit VK_VIDEO_DECODE=0 disables RADV_EXPERIMENTAL=video_decode
+            res_off = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "VK_VIDEO_DECODE": "0"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_off.returncode, 0, res_off.stderr)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_off.stdout)
 
     def test_bleeding_edge_mode_exports_and_guards(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1006,10 +1039,10 @@ class RunTests(unittest.TestCase):
                 "SAP_USB_DIR": str(empty_usb),
             })
 
-            # Non-anticheat title with BLEEDING_EDGE=1 activates full experimental stack & disables vkBasalt
+            # v2.2.0: Non-anticheat RDNA 4 title activates full experimental stack BY DEFAULT & disables vkBasalt
             res = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
-                env={**env, "BLEEDING_EDGE": "1", "SHARPEN": "1"},
+                env={**env, "SHARPEN": "1"},
                 text=True,
                 capture_output=True,
                 check=False,
@@ -1017,6 +1050,7 @@ class RunTests(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
             self.assertIn("RADV_PERFTEST=sam,transfer_queue", res.stdout)
             self.assertIn("RADV_EXPERIMENTAL=video_decode", res.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res.stdout)
             self.assertIn("VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer", res.stdout)
             self.assertIn("VKD3D_FEATURE_LEVEL=12_2", res.stdout)
             self.assertIn("VKD3D_SHADER_MODEL=6_8", res.stdout)
@@ -1027,6 +1061,20 @@ class RunTests(unittest.TestCase):
             self.assertIn("WAYLANDDRV_RAWINPUT=1", res.stdout)
             self.assertIn("ENABLE_VKBASALT=0", res.stdout)
             self.assertIn("wow64", res.stdout)
+
+            # RDNA 3 defaults to PROTON_FSR4_RDNA3_UPGRADE=1 + transfer_queue + bleeding-edge
+            rdna3_drm = self._make_mock_drm(home / "rdna3", "0x1002", "0x744c")
+            res_rdna3 = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "SAP_DRM_DIR": str(rdna3_drm)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_rdna3.returncode, 0, res_rdna3.stderr)
+            self.assertIn("PROTON_FSR4_RDNA3_UPGRADE=1", res_rdna3.stdout)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res_rdna3.stdout)
+            self.assertIn("PROTON_USE_WOW64=1", res_rdna3.stdout)
 
             # With XWAYLAND=1, WAYLANDDRV_RAWINPUT is explicitly unset/omitted even if pre-set
             res_xway = subprocess.run(
@@ -1086,22 +1134,169 @@ class RunTests(unittest.TestCase):
             self.assertNotIn("DXVK_FRAME_RATE=", res_mlfg.stdout)
             self.assertNotIn("VKD3D_FRAME_RATE=", res_mlfg.stdout)
 
-            # competitive-anticheat (2357570) hard-blocks bleeding-edge hooks
+            # competitive-anticheat (2357570) keeps driver-level RDNA 4 defaults safe while hard-blocking bleeding-edge hooks
             res_ac = subprocess.run(
                 [str(RUN), "--dry-run", "2357570"],
-                env={**env, "USE_BLEEDING_EDGE": "1", "BLEEDING_EDGE": "1"},
+                env={**env, "USE_BLEEDING_EDGE": "1", "BLEEDING_EDGE": "1", "MLFG": "1", "OPTISCALER": "1", "REFLEX_LAYER": "1"},
                 text=True,
                 capture_output=True,
                 check=False,
             )
             self.assertEqual(res_ac.returncode, 0, res_ac.stderr)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res_ac.stdout)
+            self.assertIn("RADV_EXPERIMENTAL=video_decode", res_ac.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_ac.stdout)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_ac.stdout)
+            self.assertIn("PROTON_MLFG_UPGRADE=0", res_ac.stdout)
+            self.assertIn("PROTON_USE_OPTISCALER=0", res_ac.stdout)
             self.assertNotIn("PROTON_USE_WOW64=", res_ac.stdout)
             self.assertNotIn("PROTON_MEDIA_FORCE_GST=", res_ac.stdout)
             self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_ac.stdout)
             self.assertNotIn("VKD3D_SHADER_MODEL=", res_ac.stdout)
             self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_ac.stdout)
-            self.assertNotIn("transfer_queue", res_ac.stdout)
-            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_ac.stdout)
+            self.assertNotIn("lowlatencylayer", res_ac.stdout)
+            self.assertNotIn("wow64", res_ac.stdout)
+
+    def test_smart_reflex_auto_activation_opt_outs_conservative_and_inheritance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            empty_usb = home / "usb-empty"
+            empty_usb.mkdir()
+            steamapps = home / ".local/share/Steam/steamapps"
+            common = steamapps / "common"
+
+            def add_game(appid: str, name: str, files: tuple[str, ...]) -> None:
+                gdir = common / name.replace(" ", "_")
+                gdir.mkdir(parents=True, exist_ok=True)
+                for rel in files:
+                    p = gdir / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.touch()
+                (steamapps / f"appmanifest_{appid}.acf").write_text(
+                    f'"AppState"\n{{\n\t"appid"\t\t"{appid}"\n\t"installdir"\t\t"{gdir.name}"\n\t"name"\t\t"{name}"\n}}\n',
+                    encoding="utf-8",
+                )
+
+            add_game("4101", "Reflex AAA", ("game.exe", "sl.reflex.dll", "nvngx_dlss.dll"))
+            add_game("4102", "AC Reflex", ("game.exe", "sl.reflex.dll", "EasyAntiCheat/EasyAntiCheat.exe"))
+            add_game("4103", "Native Linux Game", ("game.x86_64",))
+
+            env = os.environ.copy()
+            for key in (
+                "RADV_PERFTEST", "RADV_EXPERIMENTAL", "BLEEDING_EDGE", "USE_BLEEDING_EDGE",
+                "TRANSFER_QUEUE", "USE_TRANSFER_QUEUE", "NATIVE_ANTILAG", "USE_NATIVE_ANTILAG",
+                "REFLEX_LAYER", "USE_REFLEX_LAYER", "VK_VIDEO_DECODE", "USE_VK_VIDEO_DECODE",
+                "CONSERVATIVE", "USE_CONSERVATIVE", "MLFG", "USE_MLFG", "ENABLE_LAYER_MESA_ANTI_LAG",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP",
+            ):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_USB_DIR": str(empty_usb),
+                "WAYLAND_DISPLAY": "wayland-0",
+            })
+
+            # 1) Smart Reflex -> Anti-Lag 2 auto-activation on AMD non-anticheat title with sl.reflex.dll
+            res_rx = subprocess.run([str(RUN), "--dry-run", "4101"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_rx.returncode, 0, res_rx.stderr)
+            self.assertIn("LOW_LATENCY_LAYER=1", res_rx.stdout)
+            self.assertIn("LOW_LATENCY_LAYER_REFLEX=1", res_rx.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_rx.stdout)
+            self.assertIn("lowlatencylayer", res_rx.stdout)
+            self.assertIn("PROTON_USE_WOW64=1", res_rx.stdout)
+
+            # 2) MLFG=1 disables auto-activated Reflex layer
+            res_mlfg = subprocess.run([str(RUN), "--dry-run", "4101"], env={**env, "MLFG": "1"}, text=True, capture_output=True, check=False)
+            self.assertEqual(res_mlfg.returncode, 0, res_mlfg.stderr)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_mlfg.stdout)
+            self.assertNotIn("lowlatencylayer", res_mlfg.stdout)
+
+            # 3) Anti-cheat title with sl.reflex.dll hard-blocks Reflex layer and Bleeding-Edge
+            res_ac = subprocess.run([str(RUN), "--dry-run", "4102"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_ac.returncode, 0, res_ac.stderr)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_ac.stdout)
+            self.assertNotIn("lowlatencylayer", res_ac.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_ac.stdout)
+
+            # 4) Explicit env =0 opt-outs override smart =1 defaults independently
+            res_opt0 = subprocess.run(
+                [str(RUN), "--dry-run", "4101"],
+                env={
+                    **env,
+                    "BLEEDING_EDGE": "0",
+                    "TRANSFER_QUEUE": "0",
+                    "NATIVE_ANTILAG": "0",
+                    "REFLEX_LAYER": "0",
+                    "VK_VIDEO_DECODE": "0",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_opt0.returncode, 0, res_opt0.stderr)
+            self.assertIn("RADV_PERFTEST=sam\n", res_opt0.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=1", res_opt0.stdout)
+            self.assertNotIn("LOW_LATENCY_LAYER=1", res_opt0.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_opt0.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_opt0.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_opt0.stdout)
+            self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_opt0.stdout)
+
+            # 5) CONSERVATIVE=1 disables all 5 experimental defaults at once
+            res_cons = subprocess.run(
+                [str(RUN), "--dry-run", "4101"],
+                env={**env, "CONSERVATIVE": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_cons.returncode, 0, res_cons.stderr)
+            self.assertIn("Conservative: enabled", res_cons.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_cons.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=1", res_cons.stdout)
+            self.assertNotIn("LOW_LATENCY_LAYER=1", res_cons.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_cons.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_cons.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_cons.stdout)
+
+            # 6) Legacy .env missing v2.2 keys inherits smart defaults; explicit .env =0 overrides them
+            profiles = home / ".config/steam-auto-profiler/profiles"
+            profiles.mkdir(parents=True, exist_ok=True)
+            (profiles / "4101.env").write_text("USE_SDL=1\n", encoding="utf-8")
+            res_inherit = subprocess.run([str(RUN), "--dry-run", "4101"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_inherit.returncode, 0, res_inherit.stderr)
+            self.assertIn("PROTON_USE_SDL=1", res_inherit.stdout)
+            self.assertIn("PROTON_USE_WOW64=1", res_inherit.stdout)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res_inherit.stdout)
+            self.assertIn("LOW_LATENCY_LAYER=1", res_inherit.stdout)
+
+            (profiles / "4101.env").write_text(
+                "USE_BLEEDING_EDGE=0\nUSE_TRANSFER_QUEUE=0\nUSE_NATIVE_ANTILAG=0\nUSE_REFLEX_LAYER=0\nUSE_VK_VIDEO_DECODE=0\n",
+                encoding="utf-8",
+            )
+            res_env0 = subprocess.run([str(RUN), "--dry-run", "4101"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_env0.returncode, 0, res_env0.stderr)
+            self.assertIn("RADV_PERFTEST=sam\n", res_env0.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=1", res_env0.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_env0.stdout)
+            self.assertNotIn("LOW_LATENCY_LAYER=1", res_env0.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_env0.stdout)
+
+            # 7) Native Linux game hard-blocks bleeding-edge even if BLEEDING_EDGE=1
+            res_nat = subprocess.run(
+                [str(RUN), "--dry-run", "4103"],
+                env={**env, "BLEEDING_EDGE": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_nat.returncode, 0, res_nat.stderr)
+            self.assertNotIn("Bleeding-edge: enabled", res_nat.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_nat.stdout)
 
     def test_hunt_showdown_594650_safe_overrides_and_doctor_compat_warning(self):
         with tempfile.TemporaryDirectory() as temp:

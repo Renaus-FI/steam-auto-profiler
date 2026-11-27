@@ -97,7 +97,12 @@ MANAGED_ENV_PREFIXES = (
     "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT=",
     "RADV_PERFTEST=", "RADV_EXPERIMENTAL=",
     "LOW_LATENCY_LAYER=", "LOW_LATENCY_LAYER_REFLEX=",
+    "TRANSFER_QUEUE=", "USE_TRANSFER_QUEUE=",
+    "NATIVE_ANTILAG=", "USE_NATIVE_ANTILAG=",
+    "REFLEX_LAYER=", "USE_REFLEX_LAYER=",
+    "VK_VIDEO_DECODE=", "USE_VK_VIDEO_DECODE=",
     "BLEEDING_EDGE=", "USE_BLEEDING_EDGE=",
+    "CONSERVATIVE=", "USE_CONSERVATIVE=",
     "STEAM_CONTROLLER=", "USE_STEAM_CONTROLLER=",
 )
 RETIRED_PROTON_VARS = {
@@ -356,20 +361,33 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
         elif key in ("TRANSFER_QUEUE", "USE_TRANSFER_QUEUE"):
             if value in ("1", "true", "TRUE"):
                 profile["USE_TRANSFER_QUEUE"] = "1"
+            elif value in ("0", "false", "FALSE"):
+                profile["USE_TRANSFER_QUEUE"] = "0"
         elif key in ("NATIVE_ANTILAG", "USE_NATIVE_ANTILAG"):
             if value in ("1", "true", "TRUE"):
                 profile["USE_NATIVE_ANTILAG"] = "1"
+            elif value in ("0", "false", "FALSE"):
+                profile["USE_NATIVE_ANTILAG"] = "0"
         elif key in ("LOW_LATENCY_LAYER_REFLEX", "REFLEX_LAYER", "USE_REFLEX_LAYER"):
             if value in ("1", "true", "TRUE"):
                 profile["USE_REFLEX_LAYER"] = "1"
+            elif value in ("0", "false", "FALSE"):
+                profile["USE_REFLEX_LAYER"] = "0"
         elif key in ("VK_VIDEO_DECODE", "USE_VK_VIDEO_DECODE"):
             if value in ("1", "true", "TRUE"):
                 profile["USE_VK_VIDEO_DECODE"] = "1"
+            elif value in ("0", "false", "FALSE"):
+                profile["USE_VK_VIDEO_DECODE"] = "0"
         elif key in ("BLEEDING_EDGE", "USE_BLEEDING_EDGE"):
             if value in ("1", "true", "TRUE"):
                 profile["USE_BLEEDING_EDGE"] = "1"
             elif value in ("0", "false", "FALSE"):
                 profile["USE_BLEEDING_EDGE"] = "0"
+        elif key in ("CONSERVATIVE", "USE_CONSERVATIVE"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_CONSERVATIVE"] = "1"
+            elif value in ("0", "false", "FALSE"):
+                profile["USE_CONSERVATIVE"] = "0"
         elif key in ("STEAM_CONTROLLER", "USE_STEAM_CONTROLLER"):
             low_val = value.strip().lower()
             if low_val in ("auto", ""):

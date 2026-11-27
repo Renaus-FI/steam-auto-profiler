@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/Renaus-FI/steam-auto-profiler/security/code-scanning)
-[![Release](https://img.shields.io/badge/Release-v2.1.0-brightgreen.svg)](https://github.com/Renaus-FI/steam-auto-profiler/releases/tag/v2.1.0)
+[![Release](https://img.shields.io/badge/Release-v2.2.0-brightgreen.svg)](https://github.com/Renaus-FI/steam-auto-profiler/releases/tag/v2.2.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Context-aware heuristic game classifier, VR/flatscreen pre-launch orchestrator, and unified Qt6/TUI control center for Steam on Linux.**
@@ -20,7 +20,7 @@ Steam Auto-Profiler inspects your local Steam libraries and Non-Steam `shortcuts
 - **Upscaler DLL SDK Hints (`AUTO_UPSCALER_INFO`):** Distinguishes FidelityFX 3.1+ (`amd_fidelityfx_upscaler_*.dll`, `amdxcffx64.dll` -> native `PROTON_FSR4_UPGRADE=1`) from legacy FSR 2 / DLSS / XeSS DLLs (recommending `USE_OPTISCALER=1`) with live badges in `steam-auto-ui`.
 - **Automatic KDE Plasma 6 HDR Toggle (`AUTO_HDR_SWITCH=1`):** Enables HDR on the primary output via `kscreen-doctor` before launch when HDR is active and cleanly restores SDR on exit.
 - **Silent Frametime Benchmarks (`BENCH=1`):** Runs hidden MangoHud CSV logging (`no_display`), computes `Avg FPS`, `1% Low FPS`, and `P99 (ms)` into `~/.config/steam-auto-profiler/benchmarks/<APPID>.json`, and compares runs side-by-side in `steam-auto-ui`.
-- **Fast-Crash Safe Mode Auto-Recovery:** Detects Proton exits `< 20s` with experimental Wayland/DX12 active, records a `crash_hint` in `last-<APPID>.log`, and offers one-click Safe Mode (`USE_XWAYLAND=1`, `USE_SAFEDX12=1`).
+- **Fast-Crash Safe Mode Auto-Recovery:** Detects Proton exits `< 20s` with experimental Wayland/DX12/Mesa flags active, records a `crash_hint` in `last-<APPID>.log`, and offers one-click Safe Mode (`USE_XWAYLAND=1`, `USE_SAFEDX12=1`, `USE_BLEEDING_EDGE=0`, `USE_TRANSFER_QUEUE=0`, `USE_REFLEX_LAYER=0`, `USE_VK_VIDEO_DECODE=0`).
 - **HTB + CAKE Network QoS Protection (`steam-net-boost`):** Recognizes static root CAKE, LAN-exempted HTB + leaf CAKE hierarchies, and `wan-cake-shaper.service` / `cake-shaper.service`; restores pre-existing qdisc, EEE, and `txqueuelen` atomically with `flock`.
 
 ---
@@ -94,6 +94,9 @@ BENCH=1 AUTO_HDR_SWITCH=1 steam-auto-run %command%
 # Optional -6% VRR safety margin (e.g. 225 FPS on 240 Hz)
 VRR_MINUS_MARGIN=1 steam-auto-run %command%
 
+# Baseline conservative mode (disables all v2.2 experimental defaults)
+CONSERVATIVE=1 steam-auto-run %command%
+
 # Lutris / Heroic / UMU Launcher
 GAMEID=umu-2357570 steam-auto-run %command%
 ```
@@ -127,12 +130,14 @@ Steam Auto-Profiler consists of six focused tools in `bin/`:
 Key built-in mutual-exclusion rules:
 - **FSR 4 / OptiScaler vs vkBasalt:** `ENABLE_VKBASALT=0` is enforced whenever `PROTON_FSR4_UPGRADE=1`, `PROTON_FSR4_RDNA3_UPGRADE=1`, or `USE_OPTISCALER=1` (prevents double-sharpening and HDR10 clipping).
 - **MLFG vs Low-Latency / VRR Caps:** `MLFG=1` sets `ENABLE_LAYER_MESA_ANTI_LAG=0`, `LOW_LATENCY_LAYER=0`, `LOW_LATENCY_LAYER_REFLEX=0`, `PROTON_DXVK_LOWLATENCY=0`, `PROTON_VKD3D_LOWLATENCY=0`, unsets `DXVK_FRAME_RATE` / `VKD3D_FRAME_RATE` / `DXVK_FRAME_PACE`, and adds `DXIL_SPIRV_CONFIG=wmma_rdna3_workaround` on AMD RDNA 3.
-- **Mesa 27.0 / RDNA 4 & Proton-CachyOS 11.0 Experimental Toggles:**
-  - `TRANSFER_QUEUE=1` (`USE_TRANSFER_QUEUE=1`): appends `,transfer_queue` to `RADV_PERFTEST` on AMD RDNA 3/4 GPUs for dedicated SDMA queue offloading (keeps default `RADV_PERFTEST=sam` when unset).
-  - `NATIVE_ANTILAG=1` (`USE_NATIVE_ANTILAG=1`): relies on Mesa 26.3+/27.0 RADV driver-native `VK_AMD_anti_lag` while disabling the legacy external `ENABLE_LAYER_MESA_ANTI_LAG=0` layer.
-  - `REFLEX_LAYER=1` (`USE_REFLEX_LAYER=1`): enables Proton-CachyOS `LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1` (translates NVIDIA Reflex `VK_NV_low_latency2` into native `VK_AMD_anti_lag`), forces `ENABLE_LAYER_MESA_ANTI_LAG=0` so latency layers never stack, is disabled when `MLFG=1`, and is hard-blocked (`=0`) in `competitive-anticheat` titles.
-  - `VK_VIDEO_DECODE=1` (`USE_VK_VIDEO_DECODE=1`): exports Mesa 27.0 `RADV_EXPERIMENTAL=video_decode` (and automatically migrates legacy `RADV_PERFTEST=video_decode`).
-  - `BLEEDING_EDGE=1` (`USE_BLEEDING_EDGE=1`): **Ultra Bleeding-Edge (Experimental)** mode for non-anticheat titles activating deduplicated `RADV_PERFTEST="sam,transfer_queue"` (RDNA 3/4), `RADV_EXPERIMENTAL="video_decode"`, `VKD3D_CONFIG="descriptor_heap,dxr12,force_bindless_texel_buffer"`, `VKD3D_FEATURE_LEVEL="12_2"`, `VKD3D_SHADER_MODEL="6_8"`, `PROTON_FSR4_UPGRADE=1`, `PROTON_NATIVE_AGS=1`, `PROTON_USE_WOW64=1`, `PROTON_MEDIA_FORCE_GST=1`, and `WAYLANDDRV_RAWINPUT=1` (strictly scoped to native Wayland outside Gamescope) while preserving all mutual-exclusion guards.
+- **Smart Experimental-by-Default Matrix (`v2.2.0` — Mesa 27.0 / RDNA 4 & Proton-CachyOS 11.0):**
+  - **Driver-Level AMD RADV Defaults (Safe across ALL classes including `competitive-anticheat`):**
+    - `USE_TRANSFER_QUEUE=1` (`TRANSFER_QUEUE=0|1`): automatically enabled on AMD RDNA 3/4 GPUs, exporting deduplicated `RADV_PERFTEST=sam,transfer_queue` (dedicated SDMA queue).
+    - `USE_NATIVE_ANTILAG=1` (`NATIVE_ANTILAG=0|1`): automatically enabled on AMD GPUs (when `USE_MLFG=0`), using Mesa 26.3+/27.0 driver-native `VK_AMD_anti_lag` (`ENABLE_LAYER_MESA_ANTI_LAG=0`) instead of the legacy external Vulkan layer.
+    - `USE_VK_VIDEO_DECODE=1` (`VK_VIDEO_DECODE=0|1`): automatically enabled on AMD GPUs, exporting deduplicated `RADV_EXPERIMENTAL=video_decode` (and migrating legacy `RADV_PERFTEST=video_decode`).
+  - **Ultra Bleeding-Edge Default (`USE_BLEEDING_EDGE=1` / `BLEEDING_EDGE=0|1`):** Automatically enabled for non-anticheat Proton titles (`AUTO_CLASS != competitive-anticheat`, `AUTO_NATIVE_LINUX == 0`, `APPID != 594650`), activating `VKD3D_CONFIG="descriptor_heap,dxr12,force_bindless_texel_buffer"`, `VKD3D_FEATURE_LEVEL="12_2"`, `VKD3D_SHADER_MODEL="6_8"`, `PROTON_FSR4_UPGRADE=1` on RDNA 4 (`PROTON_FSR4_RDNA3_UPGRADE=1` on RDNA 3), `PROTON_NATIVE_AGS=1` on AMD, `PROTON_USE_WOW64=1` (`wow64`), `PROTON_MEDIA_FORCE_GST=1`, and `WAYLANDDRV_RAWINPUT=1` (strictly scoped to native Wayland outside Gamescope). Hard-blocked (`=0`) on `competitive-anticheat`, `AppID 594650`, and native Linux games.
+  - **Smart Reflex -> Anti-Lag 2 Auto-Activation (`USE_REFLEX_LAYER=1` / `REFLEX_LAYER=0|1`):** `steam-auto-detect` detects `sl.reflex.dll`, `sl.interposer.dll`, and `nvngx_dlss*.dll` (`AUTO_HAS_REFLEX=1`) and automatically enables Proton-CachyOS `LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1` (`lowlatencylayer` token, `ENABLE_LAYER_MESA_ANTI_LAG=0`) on AMD non-anticheat Proton titles; disabled automatically under `MLFG=1` and hard-blocked (`=0`) in `competitive-anticheat` / native Linux games.
+  - **Explicit `=0` Opt-Out, `CONSERVATIVE=1` & Legacy `.env` Inheritance:** Every toggle supports explicit `=0` opt-out via env var (`BLEEDING_EDGE=0`, `TRANSFER_QUEUE=0`, `NATIVE_ANTILAG=0`, `REFLEX_LAYER=0`, `VK_VIDEO_DECODE=0`) or per-game `.env` (`USE_*=0`), `CONSERVATIVE=1` (`USE_CONSERVATIVE=1`) disables all five experimental defaults at once, and older `.env` files missing v2.2 keys inherit the smart defaults automatically. Invasive/trade-off features (`USE_MLFG`, `USE_OPTISCALER`, `AUTO_HDR_SWITCH`, `USE_XWAYLAND`) remain opt-in (`=0`) by default.
 - **Hunt: Showdown 1896 (`AppID 594650`) Compatibility Guard & Diagnostics:** Automatically enforces `competitive-anticheat`, `USE_XWAYLAND=1` (`PROTON_ENABLE_WAYLAND=0`), `USE_SAFEDX12=1`, `PROTON_NATIVE_AGS=0`, `LOW_LATENCY_LAYER=0`, `USE_MLFG=0`, `USE_BLEEDING_EDGE=0`, and `USE_NET_OPT=1`; `--doctor` and `steam-auto-ui` also inspect Steam `config/config.vdf` `CompatToolMapping` for `594650` and warn when unset or mapped to `proton-cachyos*` (advising Valve's `Proton 11.0-2` or `Proton Hotfix`).
 - **Steam Controller (2026, `Triton`/`Proteus`) & Wireless Steam Puck (`28de:{1302,1304,1005,1007}`) Next-Gen Routing:**
   - `USE_STEAM_CONTROLLER=auto` (default; selectable across `Auto`, `Wayland + HDR`, `XWayland`, and `Off` in `steam-auto-ui` across all 27 languages, with legacy `1`/`0` compatibility) detects connected Valve 2026 hardware via `/sys/bus/usb/devices/*` and selects **`wayland-hdr`** on Wayland sessions (or `xwayland` on X11).
@@ -146,7 +151,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/USER_GUIDE.md](docs/U
 
 ## Languages & Documentation
 
-All guides are complete, up-to-date practical references covering every v2.1 feature, and `steam-auto-ui` supports all 27 languages natively via `--lang <code>` or the in-app language switcher.
+All guides are complete, up-to-date practical references covering Steam Auto-Profiler, and `steam-auto-ui` supports all 27 languages natively via `--lang <code>` or the in-app language switcher.
 
 | Region / Group | Languages | Index / Guides |
 | --- | --- | --- |

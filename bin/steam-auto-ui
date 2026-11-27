@@ -58,6 +58,7 @@ PROFILE_TOGGLES = (
     ("USE_TRANSFER_QUEUE", "Transfer Queue (RDNA 3/4 SDMA)"),
     ("USE_NATIVE_ANTILAG", "Native RADV Anti-Lag (VK_AMD_anti_lag)"),
     ("USE_REFLEX_LAYER", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)"),
+    ("USE_VK_VIDEO_DECODE", "Vulkan Video Decode (RADV Experimental)"),
     ("USE_BLEEDING_EDGE", "Ultra Bleeding-Edge (Experimental)"),
     ("USE_STEAM_CONTROLLER", "Steam Controller 2026 / Puck Routing"),
 )
@@ -103,7 +104,7 @@ _I18N_KEYS: tuple[str, ...] = (
     "toggle_USE_SAFEDX12", "toggle_USE_NET_OPT", "toggle_USE_SDL", "toggle_USE_KEEP_OVERLAY",
     "toggle_USE_OPTISCALER", "toggle_AUTO_HDR_SWITCH",
     "toggle_USE_TRANSFER_QUEUE", "toggle_USE_NATIVE_ANTILAG", "toggle_USE_REFLEX_LAYER",
-    "toggle_USE_BLEEDING_EDGE", "toggle_USE_STEAM_CONTROLLER",
+    "toggle_USE_VK_VIDEO_DECODE", "toggle_USE_BLEEDING_EDGE", "toggle_USE_STEAM_CONTROLLER",
     "vrr_cap_label", "vrr_cap_placeholder",
     "btn_save_profile", "btn_dry_run", "btn_benchmarks", "btn_reset_profile", "dry_run_placeholder",
     "status_scanning_library", "status_loaded_titles", "status_saved_profile",
@@ -138,6 +139,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Safe DX12 (disable experimental VKD3D)", "Session Network QoS", "Prefer SDL / Steam Input", "Keep Steam Overlay (LD_PRELOAD)",
         "OptiScaler Bridge", "Auto KDE Plasma 6 HDR Toggle",
         "Transfer Queue (RDNA 3/4 SDMA)", "Native RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan Video Decode (RADV Experimental)",
         "Ultra Bleeding-Edge (Experimental)", "Steam Controller 2026 / Puck Routing",
         "VRR_CAP (empty=Auto, 0=Off):", "Auto",
         "Save Profile", "Dry-Run Preview", "Benchmarks", "Reset Profile", "Dry-run environment output appears here...",
@@ -171,6 +173,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Turvallinen DX12 (poista kokeellinen VKD3D)", "Istunnon verkon QoS", "Suosi SDL / Steam Inputia", "Säilytä Steam Overlay (LD_PRELOAD)",
         "OptiScaler-silta", "Automaattinen KDE Plasma 6 HDR -kytkin",
         "Siirtojono / Transfer Queue (RDNA 3/4 SDMA)", "Natiivi RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan-videonpurku (RADV Experimental)",
         "Ultra Bleeding-Edge (Kokeellinen)", "Steam Controller 2026 / Puck -reititys",
         "VRR_CAP (tyhjä=Auto, 0=Pois):", "Auto",
         "Tallenna profiili", "Esikatselu (Dry-Run)", "Testit", "Nollaa profiili", "Dry-run-ympäristön tuloste näkyy tässä...",
@@ -204,6 +207,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безопасный DX12 (отключить эксперим. VKD3D)", "Сетевой QoS на сессию", "Предпочитать SDL / Steam Input", "Сохранить Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Автопереключение HDR в KDE Plasma 6",
         "Очередь передачи SDMA (RDNA 3/4 Transfer Queue)", "Нативный RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Аппаратное декодирование Vulkan Video (RADV)",
         "Ультра-экспериментальный режим (Ultra Bleeding-Edge)", "Маршрутизация Steam Controller 2026 / Puck",
         "VRR_CAP (пусто=Авто, 0=Выкл):", "Авто",
         "Сохранить профиль", "Предпросмотр (Dry-Run)", "Бенчмарки", "Сбросить профиль", "Вывод dry-run окружения появится здесь...",
@@ -237,6 +241,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безпечний DX12 (вимкнути експерим. VKD3D)", "Мережевий QoS на сесію", "Надавати перевагу SDL / Steam Input", "Зберегти Steam Overlay (LD_PRELOAD)",
         "Міст OptiScaler", "Автоперемикач HDR у KDE Plasma 6",
         "Черга передачі SDMA (RDNA 3/4 Transfer Queue)", "Нативний RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Апаратне декодування Vulkan Video (RADV)",
         "Ультраекспериментальний режим (Ultra Bleeding-Edge)", "Маршрутизація Steam Controller 2026 / Puck",
         "VRR_CAP (порожньо=Авто, 0=Вимк):", "Авто",
         "Зберегти профіль", "Попередній перегляд (Dry-Run)", "Бенчмарки", "Скинути профіль", "Вивід dry-run середовища з'явиться тут...",
@@ -270,6 +275,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Бяспечны DX12 (адключыць эксперым. VKD3D)", "Сеткавы QoS на сесію", "Аддаваць перавагу SDL / Steam Input", "Захаваць Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Аўтапераключальнік HDR у KDE Plasma 6",
         "Чарга перадачы SDMA (RDNA 3/4 Transfer Queue)", "Натыўны RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Апаратнае дэкадаванне Vulkan Video (RADV)",
         "Ультраэксперыментальны рэжым (Ultra Bleeding-Edge)", "Маршрутызацыя Steam Controller 2026 / Puck",
         "VRR_CAP (пуста=Аўта, 0=Выкл):", "Аўта",
         "Захаваць профіль", "Прадпрагляд (Dry-Run)", "Бенчмаркі", "Скінуць профіль", "Вывад dry-run асяроддзя з'явіцца тут...",
@@ -303,6 +309,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Қауіпсіз DX12 (эксперименттік VKD3D өшіру)", "Сеанстық желі QoS", "SDL / Steam Input таңдау", "Steam Overlay сақтау (LD_PRELOAD)",
         "OptiScaler көпірі", "KDE Plasma 6 авто-HDR ауыстырғышы",
         "SDMA тасымалдау кезегі (RDNA 3/4 Transfer Queue)", "Нативті RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan Video декодтау (RADV Experimental)",
         "Ультра-эксперименттік режим (Ultra Bleeding-Edge)", "Steam Controller 2026 / Puck бағыттауы",
         "VRR_CAP (бос=Авто, 0=Өшірулі):", "Авто",
         "Профильді сақтау", "Алдын ала қарау (Dry-Run)", "Бенчмарктер", "Профильді тастау", "Dry-run ортасының нәтижесі осында шығады...",
@@ -336,6 +343,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Xavfsiz DX12 (eksperimental VKD3Dni o'chirish)", "Sessiya tarmoq QoS", "SDL / Steam Inputni afzal ko'rish", "Steam Overlayni saqlash (LD_PRELOAD)",
         "OptiScaler ko'prigi", "KDE Plasma 6 avto-HDR almashtirgichi",
         "SDMA uzatish navbati (RDNA 3/4 Transfer Queue)", "Mahalliy RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan Video dekodlash (RADV Experimental)",
         "Ultra Bleeding-Edge (Eksperimental)", "Steam Controller 2026 / Puck marshrutlash",
         "VRR_CAP (bo'sh=Avto, 0=O'chiq):", "Avto",
         "Profilni saqlash", "Oldindan ko'rish (Dry-Run)", "Benchmarklar", "Profilni tiklash", "Dry-run muhit chiqishi shu yerda ko'rinadi...",
@@ -369,6 +377,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Անվտանգ DX12 (անջատել փորձարարական VKD3D)", "Սեսիայի ցանցային QoS", "Նախընտրել SDL / Steam Input", "Պահել Steam Overlay (LD_PRELOAD)",
         "OptiScaler կամուրջ", "KDE Plasma 6 ավտո-HDR փոխարկիչ",
         "SDMA փոխանցման հերթ (RDNA 3/4 Transfer Queue)", "Բնիկ RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan Video ապակոդավորում (RADV)",
         "Ուլտրա փորձարարական ռեժիմ (Ultra Bleeding-Edge)", "Steam Controller 2026 / Puck երթուղավորում",
         "VRR_CAP (դատարկ=Ավտո, 0=Անջատ):", "Ավտո",
         "Պահպանել պրոֆիլը", "Նախադիտում (Dry-Run)", "Բենչմարկներ", "Վերակայել պրոֆիլը", "Dry-run միջավայրի արդյունքը կհայտնվի այստեղ...",
@@ -402,6 +411,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Təhlükəsiz DX12 (eksperimental VKD3D söndür)", "Sessiya şəbəkə QoS", "SDL / Steam Input üstün tut", "Steam Overlay saxla (LD_PRELOAD)",
         "OptiScaler körpüsü", "KDE Plasma 6 avto-HDR açarı",
         "SDMA ötürmə növbəsi (RDNA 3/4 Transfer Queue)", "Yerli RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan Video dekodlama (RADV Experimental)",
         "Ultra Bleeding-Edge (Eksperimental)", "Steam Controller 2026 / Puck yönləndirməsi",
         "VRR_CAP (boş=Avto, 0=Sönülü):", "Avto",
         "Profili saxla", "Önizləmə (Dry-Run)", "Bençmarklar", "Profili sıfırla", "Dry-run mühit çıxışı burada görünəcək...",
@@ -435,6 +445,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Коопсуз DX12 (эксперименттик VKD3D өчүрүү)", "Сеанстык тармак QoS", "SDL / Steam Input артык көрүү", "Steam Overlay сактоо (LD_PRELOAD)",
         "OptiScaler көпүрөсү", "KDE Plasma 6 авто-HDR которгучу",
         "SDMA өткөрүү кезеги (RDNA 3/4 Transfer Queue)", "Нативдик RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan Video декоддоо (RADV Experimental)",
         "Ультра-эксперименттик режим (Ultra Bleeding-Edge)", "Steam Controller 2026 / Puck багыттоо",
         "VRR_CAP (бош=Авто, 0=Өчүк):", "Авто",
         "Профилди сактоо", "Алдын ала көрүү (Dry-Run)", "Бенчмарктар", "Профилди таштоо", "Dry-run чөйрөсүнүн натыйжасы бул жерде көрүнөт...",
@@ -468,6 +479,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12-и бехатар (хомӯш кардани VKD3D-и таҷрибавӣ)", "QoS-и шабака барои сессия", "Афзалият ба SDL / Steam Input", "Нигоҳ доштани Steam Overlay (LD_PRELOAD)",
         "Пули OptiScaler", "Авто-калиди HDR дар KDE Plasma 6",
         "Навбати интиқоли SDMA (RDNA 3/4 Transfer Queue)", "RADV Anti-Lag-и аслӣ (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Декодкунии Vulkan Video (RADV Experimental)",
         "Реҷаи ултра-таҷрибавӣ (Ultra Bleeding-Edge)", "Масирёбии Steam Controller 2026 / Puck",
         "VRR_CAP (холӣ=Авто, 0=Хомӯш):", "Авто",
         "Сабти профил", "Пешнамоиш (Dry-Run)", "Бенчмаркҳо", "Бозсозии профил", "Натиҷаи муҳити dry-run дар ин ҷо пайдо мешавад...",
@@ -501,6 +513,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Bezpieczny DX12 (wyłącz eksperym. VKD3D)", "Sieciowy QoS sesji", "Preferuj SDL / Steam Input", "Zachowaj nakładkę Steam (LD_PRELOAD)",
         "Mostek OptiScaler", "Automatyczny przełącznik HDR w KDE Plasma 6",
         "Kolejka transferu SDMA (RDNA 3/4 Transfer Queue)", "Natywny RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Dekodowanie wideo Vulkan (RADV Experimental)",
         "Ultra Bleeding-Edge (Eksperymentalny)", "Trasowanie Steam Controller 2026 / Puck",
         "VRR_CAP (puste=Auto, 0=Wył):", "Auto",
         "Zapisz profil", "Podgląd Dry-Run", "Benchmarki", "Resetuj profil", "Tutaj pojawi się wynik środowiska dry-run...",
@@ -534,6 +547,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Bezpečný DX12 (vypnout experim. VKD3D)", "Síťové QoS pro relaci", "Upřednostnit SDL / Steam Input", "Zachovat Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Automatický přepínač HDR v KDE Plasma 6",
         "Přenosová fronta SDMA (RDNA 3/4 Transfer Queue)", "Nativní RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Dekódování videa Vulkan (RADV Experimental)",
         "Ultra Bleeding-Edge (Experimentální)", "Směrování Steam Controller 2026 / Puck",
         "VRR_CAP (prázdné=Auto, 0=Vyp):", "Auto",
         "Uložit profil", "Náhled Dry-Run", "Benchmarky", "Obnovit výchozí", "Výstup prostředí dry-run se zobrazí zde...",
@@ -567,6 +581,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Bezpečný DX12 (vypnúť experim. VKD3D)", "Sieťové QoS pre reláciu", "Uprednostniť SDL / Steam Input", "Zachovať Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Automatický prepínač HDR v KDE Plasma 6",
         "Prenosový front SDMA (RDNA 3/4 Transfer Queue)", "Natívny RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Dekódovanie videa Vulkan (RADV Experimental)",
         "Ultra Bleeding-Edge (Experimentálny)", "Smerovanie Steam Controller 2026 / Puck",
         "VRR_CAP (prázdne=Auto, 0=Vyp):", "Auto",
         "Uložiť profil", "Náhľad Dry-Run", "Benchmarky", "Resetovať profil", "Výstup prostredia dry-run sa zobrazí tu...",
@@ -600,6 +615,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безопасен DX12 (изключи експерим. VKD3D)", "Мрежов QoS за сесията", "Предпочитай SDL / Steam Input", "Запази Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Автоматичен HDR в KDE Plasma 6",
         "SDMA опашка за пренос (RDNA 3/4 Transfer Queue)", "Вграден RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan видео декодиране (RADV Experimental)",
         "Ултра експериментален режим (Ultra Bleeding-Edge)", "Маршрутизиране на Steam Controller 2026 / Puck",
         "VRR_CAP (празно=Авто, 0=Изкл):", "Авто",
         "Запази профила", "Преглед (Dry-Run)", "Бенчмаркове", "Нулирай профила", "Изходът от dry-run средата ще се появи тук...",
@@ -633,6 +649,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Безбедни DX12 (искључи експерим. VKD3D)", "Мрежни QoS за сесију", "Дај предност SDL / Steam Input-у", "Задржи Steam Overlay (LD_PRELOAD)",
         "OptiScaler мост", "Аутоматски KDE Plasma 6 HDR прекидач",
         "SDMA ред преноса (RDNA 3/4 Transfer Queue)", "Изворни RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan видео декодирање (RADV Experimental)",
         "Ултра експериментални режим (Ultra Bleeding-Edge)", "Усмеравање Steam Controller 2026 / Puck",
         "VRR_CAP (празно=Ауто, 0=Искљ):", "Ауто",
         "Сачувај профил", "Преглед (Dry-Run)", "Бенчмаркови", "Ресетуј профил", "Излаз dry-run окружења појавиће се овде...",
@@ -666,6 +683,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Sigurni DX12 (onemogući eksperim. VKD3D)", "Mrežni QoS za sesiju", "Preferiraj SDL / Steam Input", "Zadrži Steam Overlay (LD_PRELOAD)",
         "OptiScaler most", "Automatski KDE Plasma 6 HDR prekidač",
         "SDMA red prijenosa (RDNA 3/4 Transfer Queue)", "Izvorni RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan video dekodiranje (RADV Experimental)",
         "Ultra Bleeding-Edge (Eksperimentalno)", "Usmjeravanje Steam Controller 2026 / Puck",
         "VRR_CAP (prazno=Auto, 0=Isklj):", "Auto",
         "Spremi profil", "Pregled (Dry-Run)", "Benchmarkovi", "Poništi profil", "Izlaz dry-run okruženja pojavit će se ovdje...",
@@ -699,6 +717,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Varni DX12 (onemogoči eksperim. VKD3D)", "Omrežni QoS seje", "Daj prednost SDL / Steam Input", "Ohrani Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Samodejni preklop HDR v KDE Plasma 6",
         "Prenosna vrsta SDMA (RDNA 3/4 Transfer Queue)", "Izvorni RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan video dekodiranje (RADV Experimental)",
         "Ultra Bleeding-Edge (Eksperimentalno)", "Usmerjanje Steam Controller 2026 / Puck",
         "VRR_CAP (prazno=Samod., 0=Izkl):", "Samod.",
         "Shrani profil", "Predogled Dry-Run", "Testi", "Ponastavi profil", "Izpis okolja dry-run se prikaže tukaj...",
@@ -732,6 +751,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Sicheres DX12 (experim. VKD3D deaktivieren)", "Sitzungs-Netzwerk-QoS", "SDL / Steam Input bevorzugen", "Steam-Overlay behalten (LD_PRELOAD)",
         "OptiScaler-Brücke", "Automatischer KDE-Plasma-6-HDR-Schalter",
         "Transfer-Warteschlange (RDNA 3/4 SDMA)", "Natives RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan-Videodekodierung (RADV Experimental)",
         "Ultra Bleeding-Edge (Experimentell)", "Steam Controller 2026 / Puck-Routing",
         "VRR_CAP (leer=Auto, 0=Aus):", "Auto",
         "Profil speichern", "Dry-Run-Vorschau", "Benchmarks", "Profil zurücksetzen", "Die Dry-Run-Ausgabe erscheint hier...",
@@ -765,6 +785,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 sûr (désactiver VKD3D expérimental)", "QoS réseau de session", "Préférer SDL / Steam Input", "Conserver l'overlay Steam (LD_PRELOAD)",
         "Passerelle OptiScaler", "Bascule HDR auto KDE Plasma 6",
         "File de transfert SDMA (RDNA 3/4)", "RADV Anti-Lag natif (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Décodage vidéo Vulkan (RADV Experimental)",
         "Ultra Bleeding-Edge (Expérimental)", "Routage Steam Controller 2026 / Puck",
         "VRR_CAP (vide=Auto, 0=Désact.) :", "Auto",
         "Enregistrer le profil", "Aperçu Dry-Run", "Benchmarks", "Réinitialiser", "La sortie dry-run s'affichera ici...",
@@ -798,6 +819,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 seguro (desactivar VKD3D experimental)", "QoS de red por sesión", "Preferir SDL / Steam Input", "Conservar Steam Overlay (LD_PRELOAD)",
         "Puente OptiScaler", "Cambio automático de HDR en KDE Plasma 6",
         "Cola de transferencia SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Decodificación de video Vulkan (RADV Experimental)",
         "Ultra Bleeding-Edge (Experimental)", "Enrutamiento Steam Controller 2026 / Puck",
         "VRR_CAP (vacío=Auto, 0=Desact.):", "Auto",
         "Guardar perfil", "Vista previa Dry-Run", "Benchmarks", "Restablecer perfil", "La salida del entorno dry-run aparecerá aquí...",
@@ -831,6 +853,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 seguro (desativar VKD3D experimental)", "QoS de rede da sessão", "Preferir SDL / Steam Input", "Manter Steam Overlay (LD_PRELOAD)",
         "Ponte OptiScaler", "Alternância automática de HDR no KDE Plasma 6",
         "Fila de transferência SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Decodificação de vídeo Vulkan (RADV Experimental)",
         "Ultra Bleeding-Edge (Experimental)", "Roteamento Steam Controller 2026 / Puck",
         "VRR_CAP (vazio=Auto, 0=Deslig.):", "Auto",
         "Salvar perfil", "Prévia Dry-Run", "Benchmarks", "Redefinir perfil", "A saída do ambiente dry-run aparecerá aqui...",
@@ -864,6 +887,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "DX12 sicuro (disabilita VKD3D sperimentale)", "QoS di rete per sessione", "Preferisci SDL / Steam Input", "Mantieni Steam Overlay (LD_PRELOAD)",
         "Bridge OptiScaler", "Switch automatico HDR su KDE Plasma 6",
         "Coda di trasferimento SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Decodifica video Vulkan (RADV Experimental)",
         "Ultra Bleeding-Edge (Sperimentale)", "Routing Steam Controller 2026 / Puck",
         "VRR_CAP (vuoto=Auto, 0=Off):", "Auto",
         "Salva profilo", "Anteprima Dry-Run", "Benchmark", "Ripristina profilo", "L'output dell'ambiente dry-run apparirà qui...",
@@ -897,6 +921,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "安全DX12 (実験的VKD3Dを無効化)", "セッションネットワーク QoS", "SDL / Steam Input を優先", "Steamオーバーレイを維持 (LD_PRELOAD)",
         "OptiScaler ブリッジ", "KDE Plasma 6 HDR 自動切替",
         "転送キュー / Transfer Queue (RDNA 3/4 SDMA)", "ネイティブ RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan ビデオデコード (RADV Experimental)",
         "Ultra Bleeding-Edge (実験的)", "Steam Controller 2026 / Puck ルーティング",
         "VRR_CAP (空欄=自動, 0=無効):", "自動",
         "プロファイル保存", "Dry-Run プレビュー", "ベンチマーク", "プロファイル初期化", "Dry-run の環境変数出力がここに表示されます...",
@@ -930,6 +955,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "안전 DX12 (실험적 VKD3D 비활성화)", "세션 네트워크 QoS", "SDL / Steam Input 우선", "Steam 오버레이 유지 (LD_PRELOAD)",
         "OptiScaler 브리지", "KDE Plasma 6 자동 HDR 전환",
         "전송 큐 / Transfer Queue (RDNA 3/4 SDMA)", "네이티브 RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan 비디오 디코딩 (RADV Experimental)",
         "Ultra Bleeding-Edge (실험적)", "Steam Controller 2026 / Puck 라우팅",
         "VRR_CAP (비움=자동, 0=끔):", "자동",
         "프로필 저장", "Dry-Run 미리보기", "벤치마크", "프로필 초기화", "Dry-run 환경 변수 출력이 여기에 표시됩니다...",
@@ -963,6 +989,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "安全 DX12（禁用实验性 VKD3D）", "会话网络 QoS", "优先 SDL / Steam Input", "保留 Steam 覆盖层 (LD_PRELOAD)",
         "OptiScaler 桥接", "KDE Plasma 6 自动 HDR 切换",
         "SDMA 传输队列 (RDNA 3/4 Transfer Queue)", "原生 RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan 视频解码 (RADV Experimental)",
         "极致前沿模式 (Ultra Bleeding-Edge 实验性)", "Steam Controller 2026 / Puck 路由",
         "VRR_CAP（留空=自动，0=关闭）：", "自动",
         "保存配置", "Dry-Run 预览", "基准测试", "重置配置", "Dry-run 环境变量预览将显示在此处...",
@@ -996,6 +1023,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Güvenli DX12 (deneysel VKD3D'yi kapat)", "Oturum Ağı QoS", "SDL / Steam Input Tercih Et", "Steam Arayüzünü Koru (LD_PRELOAD)",
         "OptiScaler Köprüsü", "Otomatik KDE Plasma 6 HDR Anahtarı",
         "SDMA Aktarım Kuyruğu (RDNA 3/4 Transfer Queue)", "Yerel RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
+        "Vulkan Video Çözme (RADV Experimental)",
         "Ultra Bleeding-Edge (Deneysel)", "Steam Controller 2026 / Puck Yönlendirmesi",
         "VRR_CAP (boş=Oto, 0=Kapalı):", "Oto",
         "Profili Kaydet", "Dry-Run Önizleme", "Kıyaslamalar", "Profili Sıfırla", "Dry-run ortam çıktısı burada görünür...",
@@ -1619,7 +1647,10 @@ class ProfilerBackend:
                 "source": source,
                 "launch_options": sc_opts,
                 "class": "vr" if synced_val == "VR" else "standard",
+                "runtime": "proton",
                 "is_vr": synced_val == "VR",
+                "has_reflex": False,
+                "smart_defaults": {},
                 "synced": synced_val,
                 "has_profile": (self.profile_dir / f"{appid}.env").is_file(),
                 "rationale": "",
@@ -1636,7 +1667,11 @@ class ProfilerBackend:
                     try:
                         data = json.loads(out)
                         info["class"] = data.get("class", info["class"])
+                        info["runtime"] = data.get("runtime", info["runtime"])
                         info["is_vr"] = bool(data.get("is_vr", info["is_vr"]))
+                        info["has_reflex"] = bool(data.get("has_reflex", False))
+                        if isinstance(data.get("smart_defaults"), dict):
+                            info["smart_defaults"] = dict(data["smart_defaults"])
                         info["rationale"] = data.get("rationale", "")
                         info["upscaler_info"] = data.get("upscaler_info", "None detected")
                         info["compat_tokens"] = data.get("proton_add_config", "")
@@ -1693,7 +1728,38 @@ class ProfilerBackend:
 
         return [r for r in results if r is not None]
 
-    def load_profile(self, appid: str) -> dict[str, str]:
+    def _detect_gpu_caps(self, drm_dir: Path | None = None) -> tuple[str, bool, bool]:
+        drm = drm_dir or Path(os.environ.get("SAP_DRM_DIR") or "/sys/class/drm")
+        vendor = "unknown"
+        is_rdna3 = False
+        is_rdna4 = False
+        found_intel = False
+        if drm.is_dir():
+            for card in sorted(drm.glob("card[0-9]*")):
+                dev = card / "device"
+                vfile = dev / "vendor"
+                if not vfile.is_file():
+                    continue
+                v = vfile.read_text(encoding="utf-8", errors="ignore").strip().lower()
+                if v == "0x1002":
+                    vendor = "amd"
+                    uevent = dev / "uevent"
+                    utext = uevent.read_text(encoding="utf-8", errors="ignore") if uevent.is_file() else ""
+                    if re.search(r"PCI_ID=1002:(744C|745E|747E|7480|740F)", utext, re.I):
+                        is_rdna3 = True
+                    if re.search(r"PCI_ID=1002:(7550|7590)", utext, re.I):
+                        is_rdna4 = True
+                    break
+                if v == "0x10de":
+                    vendor = "nvidia"
+                    break
+                if v == "0x8086":
+                    found_intel = True
+        if vendor == "unknown" and found_intel:
+            vendor = "intel"
+        return vendor, is_rdna3, is_rdna4
+
+    def _compute_smart_defaults(self, appid: str, game: dict[str, Any] | None = None) -> dict[str, str]:
         profile: dict[str, str] = {}
         for key, _ in PROFILE_TOGGLES:
             if key == "USE_FSR4":
@@ -1703,13 +1769,71 @@ class ProfilerBackend:
             else:
                 profile[key] = "0"
         profile["VRR_CAP"] = ""
+
+        aid = str(appid).strip()
+        if game is not None and isinstance(game.get("smart_defaults"), dict) and game["smart_defaults"]:
+            for k, v in game["smart_defaults"].items():
+                if k in profile:
+                    profile[k] = str(v)
+            return profile
+
+        if game is None:
+            detect_bin = self.find_tool("steam-auto-detect")
+            if detect_bin and not self.is_cancelled():
+                env = os.environ.copy()
+                env["HOME"] = str(self.home)
+                rc, out = self._run_cmd([detect_bin, "--json", aid], env=env, timeout=10)
+                if rc == 0 and out:
+                    try:
+                        data = json.loads(out)
+                        smart = data.get("smart_defaults")
+                        if isinstance(smart, dict) and smart:
+                            for k, v in smart.items():
+                                if k in profile:
+                                    profile[k] = str(v)
+                            return profile
+                    except json.JSONDecodeError:
+                        pass
+
+        known_anticheat = {
+            "594650", "730", "570", "252490", "304390", "393380", "553850",
+            "581320", "1085660", "1172470", "1172620", "1874880", "1938090",
+            "2051620", "2073850", "2100280", "2357570", "2479810", "2767030", "2887580",
+        }
+        is_hunt = aid == "594650"
+        if game is not None:
+            game_class = "competitive-anticheat" if is_hunt else str(game.get("class", "standard"))
+            is_native = bool(game.get("native_linux")) or str(game.get("runtime", "proton")) == "native_linux"
+            has_reflex = bool(game.get("has_reflex", False))
+        else:
+            game_class = "competitive-anticheat" if aid in known_anticheat else "standard"
+            is_native = False
+            has_reflex = False
+
+        gpu_vendor, is_rdna3, is_rdna4 = self._detect_gpu_caps()
+        if gpu_vendor == "amd":
+            profile["USE_NATIVE_ANTILAG"] = "1"
+            profile["USE_VK_VIDEO_DECODE"] = "1"
+            if is_rdna3 or is_rdna4:
+                profile["USE_TRANSFER_QUEUE"] = "1"
+            if has_reflex and game_class != "competitive-anticheat" and not is_native and not is_hunt:
+                profile["USE_REFLEX_LAYER"] = "1"
+        if game_class != "competitive-anticheat" and not is_native and not is_hunt:
+            profile["USE_BLEEDING_EDGE"] = "1"
+        if game_class == "competitive-anticheat":
+            profile["USE_NET_OPT"] = "1"
+        if is_hunt:
+            profile["USE_XWAYLAND"] = "1"
+            profile["USE_SAFEDX12"] = "1"
+            profile["USE_NET_OPT"] = "1"
+        return profile
+
+    def load_profile(self, appid: str, game: dict[str, Any] | None = None) -> dict[str, str]:
+        profile = self._compute_smart_defaults(appid, game=game)
         path = self.profile_dir / f"{appid}.env"
         if not path.is_file():
-            if str(appid).strip() == "594650":
-                profile["USE_XWAYLAND"] = "1"
-                profile["USE_SAFEDX12"] = "1"
-                profile["USE_NET_OPT"] = "1"
             return profile
+        file_keys: set[str] = set()
         for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = raw.strip()
             if not line or line.startswith("#") or "=" not in line:
@@ -1730,6 +1854,17 @@ class ProfilerBackend:
                 else:
                     value = "auto"
             profile[key] = value
+            file_keys.add(key)
+        if profile.get("USE_CONSERVATIVE") == "1" or profile.get("CONSERVATIVE") == "1":
+            for exp_key in (
+                "USE_BLEEDING_EDGE",
+                "USE_TRANSFER_QUEUE",
+                "USE_NATIVE_ANTILAG",
+                "USE_REFLEX_LAYER",
+                "USE_VK_VIDEO_DECODE",
+            ):
+                if exp_key not in file_keys:
+                    profile[exp_key] = "0"
         return profile
 
     def save_profile(self, appid: str, profile: dict[str, str], game_class: str = "standard") -> tuple[Path, list[str]]:
@@ -1857,6 +1992,10 @@ class ProfilerBackend:
         profile = self.load_profile(appid)
         profile["USE_XWAYLAND"] = "1"
         profile["USE_SAFEDX12"] = "1"
+        profile["USE_BLEEDING_EDGE"] = "0"
+        profile["USE_TRANSFER_QUEUE"] = "0"
+        profile["USE_REFLEX_LAYER"] = "0"
+        profile["USE_VK_VIDEO_DECODE"] = "0"
         return self.save_profile(appid, profile)
 
     def dry_run(self, appid: str, is_vr: bool = False) -> str:
@@ -2604,7 +2743,7 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
             upscaler_badge.setStyleSheet("color: #b45309; font-weight: bold;")
         else:
             upscaler_badge.setStyleSheet("color: #64748b;")
-        prof = backend.load_profile(current_game["appid"])
+        prof = backend.load_profile(current_game["appid"], game=current_game)
         norm, warns = validate_profile(
             prof,
             current_game.get("class", "standard"),
@@ -2648,8 +2787,19 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
         msg = backend.reset_profile(current_game["appid"])
         current_game["has_profile"] = False
         populate_table()
-        prof = backend.load_profile(current_game["appid"])
-        apply_editor_profile(prof, [])
+        prof = backend.load_profile(current_game["appid"], game=current_game)
+        norm, warns = validate_profile(
+            prof,
+            current_game.get("class", "standard"),
+            appid=current_game["appid"],
+        )
+        if current_game["appid"] == "594650":
+            hunt_warn = backend.check_hunt_compat_tool().get("warning")
+            if hunt_warn:
+                warns = [hunt_warn, *warns]
+        apply_editor_profile(norm, warns)
+        out = backend.dry_run(current_game["appid"], is_vr=bool(current_game.get("is_vr")))
+        dry_run_box.setPlainText(out)
         status_bar.showMessage(msg)
 
     search_edit.textChanged.connect(lambda _txt: populate_table())
@@ -3133,7 +3283,7 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                     selected_idx = max(0, min(selected_idx, len(filtered) - 1))
                     cur = filtered[selected_idx]
                     if cur["appid"] != last_appid:
-                        profile_cache = backend.load_profile(cur["appid"])
+                        profile_cache = backend.load_profile(cur["appid"], game=cur)
                         last_appid = cur["appid"]
                 else:
                     cur = None
@@ -3165,7 +3315,7 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         f"SDK: {cur.get('upscaler_info', 'None detected')}",
                         max_x - split_x - 1,
                     )
-                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h", "t", "a", "r", "e", "c")
+                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h", "t", "a", "r", "V", "e", "c")
                     for i, ((k, _label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
                         if 4 + i >= max_y - 2:
                             break
@@ -3290,6 +3440,7 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         ord("t"): "USE_TRANSFER_QUEUE",
                         ord("a"): "USE_NATIVE_ANTILAG",
                         ord("r"): "USE_REFLEX_LAYER",
+                        ord("V"): "USE_VK_VIDEO_DECODE",
                         ord("e"): "USE_BLEEDING_EDGE",
                         ord("c"): "USE_STEAM_CONTROLLER",
                     }
@@ -3328,7 +3479,8 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                     elif ch == ord("R"):
                         status_msg = backend.reset_profile(cur["appid"])
                         cur["has_profile"] = False
-                        profile_cache = backend.load_profile(cur["appid"])
+                        profile_cache = backend.load_profile(cur["appid"], game=cur)
+                        output_lines = backend.dry_run(cur["appid"], is_vr=cur["is_vr"]).splitlines()
 
             elif active_tab == 1:
                 if ch in (curses.KEY_DOWN, ord("j")):

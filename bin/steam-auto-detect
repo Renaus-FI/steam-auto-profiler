@@ -15,7 +15,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH|CONSERVATIVE)
                 ;;
             *) continue ;;
         esac
@@ -81,6 +81,10 @@ AUTO_CEF_FIX=0
 AUTO_XWAYLAND=0
 AUTO_SAFEDX12=0
 AUTO_NATIVE_AGS=1
+AUTO_TRANSFER_QUEUE=0
+AUTO_NATIVE_ANTILAG=0
+AUTO_REFLEX_LAYER=0
+AUTO_VK_VIDEO_DECODE=0
 AUTO_BLEEDING_EDGE=0
 AUTO_STEAM_CONTROLLER_MODE="off"
 AUTO_NATIVE_LINUX=0
@@ -88,6 +92,9 @@ AUTO_IS_VR=0
 AUTO_HAS_DLSS=0
 AUTO_HAS_XESS=0
 AUTO_HAS_FSR=0
+AUTO_HAS_REFLEX=0
+AUTO_RDNA3=0
+AUTO_RDNA4=0
 AUTO_SOURCE="steam"
 AUTO_UPSCALER_INFO="None detected"
 NTFS_MOUNT=0
@@ -96,6 +103,14 @@ GAME_NAME="Unknown / Non-Steam"
 GAME_DIR=""
 SHORTCUT_LAUNCH_OPTS=""
 AUTO_PROTON_ADD_CONFIG=""
+
+apply_bool_override() {
+    local target_var="$1" raw_val="$2"
+    case "${raw_val,,}" in
+        1|true|on|yes) printf -v "$target_var" '1' ;;
+        0|false|off|no) printf -v "$target_var" '0' ;;
+    esac
+}
 
 DRM_SYSFS_DIR="${SAP_DRM_DIR:-/sys/class/drm}"
 USB_SYSFS_DIR="${SAP_USB_DIR:-/sys/bus/usb/devices}"
@@ -134,6 +149,40 @@ detect_gpu_vendor() {
         return
     fi
     echo unknown
+}
+
+detect_rdna3() {
+    local modalias
+    for modalias in "$DRM_SYSFS_DIR"/card*/device/uevent; do
+        [[ -r "$modalias" ]] || continue
+        if grep -qiE 'PCI_ID=1002:(744C|745E|747E|7480|740F)' "$modalias"; then
+            echo 1
+            return
+        fi
+    done
+    if [[ -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
+        lspci -nn 2>/dev/null | grep -qiE '1002:(744c|745e|747e|7480|740f)'; then
+        echo 1
+        return
+    fi
+    echo 0
+}
+
+detect_rdna4() {
+    local uevent
+    for uevent in "$DRM_SYSFS_DIR"/card*/device/uevent; do
+        [[ -r "$uevent" ]] || continue
+        if grep -qiE 'PCI_ID=1002:(7550|7590)' "$uevent"; then
+            echo 1
+            return
+        fi
+    done
+    if [[ -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
+        lspci -nn 2>/dev/null | grep -qiE '1002:(7550|7590)'; then
+        echo 1
+        return
+    fi
+    echo 0
 }
 
 find_steam_roots() {
@@ -333,11 +382,15 @@ PY
             case "$lower" in
                 nvngx_dlss*.dll)
                     AUTO_HAS_DLSS=1
+                    AUTO_HAS_REFLEX=1
                     [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset"
                     if [[ -z "${SEEN_UPSCALER_DLLS[$lower]:-}" ]]; then
                         SEEN_UPSCALER_DLLS["$lower"]=1
                         DETECTED_LEGACY_DLLS+=("$base")
                     fi
+                    ;;
+                sl.reflex.dll)
+                    AUTO_HAS_REFLEX=1
                     ;;
                 libxess*.dll)
                     AUTO_HAS_XESS=1
@@ -364,7 +417,15 @@ PY
                         DETECTED_FSR31_DLLS+=("$base")
                     fi
                     ;;
-                sl.interposer.dll|ffx_fsr2*.dll|ffx_fsr3*.dll)
+                sl.interposer.dll)
+                    AUTO_HAS_REFLEX=1
+                    [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset"
+                    if [[ -z "${SEEN_UPSCALER_DLLS[$lower]:-}" ]]; then
+                        SEEN_UPSCALER_DLLS["$lower"]=1
+                        DETECTED_LEGACY_DLLS+=("$base")
+                    fi
+                    ;;
+                ffx_fsr2*.dll|ffx_fsr3*.dll)
                     [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset"
                     if [[ -z "${SEEN_UPSCALER_DLLS[$lower]:-}" ]]; then
                         SEEN_UPSCALER_DLLS["$lower"]=1
@@ -443,9 +504,9 @@ PY
     elif [[ -n "$GAME_DIR" && -n "${UPSCALE_MATCH:-}" ]]; then
         AUTO_CLASS="legacy-upscaler"
         AUTO_PRESET="standard"
-        AUTO_OPTISCALER=1
+        AUTO_OPTISCALER=0
         AUTO_SHARPEN=0
-        AUTO_REASON="Legacy upscaler detected ($(basename "$UPSCALE_MATCH")); optional bridge may be used"
+        AUTO_REASON="Legacy upscaler detected ($(basename "$UPSCALE_MATCH")); optional OptiScaler bridge available via USE_OPTISCALER=1"
     fi
 
     if [[ -n "$GAME_DIR" && -n "${CEF_MATCH:-}" ]]; then
@@ -462,22 +523,136 @@ PY
 fi
 
 GPU_VENDOR="$(detect_gpu_vendor)"
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    AUTO_RDNA3="$(detect_rdna3)"
+    AUTO_RDNA4="$(detect_rdna4)"
+fi
+
+# Smart hardware- and class-aware experimental defaults (v2.2.0)
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    AUTO_NATIVE_ANTILAG=1
+    AUTO_VK_VIDEO_DECODE=1
+    if [[ "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ]]; then
+        AUTO_TRANSFER_QUEUE=1
+    fi
+    if [[ "$AUTO_HAS_REFLEX" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
+        AUTO_REFLEX_LAYER=1
+    fi
+fi
+if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
+    AUTO_BLEEDING_EDGE=1
+fi
+
+# Capture pure smart defaults before applying saved .env profile or runtime overrides
+DEFAULT_TRANSFER_QUEUE="$AUTO_TRANSFER_QUEUE"
+DEFAULT_NATIVE_ANTILAG="$AUTO_NATIVE_ANTILAG"
+DEFAULT_REFLEX_LAYER="$AUTO_REFLEX_LAYER"
+DEFAULT_VK_VIDEO_DECODE="$AUTO_VK_VIDEO_DECODE"
+DEFAULT_BLEEDING_EDGE="$AUTO_BLEEDING_EDGE"
+
 ORIG_USE_STEAM_CONTROLLER_SET=0
 ORIG_USE_STEAM_CONTROLLER=""
 if [[ -n "${USE_STEAM_CONTROLLER+x}" ]]; then
     ORIG_USE_STEAM_CONTROLLER_SET=1
     ORIG_USE_STEAM_CONTROLLER="$USE_STEAM_CONTROLLER"
 fi
+ORIG_USE_TRANSFER_QUEUE_SET=0; ORIG_USE_TRANSFER_QUEUE=""
+if [[ -n "${USE_TRANSFER_QUEUE+x}" ]]; then ORIG_USE_TRANSFER_QUEUE_SET=1; ORIG_USE_TRANSFER_QUEUE="$USE_TRANSFER_QUEUE"; fi
+ORIG_USE_NATIVE_ANTILAG_SET=0; ORIG_USE_NATIVE_ANTILAG=""
+if [[ -n "${USE_NATIVE_ANTILAG+x}" ]]; then ORIG_USE_NATIVE_ANTILAG_SET=1; ORIG_USE_NATIVE_ANTILAG="$USE_NATIVE_ANTILAG"; fi
+ORIG_USE_REFLEX_LAYER_SET=0; ORIG_USE_REFLEX_LAYER=""
+if [[ -n "${USE_REFLEX_LAYER+x}" ]]; then ORIG_USE_REFLEX_LAYER_SET=1; ORIG_USE_REFLEX_LAYER="$USE_REFLEX_LAYER"; fi
+ORIG_USE_VK_VIDEO_DECODE_SET=0; ORIG_USE_VK_VIDEO_DECODE=""
+if [[ -n "${USE_VK_VIDEO_DECODE+x}" ]]; then ORIG_USE_VK_VIDEO_DECODE_SET=1; ORIG_USE_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"; fi
+ORIG_USE_BLEEDING_EDGE_SET=0; ORIG_USE_BLEEDING_EDGE=""
+if [[ -n "${USE_BLEEDING_EDGE+x}" ]]; then ORIG_USE_BLEEDING_EDGE_SET=1; ORIG_USE_BLEEDING_EDGE="$USE_BLEEDING_EDGE"; fi
+ORIG_USE_CONSERVATIVE_SET=0; ORIG_USE_CONSERVATIVE=""
+if [[ -n "${USE_CONSERVATIVE+x}" ]]; then ORIG_USE_CONSERVATIVE_SET=1; ORIG_USE_CONSERVATIVE="$USE_CONSERVATIVE"; fi
+ORIG_USE_MLFG_SET=0; ORIG_USE_MLFG=""
+if [[ -n "${USE_MLFG+x}" ]]; then ORIG_USE_MLFG_SET=1; ORIG_USE_MLFG="$USE_MLFG"; fi
+ORIG_USE_XWAYLAND_SET=0; ORIG_USE_XWAYLAND=""
+if [[ -n "${USE_XWAYLAND+x}" ]]; then ORIG_USE_XWAYLAND_SET=1; ORIG_USE_XWAYLAND="$USE_XWAYLAND"; fi
+ORIG_USE_SAFEDX12_SET=0; ORIG_USE_SAFEDX12=""
+if [[ -n "${USE_SAFEDX12+x}" ]]; then ORIG_USE_SAFEDX12_SET=1; ORIG_USE_SAFEDX12="$USE_SAFEDX12"; fi
+ORIG_USE_FSR4_SET=0; ORIG_USE_FSR4=""
+if [[ -n "${USE_FSR4+x}" ]]; then ORIG_USE_FSR4_SET=1; ORIG_USE_FSR4="$USE_FSR4"; fi
+ORIG_CONSERVATIVE_SET=0; ORIG_CONSERVATIVE=""
+if [[ -n "${CONSERVATIVE+x}" ]]; then ORIG_CONSERVATIVE_SET=1; ORIG_CONSERVATIVE="$CONSERVATIVE"; fi
+
+USE_TRANSFER_QUEUE="$AUTO_TRANSFER_QUEUE"
+USE_NATIVE_ANTILAG="$AUTO_NATIVE_ANTILAG"
+USE_REFLEX_LAYER="$AUTO_REFLEX_LAYER"
+USE_VK_VIDEO_DECODE="$AUTO_VK_VIDEO_DECODE"
+USE_BLEEDING_EDGE="$AUTO_BLEEDING_EDGE"
+USE_CONSERVATIVE=0
+
 PROFILE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles/$APPID.env"
 if [[ -n "$APPID" && -f "$PROFILE_FILE" ]]; then
     load_profile_safe "$PROFILE_FILE"
 fi
+if [[ "${CONSERVATIVE:-0}" -eq 1 && "$ORIG_CONSERVATIVE_SET" -eq 0 ]]; then
+    USE_CONSERVATIVE=1
+fi
+if [[ "$ORIG_USE_CONSERVATIVE_SET" -eq 1 ]]; then
+    apply_bool_override USE_CONSERVATIVE "$ORIG_USE_CONSERVATIVE"
+fi
+if [[ "$ORIG_CONSERVATIVE_SET" -eq 1 ]]; then
+    apply_bool_override USE_CONSERVATIVE "$ORIG_CONSERVATIVE"
+fi
+if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
+    USE_TRANSFER_QUEUE=0
+    USE_NATIVE_ANTILAG=0
+    USE_REFLEX_LAYER=0
+    USE_VK_VIDEO_DECODE=0
+    USE_BLEEDING_EDGE=0
+fi
+
+if [[ "$ORIG_USE_TRANSFER_QUEUE_SET" -eq 1 ]]; then apply_bool_override USE_TRANSFER_QUEUE "$ORIG_USE_TRANSFER_QUEUE"; fi
+if [[ -n "${TRANSFER_QUEUE+x}" ]]; then apply_bool_override USE_TRANSFER_QUEUE "$TRANSFER_QUEUE"; fi
+if [[ "$ORIG_USE_NATIVE_ANTILAG_SET" -eq 1 ]]; then apply_bool_override USE_NATIVE_ANTILAG "$ORIG_USE_NATIVE_ANTILAG"; fi
+if [[ -n "${NATIVE_ANTILAG+x}" ]]; then apply_bool_override USE_NATIVE_ANTILAG "$NATIVE_ANTILAG"; fi
+if [[ "$ORIG_USE_REFLEX_LAYER_SET" -eq 1 ]]; then apply_bool_override USE_REFLEX_LAYER "$ORIG_USE_REFLEX_LAYER"; fi
+if [[ -n "${REFLEX_LAYER+x}" ]]; then apply_bool_override USE_REFLEX_LAYER "$REFLEX_LAYER"; fi
+if [[ "$ORIG_USE_VK_VIDEO_DECODE_SET" -eq 1 ]]; then apply_bool_override USE_VK_VIDEO_DECODE "$ORIG_USE_VK_VIDEO_DECODE"; fi
+if [[ -n "${VK_VIDEO_DECODE+x}" ]]; then apply_bool_override USE_VK_VIDEO_DECODE "$VK_VIDEO_DECODE"; fi
+if [[ "$ORIG_USE_BLEEDING_EDGE_SET" -eq 1 ]]; then apply_bool_override USE_BLEEDING_EDGE "$ORIG_USE_BLEEDING_EDGE"; fi
+if [[ -n "${BLEEDING_EDGE+x}" ]]; then apply_bool_override USE_BLEEDING_EDGE "$BLEEDING_EDGE"; fi
+if [[ "$ORIG_USE_MLFG_SET" -eq 1 ]]; then apply_bool_override USE_MLFG "$ORIG_USE_MLFG"; fi
+if [[ -n "${MLFG+x}" ]]; then apply_bool_override USE_MLFG "$MLFG"; fi
+if [[ "$ORIG_USE_XWAYLAND_SET" -eq 1 ]]; then apply_bool_override USE_XWAYLAND "$ORIG_USE_XWAYLAND"; fi
+if [[ -n "${XWAYLAND+x}" ]]; then apply_bool_override USE_XWAYLAND "$XWAYLAND"; fi
+if [[ "$ORIG_USE_SAFEDX12_SET" -eq 1 ]]; then apply_bool_override USE_SAFEDX12 "$ORIG_USE_SAFEDX12"; fi
+if [[ -n "${SAFEDX12+x}" ]]; then apply_bool_override USE_SAFEDX12 "$SAFEDX12"; fi
+if [[ "$ORIG_USE_FSR4_SET" -eq 1 ]]; then apply_bool_override USE_FSR4 "$ORIG_USE_FSR4"; fi
 if [[ "$ORIG_USE_STEAM_CONTROLLER_SET" -eq 1 ]]; then
     USE_STEAM_CONTROLLER="$ORIG_USE_STEAM_CONTROLLER"
 fi
 if [[ -n "${STEAM_CONTROLLER:-}" ]]; then
     USE_STEAM_CONTROLLER="$STEAM_CONTROLLER"
 fi
+
+AUTO_TRANSFER_QUEUE="$USE_TRANSFER_QUEUE"
+AUTO_NATIVE_ANTILAG="$USE_NATIVE_ANTILAG"
+AUTO_REFLEX_LAYER="$USE_REFLEX_LAYER"
+AUTO_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"
+AUTO_BLEEDING_EDGE="$USE_BLEEDING_EDGE"
+
+if [[ "$AUTO_CLASS" == "competitive-anticheat" || "$APPID" == "594650" ]]; then
+    AUTO_BLEEDING_EDGE=0
+    AUTO_REFLEX_LAYER=0
+fi
+if [[ "$APPID" == "594650" ]]; then
+    USE_MLFG=0
+fi
+if [[ "${USE_MLFG:-0}" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$APPID" != "594650" ]]; then
+    AUTO_NATIVE_ANTILAG=0
+    AUTO_REFLEX_LAYER=0
+fi
+if [[ "$AUTO_NATIVE_LINUX" -eq 1 ]]; then
+    AUTO_BLEEDING_EDGE=0
+    AUTO_REFLEX_LAYER=0
+fi
+
 DETECTED_STEAM_CONTROLLER="$(detect_steam_controller_2026)"
 SC_FORCE_XWAYLAND=0
 case "${USE_STEAM_CONTROLLER:-auto}" in
@@ -501,7 +676,7 @@ case "${USE_STEAM_CONTROLLER:-auto}" in
         ;;
     auto|AUTO|"")
         if [[ -n "$DETECTED_STEAM_CONTROLLER" ]]; then
-            if [[ ( -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ) && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 ]]; then
+            if [[ ( -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ) && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 ]]; then
                 AUTO_STEAM_CONTROLLER_MODE="wayland-hdr"
             else
                 AUTO_STEAM_CONTROLLER_MODE="xwayland"
@@ -510,11 +685,9 @@ case "${USE_STEAM_CONTROLLER:-auto}" in
         fi
         ;;
 esac
-if [[ "${BLEEDING_EDGE:-0}" -eq 1 || "${USE_BLEEDING_EDGE:-0}" -eq 1 ]]; then
-    AUTO_BLEEDING_EDGE=1
-fi
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     AUTO_BLEEDING_EDGE=0
+    AUTO_REFLEX_LAYER=0
 fi
 if [[ "$APPID" == "594650" ]]; then
     USE_XWAYLAND=1
@@ -525,38 +698,38 @@ if [[ "$APPID" == "594650" ]]; then
     AUTO_SAFEDX12=1
     AUTO_NATIVE_AGS=0
     AUTO_BLEEDING_EDGE=0
+    AUTO_REFLEX_LAYER=0
 fi
 COMPAT_TOKENS=()
 if [[ "$AUTO_STEAM_CONTROLLER_MODE" == "wayland-hdr" && "$APPID" != "594650" ]]; then
     USE_XWAYLAND=0
     SC_FORCE_XWAYLAND=0
 fi
-if [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 && "$SC_FORCE_XWAYLAND" -ne 1 ]]; then
+if [[ -n "${WAYLAND_DISPLAY:-}" && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 && "$SC_FORCE_XWAYLAND" -ne 1 ]]; then
     COMPAT_TOKENS+=("wayland")
 fi
 if [[ -n "${WINE_DISABLE_VULKAN_OPWR:-}" && "${WINE_DISABLE_VULKAN_OPWR:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
-elif [[ -n "${WAYLAND_DISPLAY:-}" && "${XWAYLAND:-0}" -ne 1 && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 && "$SC_FORCE_XWAYLAND" -ne 1 ]]; then
+elif [[ -n "${WAYLAND_DISPLAY:-}" && "${USE_XWAYLAND:-0}" -ne 1 && "${AUTO_XWAYLAND:-0}" -ne 1 && "$SC_FORCE_XWAYLAND" -ne 1 ]]; then
     COMPAT_TOKENS+=("noopwr")
 fi
 if [[ "$GPU_VENDOR" == "amd" && "${AUTO_NATIVE_AGS:-1}" -eq 1 ]]; then
     COMPAT_TOKENS+=("nativeags")
 fi
-if [[ "${SAFEDX12:-0}" -ne 1 && "${USE_SAFEDX12:-0}" -eq 0 && "${AUTO_SAFEDX12:-0}" -eq 0 ]]; then
+if [[ "${USE_SAFEDX12:-0}" -eq 0 && "${AUTO_SAFEDX12:-0}" -eq 0 ]]; then
     COMPAT_TOKENS+=("vkd3dbindlesstb")
 fi
-if [[ "${MLFG:-0}" -eq 0 && "${USE_MLFG:-0}" -eq 0 ]] || [[ "$APPID" == "594650" ]]; then
+if [[ "${USE_MLFG:-0}" -eq 0 ]] || [[ "$APPID" == "594650" ]]; then
     COMPAT_TOKENS+=("dxvklowlatency" "vkd3dlowlatency")
     if [[ "$GPU_VENDOR" == "nvidia" ]]; then
         COMPAT_TOKENS+=("vkreflex")
     fi
-    if [[ "$AUTO_CLASS" != "competitive-anticheat" ]] &&
-       [[ "${REFLEX_LAYER:-0}" -eq 1 || "${USE_REFLEX_LAYER:-0}" -eq 1 ]]; then
+    if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_REFLEX_LAYER" -eq 1 ]]; then
         COMPAT_TOKENS+=("lowlatencylayer")
     fi
 fi
-if [[ "$AUTO_BLEEDING_EDGE" -eq 1 ]] || {
-    [[ "${FSR4:-${USE_FSR4:-1}}" -ne 0 ]] &&
+if [[ "${FSR4:-${USE_FSR4:-1}}" -ne 0 ]] && {
+    [[ "$AUTO_BLEEDING_EDGE" -eq 1 ]] ||
     [[ "$AUTO_CLASS" == "native-fsr4" || "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
        "${FSR4:-0}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]];
 }; then
@@ -565,7 +738,7 @@ fi
 if [[ "$AUTO_BLEEDING_EDGE" -eq 1 ]]; then
     COMPAT_TOKENS+=("wow64")
 fi
-if [[ "$APPID" != "594650" && ( "${MLFG:-0}" -eq 1 || "${USE_MLFG:-0}" -eq 1 ) ]]; then
+if [[ "$APPID" != "594650" && "${USE_MLFG:-0}" -eq 1 ]]; then
     COMPAT_TOKENS+=("mlfg")
 fi
 if [[ "$AUTO_STEAM_CONTROLLER_MODE" == "off" && ( "${SDL:-0}" -eq 1 || "${USE_SDL:-0}" -eq 1 ) ]]; then
@@ -585,20 +758,25 @@ if [[ "$JSON_MODE" -eq 1 ]]; then
     python3 - "$APPID" "$GAME_NAME" "$GAME_DIR" "$AUTO_NATIVE_LINUX" \
         "$AUTO_CLASS" "$AUTO_PRESET" "$AUTO_NET_OPT" "$AUTO_CEF_FIX" \
         "$AUTO_SHARPEN" "$AUTO_OPTISCALER" "$AUTO_REASON" \
-        "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$NTFS_MOUNT" \
+        "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$AUTO_HAS_REFLEX" "$NTFS_MOUNT" \
         "$AUTO_PROTON_ADD_CONFIG" "$AUTO_IS_VR" "$AUTO_SOURCE" "$AUTO_UPSCALER_INFO" \
         "$AUTO_XWAYLAND" "$AUTO_SAFEDX12" "$AUTO_NATIVE_AGS" "$AUTO_BLEEDING_EDGE" \
-        "$AUTO_STEAM_CONTROLLER_MODE" <<'PY'
+        "$AUTO_TRANSFER_QUEUE" "$AUTO_NATIVE_ANTILAG" "$AUTO_REFLEX_LAYER" "$AUTO_VK_VIDEO_DECODE" \
+        "$AUTO_STEAM_CONTROLLER_MODE" "$GPU_VENDOR" "$AUTO_RDNA3" "$AUTO_RDNA4" \
+        "$DEFAULT_TRANSFER_QUEUE" "$DEFAULT_NATIVE_ANTILAG" "$DEFAULT_REFLEX_LAYER" \
+        "$DEFAULT_VK_VIDEO_DECODE" "$DEFAULT_BLEEDING_EDGE" <<'PY'
 import json
 import sys
 
 (
     appid, game_name, game_dir, native, game_class, preset,
     net_opt, cef_fix, sharpen, optiscaler, reason,
-    has_dlss, has_xess, has_fsr, ntfs_mount, proton_add_config, is_vr,
+    has_dlss, has_xess, has_fsr, has_reflex, ntfs_mount, proton_add_config, is_vr,
     source, upscaler_info, xwayland, safedx12, native_ags, bleeding_edge,
-    steam_controller_mode,
-) = sys.argv[1:25]
+    transfer_queue, native_antilag, reflex_layer, vk_video_decode,
+    steam_controller_mode, gpu_vendor, rdna3, rdna4,
+    def_tq, def_na, def_rl, def_vd, def_be,
+) = sys.argv[1:38]
 
 print(json.dumps({
     "app_id": appid or None,
@@ -615,13 +793,37 @@ print(json.dumps({
     "xwayland": xwayland == "1",
     "safedx12": safedx12 == "1",
     "native_ags": native_ags == "1",
+    "transfer_queue": transfer_queue == "1",
+    "native_antilag": native_antilag == "1",
+    "reflex_layer": reflex_layer == "1",
+    "vk_video_decode": vk_video_decode == "1",
     "bleeding_edge": bleeding_edge == "1",
     "steam_controller_mode": steam_controller_mode,
+    "gpu_vendor": gpu_vendor,
+    "rdna3": rdna3 == "1",
+    "rdna4": rdna4 == "1",
+    "smart_defaults": {
+        "USE_TRANSFER_QUEUE": def_tq,
+        "USE_NATIVE_ANTILAG": def_na,
+        "USE_REFLEX_LAYER": def_rl,
+        "USE_VK_VIDEO_DECODE": def_vd,
+        "USE_BLEEDING_EDGE": def_be,
+        "USE_XWAYLAND": xwayland,
+        "USE_SAFEDX12": safedx12,
+        "USE_NET_OPT": net_opt,
+        "USE_OPTISCALER": optiscaler,
+        "USE_SHARPEN": "0",
+        "USE_FSR4": "1",
+        "USE_MLFG": "0",
+        "AUTO_HDR_SWITCH": "0",
+        "USE_STEAM_CONTROLLER": "auto",
+    },
     "rationale": reason,
     "upscaler_info": upscaler_info,
     "has_dlss": has_dlss == "1",
     "has_xess": has_xess == "1",
     "has_fsr": has_fsr == "1",
+    "has_reflex": has_reflex == "1",
     "is_vr": is_vr == "1",
     "ntfs_mount": ntfs_mount == "1",
     "proton_add_config": proton_add_config,
@@ -643,12 +845,17 @@ Net QoS Hook : $AUTO_NET_OPT
 CEF Fix      : $AUTO_CEF_FIX
 Sharpen Layer: $AUTO_SHARPEN
 OptiScaler   : $AUTO_OPTISCALER (optional plugin)
+Transfer Q   : $AUTO_TRANSFER_QUEUE
+Native AntiL : $AUTO_NATIVE_ANTILAG
+Reflex Layer : $AUTO_REFLEX_LAYER
+VK Video Dec : $AUTO_VK_VIDEO_DECODE
 Bleeding-Edge: $AUTO_BLEEDING_EDGE
 Steam Ctrl   : $AUTO_STEAM_CONTROLLER_MODE
 Upscaler SDK : $AUTO_UPSCALER_INFO
 DLSS DLL     : $AUTO_HAS_DLSS
 XeSS DLL     : $AUTO_HAS_XESS
 FSR DLL      : $AUTO_HAS_FSR
+Reflex DLL   : $AUTO_HAS_REFLEX
 Compat Config: $AUTO_PROTON_ADD_CONFIG
 EAC Runtime   : $([[ "$AUTO_CLASS" == "competitive-anticheat" ]] && echo "proton-cachyos-slr / CachyOS EAC v2 recommended; $(command -v eac-status >/dev/null 2>&1 && echo 'eac-status available' || echo 'eac-status unavailable')" || echo "Not detected")
 Rationale    : $AUTO_REASON
@@ -663,6 +870,10 @@ else
     printf 'AUTO_XWAYLAND=%q\n' "$AUTO_XWAYLAND"
     printf 'AUTO_SAFEDX12=%q\n' "$AUTO_SAFEDX12"
     printf 'AUTO_NATIVE_AGS=%q\n' "$AUTO_NATIVE_AGS"
+    printf 'AUTO_TRANSFER_QUEUE=%q\n' "$AUTO_TRANSFER_QUEUE"
+    printf 'AUTO_NATIVE_ANTILAG=%q\n' "$AUTO_NATIVE_ANTILAG"
+    printf 'AUTO_REFLEX_LAYER=%q\n' "$AUTO_REFLEX_LAYER"
+    printf 'AUTO_VK_VIDEO_DECODE=%q\n' "$AUTO_VK_VIDEO_DECODE"
     printf 'AUTO_BLEEDING_EDGE=%q\n' "$AUTO_BLEEDING_EDGE"
     printf 'AUTO_STEAM_CONTROLLER_MODE=%q\n' "$AUTO_STEAM_CONTROLLER_MODE"
     printf 'AUTO_NATIVE_LINUX=%q\n' "$AUTO_NATIVE_LINUX"
@@ -672,6 +883,7 @@ else
     printf 'AUTO_HAS_DLSS=%q\n' "$AUTO_HAS_DLSS"
     printf 'AUTO_HAS_XESS=%q\n' "$AUTO_HAS_XESS"
     printf 'AUTO_HAS_FSR=%q\n' "$AUTO_HAS_FSR"
+    printf 'AUTO_HAS_REFLEX=%q\n' "$AUTO_HAS_REFLEX"
     printf 'NTFS_MOUNT=%q\n' "$NTFS_MOUNT"
     printf 'AUTO_PROTON_ADD_CONFIG=%q\n' "$AUTO_PROTON_ADD_CONFIG"
     printf 'AUTO_REASON=%q\n' "$AUTO_REASON"

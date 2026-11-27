@@ -22,6 +22,25 @@ for candidate in "$SCRIPT_DIR/steam-auto-detect" "$HOME/.local/bin/steam-auto-de
     fi
 done
 
+
+# Bypass profiler orchestration for SteamVR (250820) and VR launch flags
+if [[ $# -gt 0 ]]; then
+    if [[ "${SteamAppId:-}" == "250820" || "${STEAM_COMPAT_APP_ID:-}" == "250820" ]]; then
+        case "${1:-}" in
+            -h|--help|--inspect|-i|--doctor|--check-system|--reset|--list-profiles|--last-log|--configure|--dry-run)
+                ;;
+            *)
+                exec "$@"
+                ;;
+        esac
+    fi
+    for _arg in "$@"; do
+        if [[ "$_arg" == "-vr" || "$_arg" == "--vr" ]]; then
+            exec "$@"
+        fi
+    done
+fi
+
 PROFILE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles"
 mkdir -p "$PROFILE_DIR"
 
@@ -35,7 +54,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT)
                 ;;
             *) continue ;;
         esac
@@ -235,7 +254,10 @@ run_doctor() {
     if [[ -n "$default_iface" && -n "$(command -v tc 2>/dev/null)" ]]; then
         local qdisc_output
         qdisc_output="$(tc -s qdisc show dev "$default_iface" 2>/dev/null || true)"
-        if grep -qiE 'qdisc cake|cake .*diffserv4|cake .*bandwidth' <<<"$qdisc_output"; then
+        if grep -qiE '(^|[[:space:]])qdisc[[:space:]]+htb([[:space:]]|$)' <<<"$qdisc_output" &&
+           grep -qiE '(^|[[:space:]])qdisc[[:space:]]+cake([[:space:]]|$).*parent[[:space:]]+[0-9a-fA-F]+:' <<<"$qdisc_output"; then
+            echo "[OK] sch_cake active on $default_iface (HTB hierarchy)"
+        elif grep -qiE '(^|[[:space:]])qdisc[[:space:]]+cake([[:space:]]|$)|cake[[:space:]].*(diffserv4|bandwidth)' <<<"$qdisc_output"; then
             echo "[OK] sch_cake active on $default_iface"
         else
             echo "[INFO] No active sch_cake qdisc detected on $default_iface"
@@ -397,15 +419,19 @@ if [[ "$CONFIGURE_ONLY" -eq 0 && "$DRY_RUN" -eq 0 && "$#" -eq 0 ]]; then
 fi
 
 detect_gpu_vendor() {
-    local vendor_file
+    local vendor_file found_intel=0
     for vendor_file in /sys/class/drm/card*/device/vendor; do
         [[ -r "$vendor_file" ]] || continue
         case "$(cat "$vendor_file" 2>/dev/null)" in
             0x1002) echo amd; return ;;
             0x10de) echo nvidia; return ;;
-            0x8086) echo intel; return ;;
+            0x8086) found_intel=1 ;;
         esac
     done
+    if [[ "$found_intel" -eq 1 ]]; then
+        echo intel
+        return
+    fi
     echo unknown
 }
 
@@ -493,13 +519,13 @@ detect_rdna4() {
     local uevent
     for uevent in /sys/class/drm/card*/device/uevent; do
         [[ -r "$uevent" ]] || continue
-        if grep -qiE 'PCI_ID=1002:7550' "$uevent"; then
+        if grep -qiE 'PCI_ID=1002:(7550|7590)' "$uevent"; then
             echo 1
             return
         fi
     done
     if command -v lspci >/dev/null 2>&1 &&
-        lspci -nn 2>/dev/null | grep -qiE '1002:7550'; then
+        lspci -nn 2>/dev/null | grep -qiE '1002:(7550|7590)'; then
         echo 1
         return
     fi
@@ -573,6 +599,12 @@ if [[ -n "${VRR_MINUS_MARGIN+x}" ]]; then
     ORIG_VRR_MINUS_MARGIN_SET=1
     ORIG_VRR_MINUS_MARGIN="$VRR_MINUS_MARGIN"
 fi
+ORIG_WAYLANDDRV_SHORTCUT_INHIBIT_SET=0
+ORIG_WAYLANDDRV_SHORTCUT_INHIBIT=""
+if [[ -n "${WAYLANDDRV_SHORTCUT_INHIBIT+x}" ]]; then
+    ORIG_WAYLANDDRV_SHORTCUT_INHIBIT_SET=1
+    ORIG_WAYLANDDRV_SHORTCUT_INHIBIT="$WAYLANDDRV_SHORTCUT_INHIBIT"
+fi
 
 USE_XWAYLAND=0
 USE_MLFG="${USE_MLFG:-0}"
@@ -637,6 +669,9 @@ if [[ "$ORIG_VRR_MINUS_MARGIN_SET" -eq 1 ]]; then
     VRR_MINUS_MARGIN="$ORIG_VRR_MINUS_MARGIN"
 elif [[ -z "${VRR_MINUS_MARGIN+x}" ]]; then
     VRR_MINUS_MARGIN=0
+fi
+if [[ "$ORIG_WAYLANDDRV_SHORTCUT_INHIBIT_SET" -eq 1 ]]; then
+    WAYLANDDRV_SHORTCUT_INHIBIT="$ORIG_WAYLANDDRV_SHORTCUT_INHIBIT"
 fi
 AUTO_VRR_CAP="$(detect_vrr_cap)"
 
@@ -795,7 +830,7 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     export PROTON_DXVK_SAREK=0
     export PROTON_DXVK_GPLASYNC=0
     export PROTON_DXVK_LLASYNC=0
-    export WAYLANDDRV_SHORTCUT_INHIBIT=0
+    export WAYLANDDRV_SHORTCUT_INHIBIT="${WAYLANDDRV_SHORTCUT_INHIBIT:-0}"
     export NO_DECORATION=0
     export NO_WM_DECORATION=0
     export PROTON_NO_WM_DECORATION=0
@@ -812,6 +847,7 @@ elif [[ "$USE_XWAYLAND" -eq 1 ]]; then
 else
     export PROTON_ENABLE_WAYLAND=1
     export PROTON_USE_WAYLAND="${PROTON_USE_WAYLAND:-1}"
+    export WAYLANDDRV_SHORTCUT_INHIBIT="${WAYLANDDRV_SHORTCUT_INHIBIT:-0}"
     export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
     export WINE_DISABLE_VULKAN_OPWR="${WINE_DISABLE_VULKAN_OPWR:-1}"
     if [[ "${DXVK_NO_HDR:-0}" != "1" ]]; then
@@ -875,8 +911,10 @@ fi
 if [[ "$USE_MLFG" -eq 1 ]]; then
     export PROTON_MLFG_UPGRADE=1
     export MLFG_UPGRADE=1
+    export ENABLE_LAYER_MESA_ANTI_LAG=0
     export PROTON_VKD3D_LOWLATENCY=0
     export PROTON_DXVK_LOWLATENCY=0
+    unset DXVK_FRAME_RATE VKD3D_FRAME_RATE DXVK_FRAME_PACE
     if [[ "$GPU_VENDOR" == "amd" && "$AUTO_RDNA3" -eq 1 ]]; then
         export DXIL_SPIRV_CONFIG="${DXIL_SPIRV_CONFIG:-wmma_rdna3_workaround}"
     fi
@@ -886,10 +924,8 @@ else
     export ENABLE_LAYER_MESA_ANTI_LAG="${ENABLE_LAYER_MESA_ANTI_LAG:-1}"
     export PROTON_DXVK_LOWLATENCY="${PROTON_DXVK_LOWLATENCY:-1}"
     export PROTON_VKD3D_LOWLATENCY="${PROTON_VKD3D_LOWLATENCY:-1}"
-    if [[ "$GAMESCOPE_SESSION" -eq 0 ]]; then
-        export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
-    fi
     if [[ "$GAMESCOPE_SESSION" -eq 0 ]] && (( AUTO_VRR_CAP > 0 )); then
+        export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
         export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AUTO_VRR_CAP}"
         export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AUTO_VRR_CAP}"
     fi
@@ -927,7 +963,7 @@ else
     export PROTON_USE_OPTISCALER=0
 fi
 
-if [[ "$USE_SHARPEN" -eq 1 && "$USE_OPTISCALER" -ne 1 ]]; then
+if [[ "$USE_SHARPEN" -eq 1 && "$USE_OPTISCALER" -ne 1 && "${PROTON_FSR4_UPGRADE:-0}" -ne 1 && "${PROTON_FSR4_RDNA3_UPGRADE:-0}" -ne 1 ]]; then
     export ENABLE_VKBASALT=1
     VKBASALT_PRESET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/vkBasalt/presets"
     if [[ "$AUTO_PRESET" == "competitive" && -f "$VKBASALT_PRESET_DIR/competitive.conf" ]]; then
@@ -939,6 +975,13 @@ if [[ "$USE_SHARPEN" -eq 1 && "$USE_OPTISCALER" -ne 1 ]]; then
     fi
 else
     export ENABLE_VKBASALT=0
+fi
+
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    export PROTON_NATIVE_AGS="${PROTON_NATIVE_AGS:-1}"
+fi
+if [[ "$USE_SAFEDX12" -eq 0 ]]; then
+    export VKD3D_CONFIG="${VKD3D_CONFIG:-descriptor_heap,dxr12,force_bindless_texel_buffer}"
 fi
 
 COMPAT_TOKENS=()
@@ -1007,8 +1050,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Compat tokens: ${PROTON_ADD_CONFIG:-none}"
     echo "Exported launch variables:"
     env | LC_ALL=C sort | awk -F= '
-        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_)/ ||
-        $1 ~ /^(WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|STEAM_COMPAT_CONFIG)$/ {
+        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_)/ ||
+        $1 == "STEAM_COMPAT_CONFIG" {
             print
         }'
     exit 0
@@ -1032,8 +1075,8 @@ write_last_log() {
         printf '\n'
         printf 'exported_variables:\n'
         env | LC_ALL=C sort | awk -F= '
-            $1 ~ /^(PROTON_|DXVK_|VKD3D_|WINE_|MESA_|ENABLE_|SDL_|STEAM_COMPAT_CONFIG)/ ||
-            $1 ~ /^(WAYLANDDRV_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_)/ { print }
+            $1 ~ /^(PROTON_|DXVK_|VKD3D_|WINE_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_)/ ||
+            $1 == "STEAM_COMPAT_CONFIG" { print }
         '
         printf 'exit_code=%s\n' "$exit_code"
     } > "$app_log"

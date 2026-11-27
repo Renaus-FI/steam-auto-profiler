@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+
+# Portable, hardware-agnostic VR launch orchestrator for Steam on Linux.
+
+set -euo pipefail
+
+for _vr_dir in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+    case ":${PATH:-}:" in
+        *:"$_vr_dir":*) ;;
+        *) PATH="${PATH:+${PATH}:}$_vr_dir" ;;
+    esac
+done
+export PATH
+
+usage() {
+    cat <<'EOF'
+Usage:
+  vr-run %command% [args...]
+  vr-run [--dry-run] [--] <command> [args...]
+
+Options:
+  --dry-run       Resolve and print the VR launch environment without launching
+  --help, -h      Show this help message
+EOF
+}
+
+DRY_RUN=0
+while (($#)); do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ "$DRY_RUN" -eq 0 && $# -eq 0 ]]; then
+    usage >&2
+    exit 2
+fi
+
+# Scrub inherited flatscreen overrides that interfere with VR compositors/frame timing.
+unset DXVK_FRAME_RATE VKD3D_FRAME_RATE DXVK_FRAME_PACE
+unset PROTON_ENABLE_WAYLAND PROTON_USE_WAYLAND
+unset ENABLE_LAYER_MESA_ANTI_LAG ENABLE_VKBASALT
+unset PROTON_MLFG_UPGRADE MLFG_UPGRADE
+
+DRM_SYSFS_DIR="${VR_RUN_DRM_DIR:-/sys/class/drm}"
+
+detect_gpu_vendor() {
+    local vendor_file found_intel=0
+    for vendor_file in "$DRM_SYSFS_DIR"/card*/device/vendor; do
+        [[ -r "$vendor_file" ]] || continue
+        case "$(cat "$vendor_file" 2>/dev/null)" in
+            0x1002) echo amd; return ;;
+            0x10de) echo nvidia; return ;;
+            0x8086) found_intel=1 ;;
+        esac
+    done
+    if [[ "$found_intel" -eq 1 ]]; then
+        echo intel
+        return
+    fi
+    echo unknown
+}
+
+detect_discrete_gpu() {
+    local card_dir vendor device vram boot_vga best_card=""
+    local best_vram=0
+    for card_dir in "$DRM_SYSFS_DIR"/card*/device; do
+        [[ -d "$card_dir" ]] || continue
+        [[ -r "$card_dir/vendor" && -r "$card_dir/device" ]] || continue
+        vendor="$(cat "$card_dir/vendor" 2>/dev/null)"
+        device="$(cat "$card_dir/device" 2>/dev/null)"
+        [[ "$vendor" == "0x1002" || "$vendor" == "0x10de" ]] || continue
+        vram=0
+        if [[ -r "$card_dir/mem_info_vram_total" ]]; then
+            vram="$(cat "$card_dir/mem_info_vram_total" 2>/dev/null || echo 0)"
+        fi
+        boot_vga=0
+        [[ -r "$card_dir/boot_vga" ]] && boot_vga="$(cat "$card_dir/boot_vga" 2>/dev/null || echo 0)"
+        if (( vram > 2147483648 )) || { [[ "$boot_vga" == "0" ]] && (( vram >= best_vram )); }; then
+            best_vram="$vram"
+            best_card="${vendor#0x}:${device#0x}!"
+        fi
+    done
+    if [[ -n "$best_card" ]]; then
+        echo "$best_card"
+    fi
+    return 0
+}
+
+append_colon_entry() {
+    local current="$1" entry="$2"
+    [[ -n "$entry" ]] || { printf '%s' "$current"; return; }
+    case ":${current}:" in
+        *":${entry}:"*) printf '%s' "$current" ;;
+        *) printf '%s' "${current:+${current}:}${entry}" ;;
+    esac
+}
+
+prepend_colon_entry() {
+    local current="$1" entry="$2"
+    [[ -n "$entry" ]] || { printf '%s' "$current"; return; }
+    case ":${current}:" in
+        *":${entry}:"*) printf '%s' "$current" ;;
+        *) printf '%s' "${entry}${current:+:${current}}" ;;
+    esac
+}
+
+GPU_VENDOR="$(detect_gpu_vendor)"
+
+if [[ -z "${MESA_VK_DEVICE_SELECT:-}" ]]; then
+    MESA_GPU_SELECT="$(detect_discrete_gpu)"
+    if [[ -n "$MESA_GPU_SELECT" ]]; then
+        export MESA_VK_DEVICE_SELECT="$MESA_GPU_SELECT"
+    fi
+fi
+
+if [[ "$GPU_VENDOR" == "amd" ]]; then
+    export AMD_VULKAN_ICD="${AMD_VULKAN_ICD:-RADV}"
+    export RADV_PERFTEST="${RADV_PERFTEST:-sam}"
+fi
+
+# Dynamically detect WiVRn + xrizer OpenXR/OpenVR runtime paths without clobbering user overrides.
+XDG_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
+XDG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+WIVRN_SLR_DIR="$XDG_DATA_DIR/wivrn-slr"
+OPENVR_CONFIG_DIR="$XDG_CONFIG_DIR/openvr"
+WIVRN_RUNTIME_DIR="$RUNTIME_DIR/wivrn"
+
+XRIZER_DIR=""
+for candidate in "${VR_RUN_XRIZER_DIR:-/opt/xrizer}" "$XDG_DATA_DIR/xrizer"; do
+    if [[ -d "$candidate" ]]; then
+        XRIZER_DIR="$candidate"
+        break
+    fi
+done
+
+if [[ -z "${XR_RUNTIME_JSON:-}" ]]; then
+    for candidate in \
+        "$WIVRN_SLR_DIR/openxr_wivrn.json" \
+        "${VR_RUN_SYSTEM_OPENXR_JSON:-/usr/share/openxr/1/openxr_wivrn.json}"; do
+        if [[ -f "$candidate" ]]; then
+            export XR_RUNTIME_JSON="$candidate"
+            break
+        fi
+    done
+fi
+
+if [[ -z "${VR_OVERRIDE:-}" && -n "$XRIZER_DIR" ]]; then
+    export VR_OVERRIDE="$XRIZER_DIR"
+fi
+
+PV_RO="${PRESSURE_VESSEL_FILESYSTEMS_RO:-}"
+for ro_dir in "$WIVRN_SLR_DIR" "$XRIZER_DIR" "$OPENVR_CONFIG_DIR"; do
+    if [[ -n "$ro_dir" && -d "$ro_dir" ]]; then
+        PV_RO="$(append_colon_entry "$PV_RO" "$ro_dir")"
+    fi
+done
+if [[ -n "$PV_RO" ]]; then
+    export PRESSURE_VESSEL_FILESYSTEMS_RO="$PV_RO"
+fi
+
+PV_RW="${PRESSURE_VESSEL_FILESYSTEMS_RW:-}"
+if [[ -d "$WIVRN_RUNTIME_DIR" ]]; then
+    PV_RW="$(append_colon_entry "$PV_RW" "$WIVRN_RUNTIME_DIR")"
+fi
+if [[ -n "$PV_RW" ]]; then
+    export PRESSURE_VESSEL_FILESYSTEMS_RW="$PV_RW"
+fi
+
+if [[ -d "$WIVRN_SLR_DIR" ]]; then
+    LD_LIBRARY_PATH="$(prepend_colon_entry "${LD_LIBRARY_PATH:-}" "$WIVRN_SLR_DIR")"
+    export LD_LIBRARY_PATH
+fi
+
+detect_scheduler() {
+    if command -v game-performance >/dev/null 2>&1; then
+        echo "game-performance"
+    elif command -v powerprofilesctl >/dev/null 2>&1; then
+        echo "powerprofilesctl"
+    elif command -v systemctl >/dev/null 2>&1 &&
+         systemctl is-active --quiet ananicy-cpp.service 2>/dev/null; then
+        echo "direct"
+    elif command -v gamemoderun >/dev/null 2>&1; then
+        echo "gamemoderun"
+    else
+        echo "direct"
+    fi
+}
+
+SCHEDULER="$(detect_scheduler)"
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Steam Auto-Profiler VR dry run"
+    echo "GPU: ${GPU_VENDOR}"
+    echo "Scheduler: ${SCHEDULER}"
+    echo "Exported VR variables:"
+    env | LC_ALL=C sort | awk -F= '
+        $1 ~ /^(AMD_VULKAN_ICD|RADV_PERFTEST|MESA_VK_DEVICE_SELECT|XR_RUNTIME_JSON|VR_OVERRIDE|PRESSURE_VESSEL_FILESYSTEMS_RO|PRESSURE_VESSEL_FILESYSTEMS_RW|LD_LIBRARY_PATH)$/ ||
+        $1 ~ /^(DXVK_|VKD3D_|PROTON_|ENABLE_LAYER_MESA_ANTI_LAG|ENABLE_VKBASALT|MLFG_UPGRADE)$/ {
+            print
+        }'
+    exit 0
+fi
+
+case "$SCHEDULER" in
+    game-performance)
+        exec game-performance "$@"
+        ;;
+    powerprofilesctl)
+        exec powerprofilesctl launch -p performance -- "$@"
+        ;;
+    gamemoderun)
+        exec gamemoderun "$@"
+        ;;
+    *)
+        exec "$@"
+        ;;
+esac

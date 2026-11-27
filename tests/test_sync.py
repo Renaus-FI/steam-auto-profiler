@@ -227,6 +227,63 @@ class SyncTests(unittest.TestCase):
         self.assertNotIn("USE_XWAYLAND", profile)
         self.assertFalse((profile_dir / "730.env").exists())
 
+    def test_preserves_vr_run_in_sync_sanitize_and_orphans(self):
+        vr_vdf = '''"UserLocalConfigStore"
+{
+    "software"
+    {
+        "Valve"
+        {
+            "Steam"
+            {
+                "apps"
+                {
+                    "730"
+                    {
+                        "LaunchOptions"        "vr-run %command% -vr"
+                    }
+                    "546560"
+                    {
+                        "LaunchOptions"        "PROTON_LOG=1 /usr/local/bin/vr-run %command%"
+                    }
+                }
+            }
+        }
+    }
+}
+'''
+        self.config.write_text(vr_vdf, encoding="utf-8")
+
+        # Normal sync dry-run must not rewrite vr-run %command%
+        res_sync = self.run_sync("--dry-run")
+        self.assertEqual(res_sync.returncode, 0, res_sync.stderr)
+        self.assertNotIn("[730]", res_sync.stdout)
+
+        # Sanitize dry-run must not rewrite vr-run (installed OR orphan with PROTON_LOG=1)
+        res_san = self.run_sync("--sanitize", "--dry-run")
+        self.assertEqual(res_san.returncode, 0, res_san.stderr)
+        self.assertNotIn("[730]", res_san.stdout)
+        self.assertNotIn("[546560]", res_san.stdout)
+
+        # Report marks vr-run titles cleanly as VR
+        res_rep = self.run_sync("--report")
+        self.assertEqual(res_rep.returncode, 0, res_rep.stderr)
+        self.assertIn("VR", res_rep.stdout)
+
+        # Direct sanitize_launch_option call leaves vr-run intact
+        loader = importlib.machinery.SourceFileLoader("steam_auto_sync_vr", str(SYNC))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        replacement, profile = module.sanitize_launch_option(
+            "546560",
+            "PROTON_LOG=1 vr-run %command% -vr",
+            self.home / ".config/steam-auto-profiler/profiles",
+            dry_run=True,
+        )
+        self.assertEqual(replacement, "PROTON_LOG=1 vr-run %command% -vr")
+        self.assertEqual(profile, {})
+
 
 if __name__ == "__main__":
     unittest.main()

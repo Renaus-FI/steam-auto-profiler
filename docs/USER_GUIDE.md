@@ -17,7 +17,7 @@ cd steam-auto-profiler
 ./install.sh
 ```
 
-The installer copies the four commands to `~/.local/bin`, creates `~/.config/steam-auto-profiler/profiles`, and adds default vkBasalt presets. Make sure `~/.local/bin` is in `PATH`.
+The installer copies the five commands (`steam-auto-run`, `steam-auto-detect`, `steam-auto-sync`, `steam-net-boost`, and `vr-run`) to `~/.local/bin`, creates `~/.config/steam-auto-profiler/profiles`, and adds default vkBasalt presets. Make sure `~/.local/bin` is in `PATH`.
 
 Optional installation flags may be combined:
 
@@ -52,9 +52,27 @@ steam-auto-run --doctor
 5. **Resolve compatibility settings.** Managed features are mapped into `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG`. Existing user values are preserved. Supported tokens include `wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `localshadercache`, `pipewire`, `fsr4`, `mlfg`, and `vkreflex`.
 6. **Calculate a VRR cap.** An explicit `VRR_CAP=<fps>` is highest priority (`VRR_CAP=0` disables capping). Otherwise KDE (`kscreen-doctor`), wlroots (`wlr-randr`), or X11 (`xrandr`) refresh-rate data is read and used directly at 1:1 by default, such as 240 FPS on a 240 Hz display. Set `VRR_MINUS_MARGIN=1` to enable the optional -6% VRR headroom calculation (`hz * 94 / 100`). In Gamescope, DXVK/VKD3D frame caps are omitted unless `VRR_CAP` is explicit.
 7. **Configure or load the per-AppID profile.** The pre-launch `kdialog` or `zenity` checklist is shown on the first launch unless a profile exists or GUI launch is disabled. Selecting **Save profile** writes a small allowlisted `KEY=VALUE` file to `~/.config/steam-auto-profiler/profiles/<APPID>.env`.
-8. **Apply launch variables and scheduling.** The wrapper exports Wayland/HDR, low-latency DXVK/VKD3D, frame-generation, upscaler, Steam Input, overlay, and compatibility variables as appropriate. It uses `game-performance`, then `powerprofilesctl launch -p performance --`, and `gamemoderun` only when it will not conflict with `ananicy-cpp`.
-9. **Start and monitor the launch.** Native Linux titles omit Proton/Wine/DXVK/VKD3D variables. The wrapper launches the supplied command and writes a bounded last-launch record.
-10. **Restore optional network state.** If QoS is enabled, `steam-net-boost` activates per-session state for the selected interface. CAKE/fq_codel, tx queue length, and NIC EEE state are restored after the last launch session exits.
+8. **Apply launch variables and scheduling.** The wrapper exports Wayland/HDR (`WAYLANDDRV_SHORTCUT_INHIBIT=0` by default, per-profile overridable), low-latency DXVK/VKD3D (`DXVK_FRAME_PACE=low-latency-vrr` when VRR capping is active), AMD `PROTON_NATIVE_AGS=1`, modern `VKD3D_CONFIG` (omitted when `SAFEDX12=1`), strict mutual-exclusion guards (disabling vkBasalt whenever FSR 4 or OptiScaler is active, and disabling Anti-Lag / low-latency / VRR frame caps whenever MLFG is enabled), upscaler, Steam Input, overlay, and compatibility variables. It uses `game-performance`, then `powerprofilesctl launch -p performance --`, and `gamemoderun` only when it will not conflict with `ananicy-cpp`.
+9. **Start and monitor the launch.** Native Linux titles omit Proton/Wine/DXVK/VKD3D variables. SteamVR (`250820`) and `-vr`/`--vr` launches bypass flatscreen orchestration cleanly. The wrapper launches the supplied command and writes a bounded last-launch record.
+10. **Restore optional network state.** If QoS is enabled, `steam-net-boost` activates per-session state for the selected interface while preserving existing static CAKE setups (both root `cake` and LAN-exempted HTB + leaf `cake` trees, as well as `wan-cake-shaper.service` and `cake-shaper.service`). Pre-existing root qdisc (`cake` vs `fq_codel`), tx queue length, and NIC EEE state are restored after the last launch session exits. `steam-net-boost status` runs read-only without root privileges.
+
+## VR titles (`vr-run`)
+
+For VR games, set Steam **Properties > General > Launch Options** to:
+
+```text
+vr-run %command%
+```
+
+`vr-run` is a dedicated, hardware-agnostic VR launch orchestrator:
+
+- Scrubs inherited flatscreen variables (`DXVK_FRAME_RATE`, `VKD3D_FRAME_RATE`, `DXVK_FRAME_PACE`, `PROTON_ENABLE_WAYLAND`, `PROTON_USE_WAYLAND`, `ENABLE_LAYER_MESA_ANTI_LAG`, `ENABLE_VKBASALT`, `PROTON_MLFG_UPGRADE`, `MLFG_UPGRADE`).
+- Auto-selects the discrete GPU via `MESA_VK_DEVICE_SELECT` and sets `AMD_VULKAN_ICD=RADV` / `RADV_PERFTEST=sam` on AMD GPUs.
+- Dynamically detects WiVRn and xrizer OpenXR/OpenVR paths (`~/.local/share/wivrn-slr/openxr_wivrn.json`, `/usr/share/openxr/1/openxr_wivrn.json`, `/opt/xrizer`, `~/.config/openvr`, `$XDG_RUNTIME_DIR/wivrn`) and exports `XR_RUNTIME_JSON`, `VR_OVERRIDE`, `PRESSURE_VESSEL_FILESYSTEMS_RO`, `PRESSURE_VESSEL_FILESYSTEMS_RW`, and `LD_LIBRARY_PATH` without clobbering user overrides.
+- Runs through the safe scheduler chain (`game-performance` -> `powerprofilesctl` -> `gamemoderun` when `ananicy-cpp` is inactive -> direct `exec`).
+- Supports `vr-run --dry-run` to inspect resolved VR variables without launching.
+
+`steam-auto-sync` preserves intentional `vr-run %command%` launch options during normal sync and `--sanitize`, and displays `VR` in `steam-auto-sync --report`.
 
 ## Steam launch automation
 
@@ -133,7 +151,8 @@ Useful commands:
 | List saved profiles | `steam-auto-run --list-profiles` |
 | Show latest launch log | `steam-auto-run --last-log [APPID]` |
 | Audit system readiness | `steam-auto-run --doctor` |
-| Inspect network helper | `sudo steam-net-boost status [IFACE]` |
+| Preview VR launch environment | `vr-run --dry-run` |
+| Inspect network helper (read-only) | `steam-net-boost status [IFACE]` |
 
 Profile files accept an allowlisted set of `KEY=VALUE` lines. CRLF and quoted values are accepted; shell syntax and unknown keys are ignored.
 
@@ -168,7 +187,8 @@ VRR_CAP=120 MLFG=1 KEEP_OVERLAY=1 steam-auto-run %command%
 | `SDL=1` | Prefer native SDL/Steam Input emulation. |
 | `CEF=1` / `GST=1` | Enable launcher compatibility handling. |
 | `FSR_HUD=1` | Enable FSR/DLSS indicator variables. |
-| `SAFEDX12=1` | Disable the bundled DXVK/VKD3D compatibility token. |
+| `SAFEDX12=1` | Omit experimental `VKD3D_CONFIG` flags and `vkd3dbindlesstb` compat token. |
+| `WAYLANDDRV_SHORTCUT_INHIBIT=1` | Allow shortcut inhibition under Wine Wayland (default `0`; also supported in `.env` profiles). |
 | `VULKAN=1` | Add `-vulkan` to a launch. |
 | `NO_NTSYNC=1` | Disable NTSync for a legacy title. |
 | `NO_DECORATION=1` | Disable window decorations. |

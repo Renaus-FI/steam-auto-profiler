@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+
+if [[ "$(id -u)" -eq 0 ]]; then
+    export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+else
+    for _snb_dir in /usr/sbin /usr/bin /sbin /bin; do
+        case ":${PATH:-}:" in
+            *:"$_snb_dir":*) ;;
+            *) PATH="${PATH:+${PATH}:}$_snb_dir" ;;
+        esac
+    done
+    export PATH
+fi
 
 STATE_DIR="${STEAM_NET_BOOST_STATE_DIR:-/run/steam-net-boost}"
 MODE=""
@@ -26,6 +37,7 @@ ensure_state() {
 }
 prune_stale() {
     local iface="${1:-}" f p
+    [[ -d "$STATE_DIR" ]] || return 0
     for f in "$STATE_DIR"/*.pid; do
         [[ -f "$f" ]] || continue
         p="$(cat "$f" 2>/dev/null || true)"
@@ -43,12 +55,25 @@ eee_state() {
         END {gsub(/[[:space:]]/, "", v); if (tolower(v) ~ /disabled|no/) print "off"; else if (tolower(v) ~ /enabled|yes/) print "on"; else print "unknown"}'
 }
 is_cake() {
-    if command -v systemctl >/dev/null 2>&1 &&
-       systemctl is-active --quiet cake-shaper.service 2>/dev/null; then
+    if command -v systemctl >/dev/null 2>&1 && (
+        systemctl is-active --quiet wan-cake-shaper.service 2>/dev/null ||
+        systemctl is-active --quiet cake-shaper.service 2>/dev/null
+    ); then
         return 0
     fi
-    tc qdisc show dev "$1" 2>/dev/null |
-        grep -Eiq '(^|[[:space:]])cake([[:space:]]|$).*((bandwidth|rate)[[:space:]]+[0-9])'
+    local qdisc_out
+    qdisc_out="$(tc qdisc show dev "$1" 2>/dev/null || true)"
+    if grep -Eiq '(^|[[:space:]])qdisc[[:space:]]+cake([[:space:]]|$).*((bandwidth|rate)[[:space:]]+[0-9]|parent[[:space:]]+[0-9a-fA-F]+:)' <<<"$qdisc_out"; then
+        return 0
+    fi
+    if grep -Eiq '(^|[[:space:]])qdisc[[:space:]]+htb([[:space:]]|$)' <<<"$qdisc_out" &&
+       grep -Eiq '(^|[[:space:]])qdisc[[:space:]]+cake([[:space:]]|$)' <<<"$qdisc_out"; then
+        return 0
+    fi
+    return 1
+}
+root_qdisc() {
+    tc qdisc show dev "$1" 2>/dev/null | awk 'NR==1 {print $2}'
 }
 parse() {
     [[ $# -gt 0 ]] || { usage; exit 2; }
@@ -70,14 +95,16 @@ parse() {
     [[ -n "$PID" ]] || PID="${PPID:-$$}"
 }
 on() {
-    local state="$STATE_DIR/$IFACE.state" pidfile="$STATE_DIR/$IFACE.$PID.pid" count=0 old_eee static_cake=no
+    local state="$STATE_DIR/$IFACE.state" pidfile="$STATE_DIR/$IFACE.$PID.pid" count=0 old_eee static_cake=no orig_qdisc f
     prune_stale "$IFACE"
     [[ -f "$pidfile" ]] && return 0
     [[ -f "$state" ]] && count="$(awk -F= '$1=="count"{print $2}' "$state")"
     if (( count == 0 )); then
         old_eee="$(eee_state "$IFACE")"
         static_cake="$(is_cake "$IFACE" && echo yes || echo no)"
-        printf 'count=0\neee=%s\ncake=%s\ntx=%s\n' "$old_eee" "$static_cake" \
+        orig_qdisc="$(root_qdisc "$IFACE")"
+        printf 'count=0\neee=%s\ncake=%s\nqdisc=%s\ntx=%s\n' \
+            "$old_eee" "$static_cake" "${orig_qdisc:-fq_codel}" \
             "$(cat "/sys/class/net/$IFACE/tx_queue_len" 2>/dev/null || echo 1000)" > "$state"
         if [[ "$static_cake" != yes ]] && command -v tc >/dev/null 2>&1; then
             tc qdisc replace dev "$IFACE" root cake diffserv4 triple-isolate 2>/dev/null ||
@@ -96,7 +123,7 @@ on() {
     sed -i "s/^count=.*/count=$count/" "$state"
 }
 off() {
-    local state="$STATE_DIR/$IFACE.state" pidfile="$STATE_DIR/$IFACE.$PID.pid" count=0 old f
+    local state="$STATE_DIR/$IFACE.state" pidfile="$STATE_DIR/$IFACE.$PID.pid" count=0 old orig_qdisc f
     prune_stale "$IFACE"
     rm -f "$pidfile"
     [[ -f "$state" ]] || return 0
@@ -104,10 +131,15 @@ off() {
         [[ -f "$f" ]] && count=$((count + 1))
     done
     sed -i "s/^count=.*/count=$count/" "$state"
-    (( count > 0 )) && { sed -i "s/^count=.*/count=$count/" "$state"; return; }
+    (( count > 0 )) && return 0
     old="$(awk -F= '$1=="eee"{print $2}' "$state")"
     if [[ "$(awk -F= '$1=="cake"{print $2}' "$state")" != yes ]]; then
-        tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null || true
+        orig_qdisc="$(awk -F= '$1=="qdisc"{print $2}' "$state")"
+        if [[ "$orig_qdisc" == "cake" ]]; then
+            tc qdisc replace dev "$IFACE" root cake 2>/dev/null || true
+        elif [[ "$orig_qdisc" != "htb" ]]; then
+            tc qdisc replace dev "$IFACE" root fq_codel 2>/dev/null || true
+        fi
         ip link set dev "$IFACE" txqueuelen "$(awk -F= '$1=="tx"{print $2}' "$state")" 2>/dev/null || true
         if [[ "$old" == on ]]; then
             ethtool --set-eee "$IFACE" eee on 2>/dev/null || true
@@ -118,21 +150,48 @@ off() {
     rm -f "$state"
 }
 status() {
-    local state="$STATE_DIR/$IFACE.state" count=0 static=no f
-    prune_stale "$IFACE"
-    [[ -f "$state" ]] && count="$(awk -F= '$1=="count"{print $2}' "$state")"
-    if [[ -f "$state" ]]; then
-        [[ "$(awk -F= '$1=="cake"{print $2}' "$state")" == yes ]] && static=yes
+    local state="$STATE_DIR/$IFACE.state" count=0 static=no f p qdisc
+    if [[ -d "$STATE_DIR" ]]; then
+        if [[ -r "$STATE_DIR" ]]; then
+            if [[ -r "$state" ]]; then
+                [[ "$(awk -F= '$1=="cake"{print $2}' "$state")" == yes ]] && static=yes
+            elif is_cake "$IFACE"; then
+                static=yes
+            fi
+            for f in "$STATE_DIR/$IFACE."*.pid; do
+                [[ -f "$f" && -r "$f" ]] || continue
+                p="$(cat "$f" 2>/dev/null || true)"
+                if [[ "$p" =~ ^[0-9]+$ ]] && { kill -0 "$p" 2>/dev/null || [[ -d "/proc/$p" ]]; }; then
+                    count=$((count + 1))
+                fi
+            done
+        else
+            count="unknown"
+            if is_cake "$IFACE"; then
+                static=yes
+            fi
+        fi
     elif is_cake "$IFACE"; then
         static=yes
     fi
-    count=0
-    for f in "$STATE_DIR/$IFACE."*.pid; do
-        [[ -f "$f" ]] && count=$((count + 1))
-    done
-    printf 'interface=%s active_sessions=%s qdisc=%s static_cake=%s eee=%s\n' "$IFACE" "$count" \
-        "$(tc qdisc show dev "$IFACE" 2>/dev/null | awk 'NR==1 {print $2}')" "$static" "$(eee_state "$IFACE")"
+    qdisc="$(root_qdisc "$IFACE")"
+    printf 'interface=%s active_sessions=%s qdisc=%s static_cake=%s eee=%s\n' \
+        "$IFACE" "$count" "${qdisc:-unknown}" "$static" "$(eee_state "$IFACE")"
 }
 
-parse "$@"; ensure_state; prune_stale
-case "$MODE" in on) on ;; off) off ;; status) status ;; esac
+parse "$@"
+case "$MODE" in
+    on)
+        ensure_state
+        prune_stale
+        on
+        ;;
+    off)
+        ensure_state
+        prune_stale
+        off
+        ;;
+    status)
+        status
+        ;;
+esac

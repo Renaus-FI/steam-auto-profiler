@@ -29,10 +29,22 @@ Before launching Proton, the runtime could run a lightweight game classifier:
 
 Proton and Mesa/Vulkan could resolve settings centrally:
 
-- Enforce mutual exclusion between frame generation and low-latency VRR frame caps.
-- Disable external sharpening when an upscaler bridge is active.
-- Use the active compositor refresh rate directly for the VRR ceiling, with an opt-in -6% margin via `VRR_MINUS_MARGIN=1`.
+- Enforce mutual exclusion between frame generation (`MLFG=1`) and low-latency Anti-Lag / VRR frame caps (`ENABLE_LAYER_MESA_ANTI_LAG=0`, `PROTON_DXVK_LOWLATENCY=0`, `PROTON_VKD3D_LOWLATENCY=0`, unsetting `DXVK_FRAME_RATE`, `VKD3D_FRAME_RATE`, and `DXVK_FRAME_PACE`).
+- Enforce mutual exclusion between external vkBasalt sharpening (`ENABLE_VKBASALT=0`) and FSR 4 (`PROTON_FSR4_UPGRADE=1` / `PROTON_FSR4_RDNA3_UPGRADE=1`) or OptiScaler (`USE_OPTISCALER=1`) to prevent double-sharpening and HDR10 clipping.
+- Export `PROTON_NATIVE_AGS=1` on AMD GPUs and modern `VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer` when `USE_SAFEDX12=0` (omitted when `SAFEDX12=1`).
+- Default `WAYLANDDRV_SHORTCUT_INHIBIT=0` on native Wayland while allowing explicit per-profile or environment overrides (including in `competitive-anticheat`).
+- Use the active compositor refresh rate directly for the VRR ceiling alongside `DXVK_FRAME_PACE=low-latency-vrr`, with an opt-in -6% margin via `VRR_MINUS_MARGIN=1`.
 - Preserve explicit user overrides while applying anti-cheat and crash-safety guardrails.
+
+## VR orchestration (`vr-run`)
+
+VR titles require compositor-owned frame timing and OpenXR/OpenVR runtime isolation rather than
+flatscreen VRR caps or Wine Wayland hooks. `vr-run` provides a dedicated, hardware-agnostic launch
+path that scrubs inherited flatscreen variables, auto-selects the discrete GPU via sysfs VRAM
+probing (`MESA_VK_DEVICE_SELECT`), dynamically detects WiVRn and xrizer OpenXR/OpenVR paths for
+Steam Linux Runtime pass-through without overwriting user overrides, and executes via the same
+`ananicy-cpp`-aware scheduler chain. `steam-auto-run` bypasses SteamVR (`250820`) and `-vr`/`--vr`
+invocations, and `steam-auto-sync` preserves intentional `vr-run %command%` launch options.
 
 ## Proton compatibility matrix
 
@@ -71,7 +83,12 @@ niceness policies.
 
 `steam-auto-run --doctor` performs a read-only readiness audit: kernel/NTSync, CPU P-State and
 sched-ext, GameMode/ananicy conflicts, EAC v2 tooling, memory-map limits, NVMe I/O schedulers,
-shader-cache environment settings, and installed Proton compatibility tools.
+shader-cache environment settings, network EEE and `sch_cake` status (recognizing both root CAKE
+and LAN-exempted HTB + leaf CAKE hierarchies), and installed Proton compatibility tools.
+
+`steam-net-boost` likewise recognizes root static CAKE, HTB + leaf CAKE hierarchies, and
+`wan-cake-shaper.service` / `cake-shaper.service`, preserves pre-existing root qdiscs on session
+exit, and exposes an unprivileged read-only `status` subcommand.
 
 Steam and UMU launch paths share the AppID resolver: `SteamAppId`, `STEAM_COMPAT_APP_ID`, then
 numeric `GAMEID` (with an optional `umu-` prefix). Lutris and Heroic can use `steam-auto-run`

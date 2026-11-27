@@ -6,6 +6,8 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${HOME}/.local/bin"
+SYSTEM_BIN_DIR="${STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR:-/usr/local/bin}"
+SUDOERS_DIR="${STEAM_AUTO_PROFILER_SUDOERS_DIR:-/etc/sudoers.d}"
 WITH_NET_BOOST=0
 COMPAT_CACHY_RUN=0
 WITH_AUTO_SYNC=0
@@ -46,22 +48,22 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --user daemon-reload 2>/dev/null || true
     fi
-    for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost; do
+    for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost vr-run; do
         rm -f "$TARGET_DIR/$script"
         echo "Removed $TARGET_DIR/$script"
     done
-    if [[ -e "/usr/local/bin/steam-net-boost" ]]; then
-        sudo rm -f /usr/local/bin/steam-net-boost
-        echo "Removed /usr/local/bin/steam-net-boost"
+    if [[ -e "$SYSTEM_BIN_DIR/steam-net-boost" ]]; then
+        sudo rm -f "$SYSTEM_BIN_DIR/steam-net-boost"
+        echo "Removed $SYSTEM_BIN_DIR/steam-net-boost"
     fi
-    if [[ -e "/etc/sudoers.d/steam-net-boost" ]]; then
-        sudo rm -f /etc/sudoers.d/steam-net-boost
-        echo "Removed /etc/sudoers.d/steam-net-boost"
+    if [[ -e "$SUDOERS_DIR/steam-net-boost" ]]; then
+        sudo rm -f "$SUDOERS_DIR/steam-net-boost"
+        echo "Removed $SUDOERS_DIR/steam-net-boost"
     fi
-    for script in steam-auto-run steam-auto-detect steam-auto-sync; do
-        if [[ -e "/usr/local/bin/$script" || -L "/usr/local/bin/$script" ]]; then
-            sudo rm -f "/usr/local/bin/$script"
-            echo "Removed /usr/local/bin/$script"
+    for script in steam-auto-run steam-auto-detect steam-auto-sync vr-run; do
+        if [[ -e "$SYSTEM_BIN_DIR/$script" || -L "$SYSTEM_BIN_DIR/$script" ]]; then
+            sudo rm -f "$SYSTEM_BIN_DIR/$script"
+            echo "Removed $SYSTEM_BIN_DIR/$script"
         fi
     done
     echo "Steam Auto-Profiler uninstalled."
@@ -114,23 +116,23 @@ dlsSharpness = 0.25
 EOF
 fi
 
-for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost; do
+for script in steam-auto-run steam-auto-detect steam-auto-sync steam-net-boost vr-run; do
     install -m 755 "$REPO_DIR/bin/$script" "$TARGET_DIR/$script"
     echo "Installed $TARGET_DIR/$script"
 done
 
 if [[ "$WITH_NET_BOOST" -eq 1 ]]; then
     USER_NAME="$(id -un)"
-    sudo rm -f /etc/sudoers.d/cachy-net-boost /usr/local/bin/cachy-net-boost
-    for script in steam-auto-run steam-auto-detect steam-auto-sync; do
-        sudo install -m 755 "$REPO_DIR/bin/$script" "/usr/local/bin/$script"
-        echo "Installed /usr/local/bin/$script"
+    sudo rm -f "$SUDOERS_DIR/cachy-net-boost" "$SYSTEM_BIN_DIR/cachy-net-boost"
+    for script in steam-auto-run steam-auto-detect steam-auto-sync vr-run; do
+        sudo install -m 755 "$REPO_DIR/bin/$script" "$SYSTEM_BIN_DIR/$script"
+        echo "Installed $SYSTEM_BIN_DIR/$script"
     done
-    sudo install -m 755 "$REPO_DIR/bin/steam-net-boost" /usr/local/bin/steam-net-boost
-    printf '%s ALL=(root) NOPASSWD: /usr/local/bin/steam-net-boost\n' "$USER_NAME" |
-        sudo tee /etc/sudoers.d/steam-net-boost >/dev/null
-    sudo chmod 440 /etc/sudoers.d/steam-net-boost
-    sudo visudo -cf /etc/sudoers.d/steam-net-boost
+    sudo install -m 755 "$REPO_DIR/bin/steam-net-boost" "$SYSTEM_BIN_DIR/steam-net-boost"
+    printf '%s ALL=(root) NOPASSWD: %s/steam-net-boost\n' "$USER_NAME" "$SYSTEM_BIN_DIR" |
+        sudo tee "$SUDOERS_DIR/steam-net-boost" >/dev/null
+    sudo chmod 440 "$SUDOERS_DIR/steam-net-boost"
+    sudo visudo -cf "$SUDOERS_DIR/steam-net-boost"
     echo "Installed optional network helper and sudoers rule"
 fi
 

@@ -15,7 +15,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT)
                 ;;
             *) continue ;;
         esac
@@ -89,14 +89,19 @@ GAME_DIR=""
 AUTO_PROTON_ADD_CONFIG=""
 
 detect_gpu_vendor() {
-    local vendor_file
+    local vendor_file found_intel=0
     for vendor_file in /sys/class/drm/card*/device/vendor; do
         [[ -r "$vendor_file" ]] || continue
         case "$(cat "$vendor_file" 2>/dev/null)" in
             0x1002) echo amd; return ;;
             0x10de) echo nvidia; return ;;
+            0x8086) found_intel=1 ;;
         esac
     done
+    if [[ "$found_intel" -eq 1 ]]; then
+        echo intel
+        return
+    fi
     echo unknown
 }
 
@@ -199,7 +204,9 @@ if [[ -n "$APPID" ]]; then
                 *eadesktop*|*originthinsetup*|*ubisoftconnect*|*uplay*|*battle.net*|*rockstar-games-launcher*)
                     [[ -n "$CEF_MATCH" ]] || CEF_MATCH="$asset" ;;
             esac
-            [[ "$lower" == *.exe && -n "$EXE_MATCH" ]] || [[ "$lower" == *.exe ]] && EXE_MATCH="$asset"
+            if [[ "$lower" == *.exe && -z "$EXE_MATCH" ]]; then
+                EXE_MATCH="$asset"
+            fi
         done < <(
             find "$GAME_DIR" -maxdepth 10 \
                 -type d \( -iname screenshots -o -iname saves -o -iname savegames \

@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -88,14 +89,37 @@ def find_launch_options(text):
 
 
 WRAPPERS = {"cachy-run", "game-performance", "gamemoderun", "steam-auto-run"}
+VR_WRAPPERS = {"vr-run"}
 MANAGED_ENV_PREFIXES = (
     "PROTON_", "DXVK_", "VKD3D_", "WINE", "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT="
 )
 
 
+def config_home(home):
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    return Path(xdg) if xdg else home / ".config"
+
+
+def uses_vr_wrapper(launch_options):
+    """Return True if launch_options intentionally delegates to vr-run."""
+    if not launch_options or not launch_options.strip():
+        return False
+    try:
+        tokens = shlex.split(launch_options)
+    except ValueError:
+        tokens = launch_options.split()
+    command_at = tokens.index("%command%") if "%command%" in tokens else len(tokens)
+    for token in tokens[:command_at]:
+        if "=" in token:
+            continue
+        if Path(token).name in VR_WRAPPERS:
+            return True
+    return False
+
+
 def install_systemd_units(home, library_paths=None):
     """Install and enable the user watcher when a user systemd session exists."""
-    unit_dir = Path.home() / ".config/systemd/user"
+    unit_dir = config_home(home) / "systemd/user"
     unit_dir.mkdir(parents=True, exist_ok=True)
     service = unit_dir / "steam-auto-profiler-sync.service"
     path = unit_dir / "steam-auto-profiler-sync.path"
@@ -138,8 +162,10 @@ def install_systemd_units(home, library_paths=None):
 
 def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, write_profile=True):
     """Convert a noisy Steam launch string into a managed wrapper and profile."""
+    if uses_vr_wrapper(launch_options):
+        return launch_options, {}
     try:
-        tokens = shlex_split = __import__("shlex").split(launch_options)
+        tokens = shlex.split(launch_options)
     except ValueError:
         tokens = launch_options.split()
 
@@ -420,9 +446,17 @@ def main():
 
     skip_re = re.compile(
         r"^(Proton\b|Steam Linux Runtime|Steamworks Common Redistributables|"
-        r"Wallpaper Engine|Lossless Scaling)",
+        r"Wallpaper Engine|Lossless Scaling|SteamVR\b|\bVR\b)",
         re.I,
     )
+    ignored_ids = {"228980", "250820"}
+    cfg_home = config_home(home)
+    ignore_file = cfg_home / "steam-auto-profiler/ignore_appids.txt"
+    if ignore_file.exists():
+        for line in ignore_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            token = line.split("#", 1)[0].strip()
+            if token.isdigit():
+                ignored_ids.add(token)
 
     write_lock = None
     if not args.dry_run and not args.report:
@@ -450,7 +484,7 @@ def main():
                     continue
                 appid = appid_match.group(1)
                 name = name_match.group(1) if name_match else appid
-                if appid == "228980" or skip_re.search(name):
+                if appid in ignored_ids or skip_re.search(name):
                     continue
                 games[appid] = name
 
@@ -466,16 +500,19 @@ def main():
                 return 1
 
             synced_appids = set()
+            vr_appids = set()
             for config in (steam_root / "userdata").glob("*/config/localconfig.vdf"):
                 raw = config.read_text(encoding="utf-8", errors="ignore")
                 app_launch, _, _ = find_launch_options(raw)
                 for appid, (launch_options, _, _) in app_launch.items():
-                    if args.wrapper in launch_options:
+                    if uses_vr_wrapper(launch_options):
+                        vr_appids.add(appid)
+                    elif args.wrapper in launch_options:
                         synced_appids.add(appid)
 
             rows = []
             for appid, name in sorted(games.items(), key=lambda item: item[1].lower()):
-                profile_file = home / ".config/steam-auto-profiler/profiles" / f"{appid}.env"
+                profile_file = cfg_home / "steam-auto-profiler/profiles" / f"{appid}.env"
                 result = subprocess.run(
                     [str(detector), "--json", appid],
                     text=True,
@@ -488,13 +525,19 @@ def main():
                     report = json.loads(result.stdout)
                 except json.JSONDecodeError:
                     continue
+                if appid in vr_appids:
+                    synced_label = "VR"
+                elif appid in synced_appids:
+                    synced_label = "Yes"
+                else:
+                    synced_label = "No"
                 rows.append({
                     "appid": appid,
                     "name": name,
                     "class": report.get("class", "standard"),
                     "compat": report.get("proton_add_config", "-") or "-",
                     "profile": "Saved" if profile_file.is_file() else "Auto",
-                    "synced": "Yes" if appid in synced_appids else "No",
+                    "synced": synced_label,
                 })
 
             if rows:
@@ -560,13 +603,17 @@ def main():
                     if replacement == "%command%":
                         replacement = ""
                 elif args.sanitize:
-                    profile_dir = home / ".config/steam-auto-profiler/profiles"
+                    if uses_vr_wrapper(current):
+                        continue
+                    profile_dir = cfg_home / "steam-auto-profiler/profiles"
                     replacement, extracted_profile = sanitize_launch_option(
                         appid, current, profile_dir, dry_run=args.dry_run
                     )
                     if replacement == current:
                         continue
                 else:
+                    if uses_vr_wrapper(current) and args.wrapper not in VR_WRAPPERS:
+                        continue
                     if args.wrapper in current:
                         continue
                     if "%command%" in current:
@@ -586,6 +633,8 @@ def main():
                 for appid, (current, start, end) in app_launch.items():
                     if appid in games:
                         continue
+                    if uses_vr_wrapper(current):
+                        continue
                     lowered = current.lower()
                     looks_managed = any(wrapper in lowered.split() for wrapper in WRAPPERS)
                     looks_managed = looks_managed or any(
@@ -601,7 +650,7 @@ def main():
                     )
                     if not looks_managed:
                         continue
-                    profile_dir = home / ".config/steam-auto-profiler/profiles"
+                    profile_dir = cfg_home / "steam-auto-profiler/profiles"
                     replacement, _ = sanitize_launch_option(
                         appid, current, profile_dir,
                         dry_run=args.dry_run,

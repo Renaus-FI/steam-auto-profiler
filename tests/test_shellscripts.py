@@ -23,6 +23,7 @@ class ShellScriptTests(unittest.TestCase):
                 and "python" not in script.read_text(encoding="utf-8", errors="ignore").splitlines()[0]
             )
         )
+        self.assertIn(ROOT / "bin" / "vr-run", scripts)
         result = subprocess.run(
             [shellcheck, *[str(script) for script in scripts]],
             text=True,

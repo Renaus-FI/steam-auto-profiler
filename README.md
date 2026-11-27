@@ -45,11 +45,23 @@ Run a read-only CachyOS and Steam compatibility audit:
 steam-auto-run --doctor
 ```
 
-Set the Steam launch options to:
+Set the Steam launch options for flatscreen titles to:
 
 ```text
 steam-auto-run %command%
 ```
+
+For VR titles (OpenXR / WiVRn / xrizer / SteamVR), use the dedicated VR launch orchestrator:
+
+```text
+vr-run %command%
+```
+
+`vr-run` scrubs flatscreen VRR caps, Wayland overrides, Anti-Lag, vkBasalt, and frame-generation
+hooks, auto-selects the discrete GPU via `MESA_VK_DEVICE_SELECT`, dynamically detects WiVRn and
+xrizer OpenXR/OpenVR paths without clobbering user overrides, and runs through the safe scheduler
+chain. `steam-auto-sync` automatically preserves intentional `vr-run %command%` entries during sync
+and `--sanitize`. Inspect resolved VR settings with `vr-run --dry-run`.
 
 Preview batch integration and apply it after closing Steam:
 
@@ -111,15 +123,19 @@ By default, `VRR_CAP` follows the active monitor refresh rate directly (1:1),
 so a 240 Hz display uses a 240 FPS cap. Set `VRR_CAP=<fps>` for a custom cap,
 or `VRR_CAP=0` to disable capping. Set `VRR_MINUS_MARGIN=1` to enable the
 optional -6% VRR headroom calculation instead.
-The network helper exposes `steam-net-boost status [IFACE]` and restores its
-pre-activation EEE and temporary-qdisc state after all launch sessions exit.
+The network helper exposes an unprivileged read-only `steam-net-boost status [IFACE]`,
+recognizes static CAKE setups on both root qdiscs and LAN-exempted HTB hierarchies
+(`wan-cake-shaper.service` / `cake-shaper.service`), and restores pre-existing root qdisc
+(preserving `cake` instead of downgrading to `fq_codel`), EEE, and `txqueuelen` state after
+all launch sessions exit.
 
 ## Commands
 
 - `steam-auto-detect [--inspect] [APPID]` - classify an AppID and print the result.
 - `steam-auto-run [--inspect|--configure|--reset|--doctor|--check-system] [APPID]` - orchestrate a Steam launch or audit the system.
+- `vr-run [--dry-run] %command%` - orchestrate a VR launch with flatscreen override scrubbing and dynamic OpenXR/WiVRn/xrizer detection.
 - `steam-auto-sync [--dry-run|--remove|--sanitize|--clean|--migrate-cachy-run|--report|--print-library-paths|--keep-backups N]` - update Steam `localconfig.vdf` launch options or inspect/migrate profiles.
-- `steam-auto-net-boost [on|off|status]` - apply or restore optional network tuning.
+- `steam-net-boost [on|off|status]` - apply, inspect (read-only), or restore optional network tuning.
 - `steam-auto-detect --inspect --json [APPID]` - print a machine-readable classification report.
 
 ## Proton and Steam Linux Runtime compatibility
@@ -137,12 +153,15 @@ For anti-cheat titles, `proton-cachyos-slr` is preferred over native, distro-bun
 
 ## Current Proton compatibility variables
 
-Native Wayland defaults to `DXVK_HDR=1`; set `DXVK_NO_HDR=1` to disable HDR. No `PROTON_ENABLE_HDR` or
-`PROTON_VKREFLEX` value is emitted. NVIDIA builds use `DXVK_NVAPI_VKREFLEX=1`.
+Native Wayland defaults to `DXVK_HDR=1` and `WAYLANDDRV_SHORTCUT_INHIBIT=0` (overridable
+per-profile or via environment, including in `competitive-anticheat`); set `DXVK_NO_HDR=1`
+to disable HDR. No `PROTON_ENABLE_HDR` or `PROTON_VKREFLEX` value is emitted. NVIDIA builds
+use `DXVK_NVAPI_VKREFLEX=1`.
 
-Frame generation is mutually guarded: `USE_MLFG=0` exports both `PROTON_MLFG_UPGRADE=0` and
-`MLFG_UPGRADE=0`. `USE_MLFG=1` on detected AMD RDNA3 exports
-`DXIL_SPIRV_CONFIG=wmma_rdna3_workaround`.
+Mutual-exclusion guards prevent driver and post-processing conflicts:
+- **FSR 4 / OptiScaler + vkBasalt:** `ENABLE_VKBASALT=0` is enforced whenever `PROTON_FSR4_UPGRADE=1`, `PROTON_FSR4_RDNA3_UPGRADE=1`, or `USE_OPTISCALER=1` to prevent double-sharpening and HDR10 clipping.
+- **MLFG + Low-Latency / VRR Caps:** `USE_MLFG=1` (`MLFG=1`) exports `ENABLE_LAYER_MESA_ANTI_LAG=0`, `PROTON_DXVK_LOWLATENCY=0`, `PROTON_VKD3D_LOWLATENCY=0`, and unsets `DXVK_FRAME_RATE`, `VKD3D_FRAME_RATE`, and `DXVK_FRAME_PACE`. On detected AMD RDNA 3 it also sets `DXIL_SPIRV_CONFIG=wmma_rdna3_workaround`. When `USE_MLFG=0` and VRR capping is active, `DXVK_FRAME_PACE=low-latency-vrr` is exported alongside the frame cap.
+- **Modern Vulkan / DX12:** AMD GPUs export `PROTON_NATIVE_AGS=1`, and `VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer` is exported when `USE_SAFEDX12=0` (cleanly omitted when `SAFEDX12=1`).
 
 `PROTON_ADD_CONFIG` is mapped into `STEAM_COMPAT_CONFIG` using these supported tokens:
 `wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`,

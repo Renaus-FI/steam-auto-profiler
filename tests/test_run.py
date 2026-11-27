@@ -88,6 +88,7 @@ class RunTests(unittest.TestCase):
                 "XDG_CONFIG_HOME": str(home / ".config"),
                 "NO_GUI": "1",
                 "GAMEID": "361420",
+                "FSR4": "0",
             })
             result = subprocess.run(
                 [str(RUN), "/usr/bin/env"],
@@ -240,6 +241,269 @@ class RunTests(unittest.TestCase):
             self.assertIn("PROTON_ENABLE_WAYLAND=0", result.stdout)
             self.assertIn("PROTON_MLFG_UPGRADE=1", result.stdout)
             self.assertIn("MLFG_UPGRADE=1", result.stdout)
+
+    def test_fsr4_and_optiscaler_disable_vkbasalt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            base_env = os.environ.copy()
+            base_env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "GAMEID": "361420",
+                "SHARPEN": "1",
+            })
+            base_env.pop("FSR4", None)
+            base_env.pop("OPTISCALER", None)
+
+            # FSR4 enabled (default) must force ENABLE_VKBASALT=0
+            res_fsr4 = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**base_env, "FSR4": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_fsr4.returncode, 0, res_fsr4.stderr)
+            self.assertIn("ENABLE_VKBASALT=0", res_fsr4.stdout)
+
+            # OptiScaler enabled (even with FSR4=0) must force ENABLE_VKBASALT=0
+            res_opti = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**base_env, "FSR4": "0", "OPTISCALER": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_opti.returncode, 0, res_opti.stderr)
+            self.assertIn("PROTON_USE_OPTISCALER=1", res_opti.stdout)
+            self.assertIn("ENABLE_VKBASALT=0", res_opti.stdout)
+
+            # Both disabled allows vkBasalt sharpening
+            res_sharpen = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**base_env, "FSR4": "0", "OPTISCALER": "0"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_sharpen.returncode, 0, res_sharpen.stderr)
+            self.assertIn("ENABLE_VKBASALT=1", res_sharpen.stdout)
+
+    def test_mlfg_mutual_exclusion_guard(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "MLFG": "1",
+                "VRR_CAP": "165",
+                "DXVK_FRAME_RATE": "165",
+                "VKD3D_FRAME_RATE": "165",
+                "DXVK_FRAME_PACE": "low-latency-vrr",
+                "ENABLE_LAYER_MESA_ANTI_LAG": "1",
+            })
+            result = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROTON_MLFG_UPGRADE=1", result.stdout)
+            self.assertIn("MLFG_UPGRADE=1", result.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", result.stdout)
+            self.assertIn("PROTON_DXVK_LOWLATENCY=0", result.stdout)
+            self.assertIn("PROTON_VKD3D_LOWLATENCY=0", result.stdout)
+            self.assertNotIn("DXVK_FRAME_RATE=", result.stdout)
+            self.assertNotIn("VKD3D_FRAME_RATE=", result.stdout)
+            self.assertNotIn("DXVK_FRAME_PACE=", result.stdout)
+
+    def test_vrr_active_exports_dxvk_frame_pace(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env = os.environ.copy()
+            for key in ("MLFG", "USE_MLFG", "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "DXVK_FRAME_PACE"):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "VRR_CAP": "144",
+            })
+            res_active = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_active.returncode, 0, res_active.stderr)
+            self.assertIn("DXVK_FRAME_PACE=low-latency-vrr", res_active.stdout)
+            self.assertIn("DXVK_FRAME_RATE=144", res_active.stdout)
+            self.assertIn("VKD3D_FRAME_RATE=144", res_active.stdout)
+
+            res_disabled = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "VRR_CAP": "0"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_disabled.returncode, 0, res_disabled.stderr)
+            self.assertNotIn("DXVK_FRAME_PACE=", res_disabled.stdout)
+            self.assertNotIn("DXVK_FRAME_RATE=", res_disabled.stdout)
+            self.assertNotIn("VKD3D_FRAME_RATE=", res_disabled.stdout)
+
+    def test_vkd3d_config_and_safedx12_bypass(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env = os.environ.copy()
+            env.pop("VKD3D_CONFIG", None)
+            env.pop("SAFEDX12", None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+            })
+            res_default = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_default.returncode, 0, res_default.stderr)
+            self.assertIn(
+                "VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer",
+                res_default.stdout,
+            )
+
+            res_safe = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "SAFEDX12": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_safe.returncode, 0, res_safe.stderr)
+            self.assertNotIn("VKD3D_CONFIG=", res_safe.stdout)
+            self.assertNotIn("vkd3dbindlesstb", res_safe.stdout)
+
+    def test_wayland_shortcut_inhibit_default_and_profile_override(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            profile_dir = home / ".config/steam-auto-profiler/profiles"
+            profile_dir.mkdir(parents=True)
+            env = os.environ.copy()
+            env.pop("WAYLANDDRV_SHORTCUT_INHIBIT", None)
+            env.pop("GAMESCOPE_WAYLAND_DISPLAY", None)
+            env.pop("XDG_CURRENT_DESKTOP", None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+            })
+            # Base Wayland default is 0
+            res_default = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_default.returncode, 0, res_default.stderr)
+            self.assertIn("WAYLANDDRV_SHORTCUT_INHIBIT=0", res_default.stdout)
+
+            # Per-profile override enables 1 even in competitive-anticheat
+            (profile_dir / "2357570.env").write_text(
+                "WAYLANDDRV_SHORTCUT_INHIBIT=1\n",
+                encoding="utf-8",
+            )
+            res_profile = subprocess.run(
+                [str(RUN), "--dry-run", "2357570"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_profile.returncode, 0, res_profile.stderr)
+            self.assertIn("WAYLANDDRV_SHORTCUT_INHIBIT=1", res_profile.stdout)
+
+    def test_doctor_detects_root_cake_and_htb_cake(self):
+        cases = (
+            (
+                "root_cake",
+                "qdisc cake 8001: root refcnt 2 bandwidth 500Mbit diffserv4 triple-isolate\n",
+                "[OK] sch_cake active on eth0",
+            ),
+            (
+                "htb_leaf_cake",
+                "qdisc htb 1: root refcnt 2 r2q 10 default 0x20\n"
+                "qdisc fq_codel 10: parent 1:10 limit 10240p\n"
+                "qdisc cake 20: parent 1:20 bandwidth 450Mbit diffserv4\n",
+                "[OK] sch_cake active on eth0 (HTB hierarchy)",
+            ),
+            (
+                "fq_codel_only",
+                "qdisc fq_codel 0: root refcnt 2 limit 10240p\n",
+                "[INFO] No active sch_cake qdisc detected on eth0",
+            ),
+        )
+        for name, tc_output, expected in cases:
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as temp:
+                mock_bin = Path(temp) / "bin"
+                mock_bin.mkdir()
+                ip_mock = mock_bin / "ip"
+                ip_mock.write_text(
+                    "#!/bin/sh\necho 'default via 192.0.2.1 dev eth0 proto dhcp'\n",
+                    encoding="utf-8",
+                )
+                ip_mock.chmod(0o755)
+                tc_mock = mock_bin / "tc"
+                tc_mock.write_text(
+                    f"#!/bin/sh\ncat <<'EOF'\n{tc_output}EOF\n",
+                    encoding="utf-8",
+                )
+                tc_mock.chmod(0o755)
+                env = os.environ.copy()
+                env["PATH"] = f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}"
+                res = subprocess.run(
+                    [str(RUN), "--doctor"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(res.returncode, 0, res.stderr)
+                self.assertIn(expected, res.stdout)
+
+    def test_steamvr_and_vr_flag_bypass(self):
+        env = os.environ.copy()
+        env["SteamAppId"] = "250820"
+        res_steamvr = subprocess.run(
+            [str(RUN), "/bin/echo", "steamvr-direct"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(res_steamvr.returncode, 0, res_steamvr.stderr)
+        self.assertEqual(res_steamvr.stdout.strip(), "steamvr-direct")
+
+        env.pop("SteamAppId", None)
+        res_flag = subprocess.run(
+            [str(RUN), "/bin/echo", "-vr", "vr-direct"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(res_flag.returncode, 0, res_flag.stderr)
+        self.assertEqual(res_flag.stdout.strip(), "-vr vr-direct")
 
 
 if __name__ == "__main__":

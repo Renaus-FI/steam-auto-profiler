@@ -593,6 +593,160 @@ class RunTests(unittest.TestCase):
             self.assertIn("PROTON_FSR4_UPGRADE=0", res.stdout)
             self.assertIn("ENABLE_VKBASALT=1", res.stdout)
 
+    def test_ui_flag_delegates_to_steam_auto_ui(self):
+        import json as _json
+
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env.pop("DISPLAY", None)
+            env.pop("WAYLAND_DISPLAY", None)
+            env.update({
+                "HOME": temp,
+                "XDG_CONFIG_HOME": f"{temp}/.config",
+                "XDG_STATE_HOME": f"{temp}/.local/state",
+            })
+            res = subprocess.run(
+                [str(RUN), "--ui", "--check"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            payload = _json.loads(res.stdout)
+            self.assertEqual(payload["status"], "ok")
+
+    def test_auto_hdr_switch_dry_run_and_trap_restore(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            ks_log = home / "kscreen.log"
+            hdr_state_file = home / "hdr.state"
+            hdr_state_file.write_text("disabled\n", encoding="utf-8")
+
+            kscreen = mock_bin / "kscreen-doctor"
+            kscreen.write_text(
+                "#!/bin/sh\n"
+                f'if [ "$1" = "-o" ]; then\n'
+                f'  state="$(cat "{hdr_state_file}")"\n'
+                '  printf "Output: 1 DP-1 uuid-1\\n\\tenabled\\n\\tconnected\\n\\tpriority 1\\n\\tHDR: %s\\n" "$state"\n'
+                "else\n"
+                f'  echo "$*" >> "{ks_log}"\n'
+                "fi\n",
+                encoding="utf-8",
+            )
+            kscreen.chmod(0o755)
+
+            env = os.environ.copy()
+            for k in ("GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XWAYLAND", "DXVK_NO_HDR"):
+                env.pop(k, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "NO_GUI": "1",
+                "GAMEID": "361420",
+                "AUTO_HDR_SWITCH": "1",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+
+            # Dry-run inspects primary output without toggling HDR
+            res_dry = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_dry.returncode, 0, res_dry.stderr)
+            self.assertIn("HDR auto-switch: DP-1 (state=disabled)", res_dry.stdout)
+            self.assertFalse(ks_log.exists())
+
+            # Real launch enables HDR before launch and disables via trap on exit
+            res_run = subprocess.run(
+                [str(RUN), "/bin/true"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_run.returncode, 0, res_run.stderr)
+            calls = ks_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(calls, ["output.DP-1.hdr.enable", "output.DP-1.hdr.disable"])
+
+            # When HDR is already enabled on desktop, do not toggle or disable on exit
+            ks_log.unlink()
+            hdr_state_file.write_text("enabled\n", encoding="utf-8")
+            res_already = subprocess.run(
+                [str(RUN), "/bin/true"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_already.returncode, 0, res_already.stderr)
+            self.assertFalse(ks_log.exists())
+
+    def test_bench_mode_parses_mangohud_csv_metrics(self):
+        import json as _json
+
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            mh = mock_bin / "mangohud"
+            mh.write_text("#!/bin/sh\nexec \"$@\"\n", encoding="utf-8")
+            mh.chmod(0o755)
+
+            mock_game = home / "mock-game.py"
+            mock_game.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, re\n"
+                "from pathlib import Path\n"
+                "cfg = os.environ.get('MANGOHUD_CONFIG', '')\n"
+                "assert 'no_display' in cfg and 'log_duration=30' in cfg and 'permit_upload=0' in cfg, cfg\n"
+                "m = re.search(r'output_folder=([^,]+)', cfg)\n"
+                "assert m, cfg\n"
+                "out = Path(m.group(1)) / 'run.csv'\n"
+                "rows = ['os,cpu,gpu', 'Linux,AMD,RDNA4', 'fps,frametime,cpu_load']\n"
+                "rows.extend(['100.0,10.0,20'] * 98)\n"
+                "rows.extend(['40.0,25.0,45'] * 2)\n"
+                "out.write_text('\\n'.join(rows) + '\\n', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            mock_game.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "NO_GUI": "1",
+                "GAMEID": "361420",
+                "BENCH": "1",
+                "BENCH_DURATION": "30",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+            res = subprocess.run(
+                [str(RUN), str(mock_game)],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+
+            bench_file = home / ".config" / "steam-auto-profiler" / "benchmarks" / "361420.json"
+            self.assertTrue(bench_file.is_file(), "Benchmark JSON was not created")
+            records = _json.loads(bench_file.read_text(encoding="utf-8"))
+            self.assertEqual(len(records), 1)
+            rec = records[0]
+            self.assertEqual(rec["samples"], 100)
+            self.assertAlmostEqual(rec["avg_fps"], 97.09, places=1)
+            self.assertAlmostEqual(rec["low_1pct_fps"], 40.0, places=1)
+            self.assertAlmostEqual(rec["p99_frametime_ms"], 25.0, places=1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -149,6 +149,128 @@ class UiTests(unittest.TestCase):
         self.assertEqual(parsed["wan"]["dropped"], 2)
         self.assertEqual(parsed["wan"]["av_delay"][0], "920us")
 
+    def test_shortcuts_vdf_parser_and_profile_editing(self):
+        import struct
+
+        ui = _load_ui_module()
+
+        def pack_str(k: str, v: str) -> bytes:
+            return b"\x01" + k.encode() + b"\x00" + v.encode() + b"\x00"
+
+        def pack_u32(k: str, v: int) -> bytes:
+            return b"\x02" + k.encode() + b"\x00" + struct.pack("<I", v)
+
+        vdf_bytes = (
+            b"\x00shortcuts\x00"
+            + b"\x000\x00"
+            + pack_u32("appid", 3333333333)
+            + pack_str("AppName", "Modded VR Title")
+            + pack_str("Exe", '"/opt/mod/game.exe"')
+            + pack_str("StartDir", '"/opt/mod"')
+            + pack_str("LaunchOptions", "vr-run %command% -vr")
+            + b"\x08"
+            + b"\x08"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            vdf = home / ".local" / "share" / "Steam" / "userdata" / "100" / "config" / "shortcuts.vdf"
+            vdf.parent.mkdir(parents=True)
+            (home / ".local" / "share" / "Steam" / "steamapps").mkdir(parents=True)
+            vdf.write_bytes(vdf_bytes)
+
+            parsed = ui.parse_shortcuts_vdf(vdf)
+            self.assertEqual(len(parsed), 1)
+            self.assertEqual(parsed[0]["appid"], "3333333333")
+            self.assertEqual(parsed[0]["name"], "Modded VR Title")
+            self.assertEqual(parsed[0]["source"], "shortcut")
+
+            # Truncated binary VDF must not crash
+            broken = home / "broken.vdf"
+            broken.write_bytes(b"\x00shortcuts\x00\x000\x00\x02appid\x00\x01")
+            self.assertIsInstance(ui.parse_shortcuts_vdf(broken), list)
+
+            orig_cfg = os.environ.get("XDG_CONFIG_HOME")
+            os.environ["XDG_CONFIG_HOME"] = str(home / ".config")
+            try:
+                backend = ui.ProfilerBackend(home=home)
+                games = backend.discover_games()
+                self.assertEqual(len(games), 1)
+                self.assertEqual(games[0]["source"], "shortcut")
+                self.assertEqual(games[0]["synced"], "VR")
+                backend.save_profile("3333333333", {"AUTO_HDR_SWITCH": "1", "USE_FSR4": "1"})
+                self.assertEqual(backend.load_profile("3333333333")["AUTO_HDR_SWITCH"], "1")
+                self.assertEqual(vdf.read_bytes(), vdf_bytes)
+            finally:
+                if orig_cfg is None:
+                    os.environ.pop("XDG_CONFIG_HOME", None)
+                else:
+                    os.environ["XDG_CONFIG_HOME"] = orig_cfg
+
+    def test_benchmarks_and_stack_watchdog(self):
+        ui = _load_ui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            orig_cfg = os.environ.get("XDG_CONFIG_HOME")
+            orig_cache = os.environ.get("XDG_CACHE_HOME")
+            os.environ["XDG_CONFIG_HOME"] = str(home / ".config")
+            os.environ["XDG_CACHE_HOME"] = str(home / ".cache")
+            try:
+                backend = ui.ProfilerBackend(home=home)
+                backend.benchmark_dir.mkdir(parents=True, exist_ok=True)
+                (backend.benchmark_dir / "361420.json").write_text(
+                    json.dumps([
+                        {
+                            "timestamp": "2026-11-27T10:00:00+00:00",
+                            "appid": "361420",
+                            "avg_fps": 142.5,
+                            "low_1pct_fps": 98.2,
+                            "p99_frametime_ms": 10.4,
+                            "samples": 6000,
+                            "fsr4": True,
+                            "mlfg": False,
+                            "xwayland": False,
+                            "safedx12": False,
+                            "vrr_cap": 240,
+                        }
+                    ]),
+                    encoding="utf-8",
+                )
+                runs = backend.list_benchmarks("361420")
+                self.assertEqual(len(runs), 1)
+                table_txt = backend.format_benchmarks_text(runs)
+                self.assertIn("142.5", table_txt)
+                self.assertIn("98.2", table_txt)
+                self.assertIn("10.40", table_txt)
+
+                # Shader cache usage measurement
+                sc_dir = home / ".cache" / "mesa_shader_cache_sf"
+                sc_dir.mkdir(parents=True)
+                (sc_dir / "foz_cache.foz").write_bytes(b"x" * 2048)
+                cache_info = backend.measure_shader_cache()
+                self.assertEqual(cache_info["total_bytes"], 2048)
+                self.assertEqual(cache_info["file_count"], 1)
+
+                # Pacman downgrade & git revision regression watchdog
+                paclog = home / "pacman.log"
+                paclog.write_text(
+                    "[2026-11-26T12:00:00+0200] [ALPM] downgraded mesa-git (27.0.0_devel.235000.aaa-1 -> 27.0.0_devel.234800.bbb-1)\n"
+                    "[2026-11-26T12:05:00+0200] [ALPM] upgraded xrizer-git (0.6.r12.gabc-1 -> 0.6.r8.gdef-1)\n",
+                    encoding="utf-8",
+                )
+                warns = ui.detect_pacman_downgrades(paclog)
+                self.assertEqual(len(warns), 2)
+                self.assertIn("mesa-git", warns[0])
+                self.assertIn("xrizer-git", warns[1])
+            finally:
+                if orig_cfg is None:
+                    os.environ.pop("XDG_CONFIG_HOME", None)
+                else:
+                    os.environ["XDG_CONFIG_HOME"] = orig_cfg
+                if orig_cache is None:
+                    os.environ.pop("XDG_CACHE_HOME", None)
+                else:
+                    os.environ["XDG_CACHE_HOME"] = orig_cache
+
 
 if __name__ == "__main__":
     unittest.main()

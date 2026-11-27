@@ -143,6 +143,67 @@ class DetectTests(unittest.TestCase):
                 ).stdout
                 self.assertIn("AUTO_IS_VR=1", raw)
 
+    def test_upscaler_sdk_info_fsr31_vs_legacy(self):
+        self.create_game("2010", "Modern FSR4", files=("amd_fidelityfx_upscaler_dx12.dll", "game.exe"))
+        modern = self.classify("2010")
+        self.assertIn("FidelityFX 3.1+", modern["upscaler_info"])
+        self.assertIn("PROTON_FSR4_UPGRADE=1", modern["upscaler_info"])
+        self.assertNotIn("will not hook", modern["upscaler_info"])
+
+        self.create_game("2011", "Legacy Upscaler", files=("ffx_fsr2_api_x64.dll", "nvngx_dlss.dll", "game.exe"))
+        legacy = self.classify("2011")
+        self.assertIn("Legacy upscaler", legacy["upscaler_info"])
+        self.assertIn("will not hook", legacy["upscaler_info"])
+        self.assertIn("USE_OPTISCALER=1", legacy["upscaler_info"])
+
+    def test_non_steam_shortcut_binary_vdf_detection(self):
+        import struct
+
+        sc_dir = self.common / "NonSteam_Game"
+        sc_dir.mkdir(parents=True)
+        (sc_dir / "nvngx_dlss.dll").touch()
+        (sc_dir / "game.exe").touch()
+
+        def pack_str(k: str, v: str) -> bytes:
+            return b"\x01" + k.encode() + b"\x00" + v.encode() + b"\x00"
+
+        def pack_u32(k: str, v: int) -> bytes:
+            return b"\x02" + k.encode() + b"\x00" + struct.pack("<I", v)
+
+        vdf_bytes = (
+            b"\x00shortcuts\x00"
+            + b"\x000\x00"
+            + pack_u32("appid", 3123456789)
+            + pack_str("AppName", "Cyber Shortcut")
+            + pack_str("Exe", f'"{sc_dir / "game.exe"}"')
+            + pack_str("StartDir", f'"{sc_dir}"')
+            + pack_str("LaunchOptions", "steam-auto-run %command%")
+            + b"\x08"
+            + b"\x001\x00"
+            + pack_u32("appid", 3987654321)
+            + pack_str("AppName", "VR Shortcut")
+            + pack_str("Exe", '"/opt/vr/app.exe"')
+            + pack_str("StartDir", '"/opt/vr"')
+            + pack_str("LaunchOptions", "vr-run %command% -vr")
+            + b"\x08"
+            + b"\x08"
+        )
+        vdf_path = self.steam / "userdata" / "100" / "config" / "shortcuts.vdf"
+        vdf_path.parent.mkdir(parents=True, exist_ok=True)
+        vdf_path.write_bytes(vdf_bytes)
+
+        rep1 = self.classify("3123456789")
+        self.assertEqual(rep1["source"], "shortcut")
+        self.assertEqual(rep1["game"], "Cyber Shortcut")
+        self.assertTrue(rep1["has_dlss"])
+        self.assertIn("USE_OPTISCALER=1", rep1["upscaler_info"])
+
+        rep2 = self.classify("3987654321")
+        self.assertEqual(rep2["source"], "shortcut")
+        self.assertEqual(rep2["game"], "VR Shortcut")
+        self.assertTrue(rep2["is_vr"])
+        self.assertEqual(rep2["class"], "vr")
+
 
 if __name__ == "__main__":
     unittest.main()

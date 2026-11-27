@@ -67,12 +67,13 @@ steam-auto-ui --tui    # Launch terminal curses interface (works over SSH)
 steam-auto-ui --check  # Run headless self-test
 ```
 
-The control center provides four synchronized views:
+The control center provides five synchronized views (also reachable via `steam-auto-run --ui`):
 
-1. **Games & Profiles:** Searchable library table (`AppID`, `Name`, `Auto Class`, `Synced`, `Profile`) with interactive profile toggles (`XWayland`, `FSR4`, `MLFG`, `VRR_CAP`, `vkBasalt`, `Safe DX12`, `Net QoS`, `SDL Input`, `Keep Overlay`, `OptiScaler`), live mutual-exclusion validation, `Dry-Run` preview, and `Reset Profile`.
-2. **System & Telemetry:** Displays `steam-auto-run --doctor`, `scxctl get` scheduler mode, GPU VRAM/utilization/temperature, `tc -s qdisc` LAN (`cake 10:`) vs WAN (`cake 20:`) throughput and `av_delay`, and `vr-mode status`.
-3. **Library Sync:** Triggers `steam-auto-sync --report`, `--sanitize --dry-run`, `--sanitize` (warning if Steam is running), and `--migrate-cachy-run`.
+1. **Games & Profiles:** Searchable library table including both Steam titles and read-only Non-Steam `shortcuts.vdf` entries (`AppID`, `Name`, `Source`, `Auto Class`, `Synced`, `Profile`), actionable Upscaler SDK hint badge (`AUTO_UPSCALER_INFO`), interactive profile toggles (`XWayland`, `FSR4`, `MLFG`, `VRR_CAP`, `vkBasalt`, `Safe DX12`, `Net QoS`, `SDL Input`, `Keep Overlay`, `OptiScaler`, `Auto KDE HDR Toggle`), live mutual-exclusion validation, `Dry-Run` preview, `Benchmarks` jump button, and `Reset Profile`.
+2. **System & Telemetry:** Displays `steam-auto-run --doctor`, `scxctl get` scheduler mode, live installed stack versions (`mesa-git`/`mesa`, `proton-cachyos-slr`, `wivrn-server`, `xrizer-git`), shader cache disk usage (`~/.cache/mesa_shader_cache*`), `/var/log/pacman.log` git/AUR downgrade warnings, GPU VRAM/utilization/temperature, `tc -s qdisc` LAN (`cake 10:`) vs WAN (`cake 20:`) throughput and `av_delay`, and `vr-mode status`.
+3. **Library Sync:** Triggers `steam-auto-sync --report` (including Non-Steam shortcuts read-only), `--sanitize --dry-run`, `--sanitize` (warning if Steam is running), and `--migrate-cachy-run`.
 4. **Logs & Recovery:** Browses `last-launch.log` and `last-<APPID>.log`, highlights `crash_hint` warnings, and offers one-click **Apply Safe Mode (`USE_XWAYLAND=1`, `USE_SAFEDX12=1`)**.
+5. **Benchmarks:** Compares silent `BENCH=1` MangoHud runs (`Avg FPS`, `1% Low FPS`, `P99 Frametime (ms)`) stored in `~/.config/steam-auto-profiler/benchmarks/<APPID>.json` side-by-side across FSR4, MLFG, XWayland, and Safe DX12 settings.
 
 ## VR titles (`vr-run`)
 
@@ -209,6 +210,8 @@ VRR_CAP=120 MLFG=1 KEEP_OVERLAY=1 steam-auto-run %command%
 | `FSR_HUD=1` | Enable FSR/DLSS indicator variables. |
 | `SAFEDX12=1` | Omit experimental `VKD3D_CONFIG` flags and `vkd3dbindlesstb` compat token. |
 | `WAYLANDDRV_SHORTCUT_INHIBIT=1` | Allow shortcut inhibition under Wine Wayland (default `0`; also supported in `.env` profiles). |
+| `AUTO_HDR_SWITCH=1` | Automatically enable KDE Plasma 6 HDR via `kscreen-doctor` on launch when game HDR is active and restore SDR on exit. |
+| `BENCH=1` | Run silent MangoHud CSV logging (`no_display`, duration via `BENCH_DURATION`, default `60`s) and record `Avg FPS`, `1% Low FPS`, and `P99 (ms)` to `~/.config/steam-auto-profiler/benchmarks/<APPID>.json`. |
 | `VULKAN=1` | Add `-vulkan` to a launch. |
 | `NO_NTSYNC=1` | Disable NTSync for a legacy title. |
 | `NO_DECORATION=1` | Disable window decorations. |

@@ -8,9 +8,11 @@ import os
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import time
+import zlib
 from pathlib import Path
 
 
@@ -115,6 +117,93 @@ def uses_vr_wrapper(launch_options):
         if Path(token).name in VR_WRAPPERS:
             return True
     return False
+
+
+def parse_shortcuts_vdf(path):
+    """Safely read Steam binary userdata/*/config/shortcuts.vdf (read-only)."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return []
+    pos = 0
+    n = len(data)
+
+    def read_cstr():
+        nonlocal pos
+        end = data.find(b"\x00", pos)
+        if end == -1:
+            pos = n
+            return ""
+        val = data[pos:end].decode("utf-8", errors="replace")
+        pos = end + 1
+        return val
+
+    def read_map():
+        nonlocal pos
+        out = {}
+        while pos < n:
+            t = data[pos]
+            pos += 1
+            if t == 0x08:
+                break
+            key = read_cstr()
+            if t == 0x00:
+                out[key] = read_map()
+            elif t == 0x01:
+                out[key] = read_cstr()
+            elif t == 0x02:
+                if pos + 4 > n:
+                    break
+                out[key] = struct.unpack_from("<I", data, pos)[0]
+                pos += 4
+            elif t == 0x03:
+                pos += 4
+            elif t == 0x07:
+                pos += 8
+            else:
+                break
+        return out
+
+    root = read_map()
+    shortcuts = root.get("shortcuts") or root.get("Shortcuts") or {}
+    if not isinstance(shortcuts, dict):
+        return []
+    entries = []
+    for entry in shortcuts.values():
+        if not isinstance(entry, dict):
+            continue
+        lower_map = {k.lower(): v for k, v in entry.items()}
+        name = str(lower_map.get("appname") or "").strip()
+        exe = str(lower_map.get("exe") or "").strip().strip('"')
+        start_dir = str(lower_map.get("startdir") or "").strip().strip('"')
+        launch_opts = str(lower_map.get("launchoptions") or "").strip()
+        raw_id = lower_map.get("appid")
+        if isinstance(raw_id, int):
+            appid = str(raw_id & 0xFFFFFFFF)
+        else:
+            appid = str((zlib.crc32((exe + name).encode("utf-8")) | 0x80000000) & 0xFFFFFFFF)
+        if not name:
+            name = Path(exe).stem if exe else appid
+        entries.append({
+            "appid": appid,
+            "name": name,
+            "exe": exe,
+            "start_dir": start_dir,
+            "launch_options": launch_opts,
+            "source": "shortcut",
+        })
+    return entries
+
+
+def discover_shortcuts(steam_root):
+    shortcuts = {}
+    userdata = steam_root / "userdata"
+    if not userdata.is_dir():
+        return shortcuts
+    for vdf in userdata.glob("*/config/shortcuts.vdf"):
+        for item in parse_shortcuts_vdf(vdf):
+            shortcuts[item["appid"]] = item
+    return shortcuts
 
 
 def find_detector(home):
@@ -544,8 +633,14 @@ def main():
                     elif args.wrapper in launch_options:
                         synced_appids.add(appid)
 
+            shortcuts = discover_shortcuts(steam_root)
+            all_entries = [(appid, name, "steam", "") for appid, name in games.items()]
+            for sc_id, sc in shortcuts.items():
+                if sc_id not in games:
+                    all_entries.append((sc_id, sc["name"], "shortcut", sc["launch_options"]))
+
             rows = []
-            for appid, name in sorted(games.items(), key=lambda item: item[1].lower()):
+            for appid, name, source, sc_opts in sorted(all_entries, key=lambda item: item[1].lower()):
                 profile_file = cfg_home / "steam-auto-profiler/profiles" / f"{appid}.env"
                 result = subprocess.run(
                     [str(detector), "--json", appid],
@@ -553,13 +648,22 @@ def main():
                     capture_output=True,
                     check=False,
                 )
-                if result.returncode != 0:
+                report = {}
+                if result.returncode == 0:
+                    try:
+                        report = json.loads(result.stdout)
+                    except json.JSONDecodeError:
+                        report = {}
+                elif source != "shortcut":
                     continue
-                try:
-                    report = json.loads(result.stdout)
-                except json.JSONDecodeError:
-                    continue
-                if appid in vr_appids:
+                if source == "shortcut":
+                    if uses_vr_wrapper(sc_opts):
+                        synced_label = "VR"
+                    elif args.wrapper in sc_opts:
+                        synced_label = "Yes"
+                    else:
+                        synced_label = "Custom" if sc_opts else "No"
+                elif appid in vr_appids:
                     synced_label = "VR"
                 elif appid in synced_appids:
                     synced_label = "Yes"
@@ -568,32 +672,33 @@ def main():
                 rows.append({
                     "appid": appid,
                     "name": name,
+                    "source": source,
                     "class": report.get("class", "standard"),
                     "compat": report.get("proton_add_config", "-") or "-",
                     "profile": "Saved" if profile_file.is_file() else "Auto",
                     "synced": synced_label,
                 })
 
+            headers = ("AppID", "Game Name", "Source", "Class", "Compat Tokens", "Profile", "Synced")
             if rows:
-                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Profile", "Synced")
                 widths = [
                     max(len(headers[0]), *(len(row["appid"]) for row in rows)),
                     max(len(headers[1]), *(len(row["name"]) for row in rows)),
-                    max(len(headers[2]), *(len(row["class"]) for row in rows)),
-                    max(len(headers[3]), *(len(row["compat"]) for row in rows)),
-                    max(len(headers[4]), *(len(row["profile"]) for row in rows)),
-                    max(len(headers[5]), *(len(row["synced"]) for row in rows)),
+                    max(len(headers[2]), *(len(row["source"]) for row in rows)),
+                    max(len(headers[3]), *(len(row["class"]) for row in rows)),
+                    max(len(headers[4]), *(len(row["compat"]) for row in rows)),
+                    max(len(headers[5]), *(len(row["profile"]) for row in rows)),
+                    max(len(headers[6]), *(len(row["synced"]) for row in rows)),
                 ]
                 print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
                 print("-+-".join("-" * width for width in widths))
                 for row in rows:
                     values = (
-                        row["appid"], row["name"], row["class"],
+                        row["appid"], row["name"], row["source"], row["class"],
                         row["compat"], row["profile"], row["synced"],
                     )
                     print(" | ".join(value.ljust(width) for value, width in zip(values, widths)))
             else:
-                headers = ("AppID", "Game Name", "Class", "Compat Tokens", "Profile", "Synced")
                 widths = tuple(max(len(header), 1) for header in headers)
                 print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
                 print("-+-".join("-" * width for width in widths))

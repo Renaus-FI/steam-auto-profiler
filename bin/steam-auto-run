@@ -27,7 +27,7 @@ done
 if [[ $# -gt 0 ]]; then
     if [[ "${SteamAppId:-}" == "250820" || "${STEAM_COMPAT_APP_ID:-}" == "250820" ]]; then
         case "${1:-}" in
-            -h|--help|--inspect|-i|--doctor|--check-system|--reset|--list-profiles|--last-log|--configure|--dry-run)
+            -h|--help|--inspect|-i|--doctor|--check-system|--reset|--list-profiles|--last-log|--configure|--dry-run|--ui)
                 ;;
             *)
                 exec "$@"
@@ -54,7 +54,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH)
                 ;;
             *) continue ;;
         esac
@@ -87,6 +87,7 @@ Options:
   --last-log [APPID] Show the bounded last-launch log
   --doctor, --check-system
                     Run a read-only CachyOS system readiness audit
+  --ui              Launch the unified Qt6 GUI / curses TUI control center
 
 Environment overrides:
   FORCE_GUI=1       Re-open the GUI for a saved profile
@@ -103,6 +104,9 @@ Environment overrides:
   PRIME=1           Use prime-run for hybrid GPU launch
   FSR4=0            Disable the native FSR4 upgrade
   FSR_HUD=1         Enable the FSR/DLSS HUD indicator
+  AUTO_HDR_SWITCH=1 Toggle KDE Plasma 6 HDR on launch and restore SDR on exit
+  BENCH=1           Enable silent MangoHud CSV benchmark logging on exit
+  BENCH_DURATION=60 Benchmark logging duration in seconds (default: 60)
 EOF
 }
 
@@ -332,6 +336,21 @@ case "${1:-}" in
         run_doctor
         exit 0
         ;;
+    --ui)
+        shift
+        UI_BIN=""
+        for ui_candidate in "$SCRIPT_DIR/steam-auto-ui" "$HOME/.local/bin/steam-auto-ui" "/usr/local/bin/steam-auto-ui"; do
+            if [[ -x "$ui_candidate" ]]; then
+                UI_BIN="$ui_candidate"
+                break
+            fi
+        done
+        if [[ -n "$UI_BIN" ]]; then
+            exec "$UI_BIN" "$@"
+        fi
+        echo "Error: steam-auto-ui not found." >&2
+        exit 1
+        ;;
     --reset)
         if [[ -z "${2:-}" ]]; then
             echo "Usage: steam-auto-run --reset APPID" >&2
@@ -498,6 +517,49 @@ detect_vrr_cap() {
     fi
 }
 
+detect_primary_hdr_output() {
+    command -v kscreen-doctor >/dev/null 2>&1 || return 0
+    kscreen-doctor -o 2>/dev/null | awk '
+        function commit() {
+            if (cur_name == "") return
+            if (cur_enabled == 1 && (best_name == "" || cur_prio < best_prio)) {
+                best_name = cur_name
+                best_prio = cur_prio
+                best_hdr = cur_hdr
+            } else if (fallback_name == "") {
+                fallback_name = cur_name
+                fallback_hdr = cur_hdr
+            }
+        }
+        {
+            gsub(/\033\[[0-9;]*[A-Za-z]/, "")
+            if ($1 == "Output:") {
+                commit()
+                cur_name = $3
+                cur_enabled = 1
+                cur_prio = 999
+                cur_hdr = "unknown"
+            } else if ($1 == "disabled") {
+                cur_enabled = 0
+            } else if ($1 == "enabled") {
+                cur_enabled = 1
+            } else if ($1 == "priority" && $2 ~ /^[0-9]+$/) {
+                cur_prio = $2 + 0
+            } else if ($1 == "HDR:") {
+                cur_hdr = tolower($2)
+            }
+        }
+        END {
+            commit()
+            if (best_name != "") {
+                print best_name, best_hdr
+            } else if (fallback_name != "") {
+                print fallback_name, fallback_hdr
+            }
+        }
+    '
+}
+
 detect_rdna3() {
     local modalias
     for modalias in /sys/class/drm/card*/device/uevent; do
@@ -605,6 +667,12 @@ if [[ -n "${WAYLANDDRV_SHORTCUT_INHIBIT+x}" ]]; then
     ORIG_WAYLANDDRV_SHORTCUT_INHIBIT_SET=1
     ORIG_WAYLANDDRV_SHORTCUT_INHIBIT="$WAYLANDDRV_SHORTCUT_INHIBIT"
 fi
+ORIG_AUTO_HDR_SWITCH_SET=0
+ORIG_AUTO_HDR_SWITCH=""
+if [[ -n "${AUTO_HDR_SWITCH+x}" ]]; then
+    ORIG_AUTO_HDR_SWITCH_SET=1
+    ORIG_AUTO_HDR_SWITCH="$AUTO_HDR_SWITCH"
+fi
 
 USE_XWAYLAND=0
 USE_MLFG="${USE_MLFG:-0}"
@@ -619,6 +687,11 @@ USE_SAFEDX12=0
 USE_KEEP_OVERLAY=0
 USE_NO_NTSYNC=0
 USE_NO_DECORATION=0
+USE_HDR="${USE_HDR:-0}"
+AUTO_HDR_SWITCH="${AUTO_HDR_SWITCH:-0}"
+BENCH="${BENCH:-0}"
+BENCH_DURATION="${BENCH_DURATION:-60}"
+[[ "$BENCH_DURATION" =~ ^[1-9][0-9]*$ ]] || BENCH_DURATION=60
 VRR_MINUS_MARGIN="${VRR_MINUS_MARGIN:-0}"
 
 AUTO_CLASS="standard"
@@ -672,6 +745,9 @@ elif [[ -z "${VRR_MINUS_MARGIN+x}" ]]; then
 fi
 if [[ "$ORIG_WAYLANDDRV_SHORTCUT_INHIBIT_SET" -eq 1 ]]; then
     WAYLANDDRV_SHORTCUT_INHIBIT="$ORIG_WAYLANDDRV_SHORTCUT_INHIBIT"
+fi
+if [[ "$ORIG_AUTO_HDR_SWITCH_SET" -eq 1 ]]; then
+    AUTO_HDR_SWITCH="$ORIG_AUTO_HDR_SWITCH"
 fi
 AUTO_VRR_CAP="$(detect_vrr_cap)"
 
@@ -1043,6 +1119,22 @@ if [[ "$AUTO_NATIVE_LINUX" -eq 1 && "${NATIVE_RUNTIME:-0}" -eq 1 ]]; then
     done < <(env)
 fi
 
+BENCH_ACTIVE=0
+BENCH_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/benchmarks"
+BENCH_CSV_DIR="$BENCH_DIR/csv-${APPID:-unknown}-$$"
+if [[ "${BENCH:-0}" -eq 1 ]] && command -v mangohud >/dev/null 2>&1; then
+    BENCH_ACTIVE=1
+    export MANGOHUD=1
+    export MANGOHUD_CONFIG="no_display,autostart_log=1,log_duration=${BENCH_DURATION},output_folder=${BENCH_CSV_DIR},permit_upload=0"
+fi
+
+HDR_AUTO_TARGET=""
+HDR_AUTO_STATE=""
+if [[ "${AUTO_HDR_SWITCH:-0}" -eq 1 && "$GAMESCOPE_SESSION" -eq 0 ]] &&
+   [[ "${DXVK_HDR:-0}" == "1" || "${USE_HDR:-0}" == "1" ]]; then
+    read -r HDR_AUTO_TARGET HDR_AUTO_STATE <<<"$(detect_primary_hdr_output || true)"
+fi
+
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Steam Auto-Profiler dry run"
     echo "AppID: ${APPID:-unknown}"
@@ -1050,9 +1142,15 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "GPU: ${GPU_VENDOR}"
     echo "VRR cap: ${AUTO_VRR_CAP}"
     echo "Compat tokens: ${PROTON_ADD_CONFIG:-none}"
+    if [[ "${AUTO_HDR_SWITCH:-0}" -eq 1 ]]; then
+        echo "HDR auto-switch: ${HDR_AUTO_TARGET:-unavailable} (state=${HDR_AUTO_STATE:-unknown})"
+    fi
+    if [[ "$BENCH_ACTIVE" -eq 1 ]]; then
+        echo "Benchmark mode: enabled (duration=${BENCH_DURATION}s)"
+    fi
     echo "Exported launch variables:"
     env | LC_ALL=C sort | awk -F= '
-        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_)/ ||
+        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|MANGOHUD)/ ||
         $1 == "STEAM_COMPAT_CONFIG" {
             print
         }'
@@ -1155,13 +1253,141 @@ for net_candidate in "$SCRIPT_DIR/steam-net-boost" "$HOME/.local/bin/steam-net-b
     fi
 done
 
+NET_BOOST_ACTIVE=0
+HDR_RESTORE_OUTPUT=""
+LAUNCH_HOOKS_CLEANED=0
+
+# shellcheck disable=SC2317
+# shellcheck disable=SC2329
+cleanup_launch_hooks() {
+    [[ "$LAUNCH_HOOKS_CLEANED" -eq 0 ]] || return 0
+    LAUNCH_HOOKS_CLEANED=1
+    if [[ "$NET_BOOST_ACTIVE" -eq 1 && -n "$NET_BOOST_BIN" ]]; then
+        sudo -n "$NET_BOOST_BIN" off --pid "$$" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "$HDR_RESTORE_OUTPUT" ]] && command -v kscreen-doctor >/dev/null 2>&1; then
+        kscreen-doctor "output.${HDR_RESTORE_OUTPUT}.hdr.disable" >/dev/null 2>&1 || true
+    fi
+}
+
 if [[ "$USE_NET_OPT" -eq 1 && -n "$NET_BOOST_BIN" ]]; then
-    # shellcheck disable=SC2317
-    # shellcheck disable=SC2329
-    cleanup_net() { sudo -n "$NET_BOOST_BIN" off --pid "$$" >/dev/null 2>&1 || true; }
-    trap cleanup_net EXIT INT TERM
+    NET_BOOST_ACTIVE=1
+    trap cleanup_launch_hooks EXIT INT TERM
     sudo -n "$NET_BOOST_BIN" on --pid "$$" >/dev/null 2>&1 || true
 fi
+
+if [[ -n "$HDR_AUTO_TARGET" && "$HDR_AUTO_STATE" == "disabled" ]] && command -v kscreen-doctor >/dev/null 2>&1; then
+    HDR_RESTORE_OUTPUT="$HDR_AUTO_TARGET"
+    trap cleanup_launch_hooks EXIT INT TERM
+    kscreen-doctor "output.${HDR_AUTO_TARGET}.hdr.enable" >/dev/null 2>&1 || true
+fi
+
+if [[ "$BENCH_ACTIVE" -eq 1 ]]; then
+    mkdir -p "$BENCH_CSV_DIR"
+fi
+
+record_benchmark_results() {
+    [[ "$BENCH_ACTIVE" -eq 1 && -d "$BENCH_CSV_DIR" ]] || return 0
+    python3 - "$BENCH_CSV_DIR" "$BENCH_DIR" "${APPID:-unknown}" "${AUTO_CLASS:-standard}" \
+        "${GPU_VENDOR:-unknown}" "${PROTON_FSR4_UPGRADE:-0}" "${USE_MLFG:-0}" \
+        "${USE_XWAYLAND:-0}" "${USE_SAFEDX12:-0}" "${AUTO_VRR_CAP:-0}" \
+        "${LAUNCH_DURATION:-0}" <<'PY' 2>/dev/null || true
+import csv
+import datetime
+import json
+import math
+import sys
+from pathlib import Path
+
+(
+    csv_dir_s, bench_dir_s, appid, game_class, gpu,
+    fsr4, mlfg, xwayland, safedx12, vrr_cap, duration_s,
+) = sys.argv[1:12]
+
+csv_dir = Path(csv_dir_s)
+csv_files = sorted(csv_dir.glob("*.csv"), key=lambda p: p.stat().st_size, reverse=True)
+if not csv_files:
+    sys.exit(0)
+
+csv_path = csv_files[0]
+frametimes = []
+with csv_path.open("r", encoding="utf-8", errors="ignore", newline="") as fh:
+    reader = csv.reader(fh)
+    ft_idx = None
+    fps_idx = None
+    for row in reader:
+        if not row:
+            continue
+        lower = [c.strip().lower() for c in row]
+        if ft_idx is None and fps_idx is None:
+            if "frametime" in lower or "fps" in lower:
+                ft_idx = lower.index("frametime") if "frametime" in lower else None
+                fps_idx = lower.index("fps") if "fps" in lower else None
+            continue
+        val = None
+        if ft_idx is not None and ft_idx < len(row):
+            try:
+                ft = float(row[ft_idx])
+                if ft > 0:
+                    val = ft
+            except ValueError:
+                pass
+        if val is None and fps_idx is not None and fps_idx < len(row):
+            try:
+                fps = float(row[fps_idx])
+                if fps > 0:
+                    val = 1000.0 / fps
+            except ValueError:
+                pass
+        if val is not None:
+            frametimes.append(val)
+
+if not frametimes:
+    sys.exit(0)
+
+s_ft = sorted(frametimes)
+n = len(s_ft)
+mean_ft = sum(s_ft) / n
+avg_fps = round(1000.0 / mean_ft, 2)
+p99_idx = min(n - 1, max(0, int(math.ceil(0.99 * n)) - 1))
+p99_ft = round(s_ft[p99_idx], 2)
+k_1pct = max(1, int(math.ceil(n * 0.01)))
+worst_1pct = s_ft[-k_1pct:]
+low_1pct_fps = round(1000.0 / (sum(worst_1pct) / len(worst_1pct)), 2)
+
+record = {
+    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+    "appid": appid,
+    "class": game_class,
+    "gpu": gpu,
+    "fsr4": fsr4 == "1",
+    "mlfg": mlfg == "1",
+    "xwayland": xwayland == "1",
+    "safedx12": safedx12 == "1",
+    "vrr_cap": int(vrr_cap) if vrr_cap.isdigit() else 0,
+    "duration_sec": int(duration_s) if duration_s.isdigit() else 0,
+    "samples": n,
+    "avg_fps": avg_fps,
+    "low_1pct_fps": low_1pct_fps,
+    "p99_frametime_ms": p99_ft,
+}
+
+bench_dir = Path(bench_dir_s)
+bench_dir.mkdir(parents=True, exist_ok=True)
+out_file = bench_dir / f"{appid}.json"
+existing = []
+if out_file.is_file():
+    try:
+        loaded = json.loads(out_file.read_text(encoding="utf-8"))
+        if isinstance(loaded, list):
+            existing = loaded
+    except (OSError, json.JSONDecodeError):
+        existing = []
+existing.append(record)
+out_file.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+PY
+    rm -rf "$BENCH_CSV_DIR"
+}
 
 if [[ "$USE_KEEP_OVERLAY" -eq 1 ]]; then
     if [[ -n "$ORIG_LD_PRELOAD" ]]; then
@@ -1213,5 +1439,6 @@ if [[ "$launch_exit" -ne 0 &&
     fi
 fi
 
+record_benchmark_results
 write_last_log "$launch_exit" "$@" "${EXTRA_ARGS[@]}"
 exit "$launch_exit"

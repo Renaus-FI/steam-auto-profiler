@@ -15,7 +15,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH)
                 ;;
             *) continue ;;
         esac
@@ -83,10 +83,13 @@ AUTO_IS_VR=0
 AUTO_HAS_DLSS=0
 AUTO_HAS_XESS=0
 AUTO_HAS_FSR=0
+AUTO_SOURCE="steam"
+AUTO_UPSCALER_INFO="None detected"
 NTFS_MOUNT=0
 AUTO_REASON="No anti-cheat or modern upscaler DLLs detected; using standard low-latency profile"
 GAME_NAME="Unknown / Non-Steam"
 GAME_DIR=""
+SHORTCUT_LAUNCH_OPTS=""
 AUTO_PROTON_ADD_CONFIG=""
 
 detect_gpu_vendor() {
@@ -163,6 +166,117 @@ if [[ -n "$APPID" ]]; then
         break
     done
 
+    if [[ -z "$GAME_DIR" && "$GAME_NAME" == "Unknown / Non-Steam" ]]; then
+        shortcut_info="$(
+            python3 - "$APPID" "${libs[@]}" <<'PY' 2>/dev/null || true
+import os
+import struct
+import sys
+import zlib
+from pathlib import Path
+
+target_appid = sys.argv[1]
+roots = [Path(p) for p in sys.argv[2:]]
+
+
+def parse_shortcuts_vdf(data: bytes):
+    pos = 0
+    n = len(data)
+
+    def read_cstr():
+        nonlocal pos
+        end = data.find(b"\x00", pos)
+        if end == -1:
+            pos = n
+            return ""
+        val = data[pos:end].decode("utf-8", errors="replace")
+        pos = end + 1
+        return val
+
+    def read_map():
+        nonlocal pos
+        out = {}
+        while pos < n:
+            t = data[pos]
+            pos += 1
+            if t == 0x08:
+                break
+            key = read_cstr()
+            if t == 0x00:
+                out[key] = read_map()
+            elif t == 0x01:
+                out[key] = read_cstr()
+            elif t == 0x02:
+                if pos + 4 > n:
+                    break
+                out[key] = struct.unpack_from("<I", data, pos)[0]
+                pos += 4
+            elif t == 0x03:
+                pos += 4
+            elif t == 0x07:
+                pos += 8
+            else:
+                break
+        return out
+
+    root = read_map()
+    shortcuts = root.get("shortcuts") or root.get("Shortcuts") or {}
+    if not isinstance(shortcuts, dict):
+        return []
+    entries = []
+    for entry in shortcuts.values():
+        if not isinstance(entry, dict):
+            continue
+        lower_map = {k.lower(): v for k, v in entry.items()}
+        name = str(lower_map.get("appname") or "").strip()
+        exe = str(lower_map.get("exe") or "").strip().strip('"')
+        start_dir = str(lower_map.get("startdir") or "").strip().strip('"')
+        launch_opts = str(lower_map.get("launchoptions") or "").strip()
+        raw_id = lower_map.get("appid")
+        if isinstance(raw_id, int):
+            aid = str(raw_id & 0xFFFFFFFF)
+        else:
+            aid = str((zlib.crc32((exe + name).encode("utf-8")) | 0x80000000) & 0xFFFFFFFF)
+        if not start_dir and exe:
+            parent = str(Path(exe).parent)
+            if os.path.isdir(parent):
+                start_dir = parent
+        entries.append((aid, name or aid, start_dir, launch_opts))
+    return entries
+
+
+for root in roots:
+    userdata = root / "userdata"
+    if not userdata.is_dir():
+        continue
+    for vdf in userdata.glob("*/config/shortcuts.vdf"):
+        try:
+            raw = vdf.read_bytes()
+        except OSError:
+            continue
+        for aid, name, start_dir, launch_opts in parse_shortcuts_vdf(raw):
+            if aid == target_appid:
+                print(f"{name}\t{start_dir}\t{launch_opts}")
+                sys.exit(0)
+PY
+        )"
+        if [[ -n "$shortcut_info" ]]; then
+            IFS=$'\t' read -r sc_name sc_dir sc_opts <<<"$shortcut_info"
+            AUTO_SOURCE="shortcut"
+            [[ -n "$sc_name" ]] && GAME_NAME="$sc_name"
+            [[ -n "$sc_dir" && -d "$sc_dir" ]] && GAME_DIR="$sc_dir"
+            SHORTCUT_LAUNCH_OPTS="${sc_opts:-}"
+            if [[ "$SHORTCUT_LAUNCH_OPTS" =~ (^|[[:space:]])([^[:space:]]*/)?vr-run([[:space:]]|$) ||
+                  "$SHORTCUT_LAUNCH_OPTS" =~ (^|[[:space:]])--?vr([[:space:]]|$) ]]; then
+                AUTO_IS_VR=1
+            fi
+        fi
+    fi
+
+    declare -a DETECTED_FSR31_DLLS=()
+    declare -a DETECTED_LEGACY_DLLS=()
+    declare -A SEEN_UPSCALER_DLLS=()
+
     if [[ -n "$GAME_DIR" ]]; then
         if command -v df >/dev/null 2>&1; then
             MOUNT_FSTYPE=$(
@@ -190,11 +304,26 @@ if [[ -n "$APPID" ]]; then
                     ;;
             esac
             case "$lower" in
-                nvngx_dlss*.dll) AUTO_HAS_DLSS=1; [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset" ;;
-                libxess*.dll) AUTO_HAS_XESS=1; [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset" ;;
+                nvngx_dlss*.dll)
+                    AUTO_HAS_DLSS=1
+                    [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset"
+                    if [[ -z "${SEEN_UPSCALER_DLLS[$lower]:-}" ]]; then
+                        SEEN_UPSCALER_DLLS["$lower"]=1
+                        DETECTED_LEGACY_DLLS+=("$base")
+                    fi
+                    ;;
+                libxess*.dll)
+                    AUTO_HAS_XESS=1
+                    [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset"
+                    if [[ -z "${SEEN_UPSCALER_DLLS[$lower]:-}" ]]; then
+                        SEEN_UPSCALER_DLLS["$lower"]=1
+                        DETECTED_LEGACY_DLLS+=("$base")
+                    fi
+                    ;;
                 amdxcffx64.dll|ffx_fsr2*.dll|ffx_fsr3*.dll|amd_fidelityfx*.dll) AUTO_HAS_FSR=1 ;;
             esac
             if [[ "$lower" == amd_fidelityfx_upscaler_dx12.dll ||
+                  "$lower" == amd_fidelityfx_upscaler_vk.dll ||
                   "$lower" == amd_fidelityfx_framegeneration_dx12.dll ||
                   "$lower" == amd_fidelityfx_loader_dx12.dll ]] &&
                [[ -z "$FSR4_MATCH" ]]; then
@@ -202,9 +331,19 @@ if [[ -n "$APPID" ]]; then
             fi
             case "$lower" in
                 amd_fidelityfx_dx12.dll|amd_fidelityfx_vk.dll|amd_fidelityfx_loader_dx12.dll|amd_fidelityfx_loader_vk.dll|amd_fidelityfx_upscaler_dx12.dll|amd_fidelityfx_upscaler_vk.dll|amdxcffx64.dll)
-                    [[ -n "$FSR_MATCH" ]] || FSR_MATCH="$asset" ;;
+                    [[ -n "$FSR_MATCH" ]] || FSR_MATCH="$asset"
+                    if [[ -z "${SEEN_UPSCALER_DLLS[$lower]:-}" ]]; then
+                        SEEN_UPSCALER_DLLS["$lower"]=1
+                        DETECTED_FSR31_DLLS+=("$base")
+                    fi
+                    ;;
                 sl.interposer.dll|ffx_fsr2*.dll|ffx_fsr3*.dll)
-                    [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset" ;;
+                    [[ -n "$UPSCALE_MATCH" ]] || UPSCALE_MATCH="$asset"
+                    if [[ -z "${SEEN_UPSCALER_DLLS[$lower]:-}" ]]; then
+                        SEEN_UPSCALER_DLLS["$lower"]=1
+                        DETECTED_LEGACY_DLLS+=("$base")
+                    fi
+                    ;;
             esac
             case "$lower" in
                 *easyanticheat*|*battleye*|*beservice*|*randgrid*|*ricochet*.sys|*ace-base*|*anticheatexpert*|*nprotect*|*gameguard*|*xigncode*|*wellbia*|*mhyprot*|*hoyokprotect*|*equ8*|*fairfight*|*punkbuster*|*anticheat*.exe|*anticheat*.dll|*anticheat*.sys|*anticheat*.so)
@@ -278,6 +417,14 @@ if [[ -n "$APPID" ]]; then
     if [[ -n "$GAME_DIR" && -n "${CEF_MATCH:-}" ]]; then
         AUTO_CEF_FIX=1
     fi
+
+    if (( ${#DETECTED_FSR31_DLLS[@]} > 0 )); then
+        fsr31_list="$(IFS=', '; echo "${DETECTED_FSR31_DLLS[*]}")"
+        AUTO_UPSCALER_INFO="FidelityFX 3.1+ (${fsr31_list}) -> eligible for native PROTON_FSR4_UPGRADE=1"
+    elif (( ${#DETECTED_LEGACY_DLLS[@]} > 0 )); then
+        legacy_list="$(IFS=', '; echo "${DETECTED_LEGACY_DLLS[*]}")"
+        AUTO_UPSCALER_INFO="Legacy upscaler (${legacy_list}) -> PROTON_FSR4_UPGRADE=1 alone will not hook; recommend USE_OPTISCALER=1"
+    fi
 fi
 
 GPU_VENDOR="$(detect_gpu_vendor)"
@@ -331,7 +478,7 @@ if [[ "$JSON_MODE" -eq 1 ]]; then
         "$AUTO_CLASS" "$AUTO_PRESET" "$AUTO_NET_OPT" "$AUTO_CEF_FIX" \
         "$AUTO_SHARPEN" "$AUTO_OPTISCALER" "$AUTO_REASON" \
         "$AUTO_HAS_DLSS" "$AUTO_HAS_XESS" "$AUTO_HAS_FSR" "$NTFS_MOUNT" \
-        "$AUTO_PROTON_ADD_CONFIG" "$AUTO_IS_VR" <<'PY'
+        "$AUTO_PROTON_ADD_CONFIG" "$AUTO_IS_VR" "$AUTO_SOURCE" "$AUTO_UPSCALER_INFO" <<'PY'
 import json
 import sys
 
@@ -339,11 +486,13 @@ import sys
     appid, game_name, game_dir, native, game_class, preset,
     net_opt, cef_fix, sharpen, optiscaler, reason,
     has_dlss, has_xess, has_fsr, ntfs_mount, proton_add_config, is_vr,
-) = sys.argv[1:18]
+    source, upscaler_info,
+) = sys.argv[1:20]
 
 print(json.dumps({
     "app_id": appid or None,
     "game": game_name,
+    "source": source,
     "install_dir": game_dir or None,
     "runtime": "native_linux" if native == "1" else "proton",
     "class": game_class,
@@ -353,6 +502,7 @@ print(json.dumps({
     "sharpen_layer": sharpen == "1",
     "optiscaler": optiscaler == "1",
     "rationale": reason,
+    "upscaler_info": upscaler_info,
     "has_dlss": has_dlss == "1",
     "has_xess": has_xess == "1",
     "has_fsr": has_fsr == "1",
@@ -366,6 +516,7 @@ elif [[ "$INSPECT_MODE" -eq 1 ]]; then
 === Steam Auto-Profiler Inspection ===
 AppID        : ${APPID:-N/A}
 Game         : $GAME_NAME
+Source       : $AUTO_SOURCE
 Install Dir  : ${GAME_DIR:-Not found locally}
 NTFS Mount   : $([[ "$NTFS_MOUNT" -eq 1 ]] && echo "WARNING: Proton prefix/games on NTFS are unsupported or unsafe" || echo "No")
 Runtime      : $([[ "$AUTO_NATIVE_LINUX" -eq 1 ]] && echo "Native Linux" || echo "Proton / Windows")
@@ -376,6 +527,7 @@ Net QoS Hook : $AUTO_NET_OPT
 CEF Fix      : $AUTO_CEF_FIX
 Sharpen Layer: $AUTO_SHARPEN
 OptiScaler   : $AUTO_OPTISCALER (optional plugin)
+Upscaler SDK : $AUTO_UPSCALER_INFO
 DLSS DLL     : $AUTO_HAS_DLSS
 XeSS DLL     : $AUTO_HAS_XESS
 FSR DLL      : $AUTO_HAS_FSR
@@ -392,6 +544,8 @@ else
     printf 'AUTO_CEF_FIX=%q\n' "$AUTO_CEF_FIX"
     printf 'AUTO_NATIVE_LINUX=%q\n' "$AUTO_NATIVE_LINUX"
     printf 'AUTO_IS_VR=%q\n' "$AUTO_IS_VR"
+    printf 'AUTO_SOURCE=%q\n' "$AUTO_SOURCE"
+    printf 'AUTO_UPSCALER_INFO=%q\n' "$AUTO_UPSCALER_INFO"
     printf 'AUTO_HAS_DLSS=%q\n' "$AUTO_HAS_DLSS"
     printf 'AUTO_HAS_XESS=%q\n' "$AUTO_HAS_XESS"
     printf 'AUTO_HAS_FSR=%q\n' "$AUTO_HAS_FSR"

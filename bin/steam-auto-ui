@@ -11,9 +11,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import sys
 from typing import Any
+import zlib
 
 
 SKIP_TITLE_RE = re.compile(
@@ -29,6 +31,16 @@ VENDOR_NAMES = {
     "0x8086": "Intel",
 }
 
+STACK_PACKAGES = (
+    "mesa-git",
+    "mesa",
+    "proton-cachyos-slr",
+    "wivrn-server",
+    "xrizer-git",
+    "xrizer",
+    "mangohud",
+)
+
 PROFILE_TOGGLES = (
     ("USE_XWAYLAND", "Use XWayland (disable Wayland)"),
     ("USE_FSR4", "FSR 4 Driver Upgrade"),
@@ -39,7 +51,84 @@ PROFILE_TOGGLES = (
     ("USE_SDL", "Prefer SDL / Steam Input"),
     ("USE_KEEP_OVERLAY", "Keep Steam Overlay (LD_PRELOAD)"),
     ("USE_OPTISCALER", "OptiScaler Bridge"),
+    ("AUTO_HDR_SWITCH", "Auto KDE Plasma 6 HDR Toggle"),
 )
+
+
+def parse_shortcuts_vdf(path: Path | str) -> list[dict[str, str]]:
+    """Safely parse Steam binary userdata/*/config/shortcuts.vdf (read-only)."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return []
+    pos = 0
+    n = len(data)
+
+    def read_cstr() -> str:
+        nonlocal pos
+        end = data.find(b"\x00", pos)
+        if end == -1:
+            pos = n
+            return ""
+        val = data[pos:end].decode("utf-8", errors="replace")
+        pos = end + 1
+        return val
+
+    def read_map() -> dict[str, Any]:
+        nonlocal pos
+        out: dict[str, Any] = {}
+        while pos < n:
+            t = data[pos]
+            pos += 1
+            if t == 0x08:
+                break
+            key = read_cstr()
+            if t == 0x00:
+                out[key] = read_map()
+            elif t == 0x01:
+                out[key] = read_cstr()
+            elif t == 0x02:
+                if pos + 4 > n:
+                    break
+                out[key] = struct.unpack_from("<I", data, pos)[0]
+                pos += 4
+            elif t == 0x03:
+                pos += 4
+            elif t == 0x07:
+                pos += 8
+            else:
+                break
+        return out
+
+    root = read_map()
+    shortcuts = root.get("shortcuts") or root.get("Shortcuts") or {}
+    if not isinstance(shortcuts, dict):
+        return []
+    entries: list[dict[str, str]] = []
+    for entry in shortcuts.values():
+        if not isinstance(entry, dict):
+            continue
+        lower_map = {k.lower(): v for k, v in entry.items()}
+        name = str(lower_map.get("appname") or "").strip()
+        exe = str(lower_map.get("exe") or "").strip().strip('"')
+        start_dir = str(lower_map.get("startdir") or "").strip().strip('"')
+        launch_opts = str(lower_map.get("launchoptions") or "").strip()
+        raw_id = lower_map.get("appid")
+        if isinstance(raw_id, int):
+            appid = str(raw_id & 0xFFFFFFFF)
+        else:
+            appid = str((zlib.crc32((exe + name).encode("utf-8")) | 0x80000000) & 0xFFFFFFFF)
+        if not name:
+            name = Path(exe).stem if exe else appid
+        entries.append({
+            "appid": appid,
+            "name": name,
+            "exe": exe,
+            "start_dir": start_dir,
+            "launch_options": launch_opts,
+            "source": "shortcut",
+        })
+    return entries
 
 
 def parse_tc_qdisc_stats(raw_tc: str) -> dict[str, Any]:
@@ -108,6 +197,40 @@ def parse_tc_qdisc_stats(raw_tc: str) -> dict[str, Any]:
     }
 
 
+def detect_pacman_downgrades(log_path: Path | str = "/var/log/pacman.log", max_lines: int = 400) -> list[str]:
+    """Scan recent /var/log/pacman.log lines for package or git/AUR revision downgrades."""
+    p = Path(log_path)
+    if not p.is_file():
+        return []
+    try:
+        lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[-max_lines:]
+    except OSError:
+        return []
+
+    warnings: list[str] = []
+    downgrade_re = re.compile(r"^\[([^\]]+)\]\s+\[ALPM\]\s+downgraded\s+(\S+)\s+\(([^)]+)\)")
+    upgrade_re = re.compile(r"^\[([^\]]+)\]\s+\[ALPM\]\s+upgraded\s+(\S+)\s+\((\S+)\s+->\s+(\S+)\)")
+    rev_re = re.compile(r"(?:_devel\.|\.r)(\d+)\.")
+
+    for line in lines:
+        dm = downgrade_re.match(line)
+        if dm:
+            ts, pkg, transition = dm.groups()
+            warnings.append(f"[WARN] Pacman downgraded {pkg} ({transition}) on {ts}")
+            continue
+        um = upgrade_re.match(line)
+        if um:
+            ts, pkg, old_ver, new_ver = um.groups()
+            if pkg.endswith("-git") or pkg in STACK_PACKAGES:
+                old_rev = rev_re.search(old_ver)
+                new_rev = rev_re.search(new_ver)
+                if old_rev and new_rev and int(new_rev.group(1)) < int(old_rev.group(1)):
+                    warnings.append(
+                        f"[WARN] Git/AUR revision regression for {pkg}: {old_ver} -> {new_ver} on {ts}"
+                    )
+    return warnings[-10:]
+
+
 def format_bytes(num: int | None) -> str:
     if num is None:
         return "n/a"
@@ -165,9 +288,12 @@ class ProfilerBackend:
         self.script_dir = Path(__file__).resolve().parent
         xdg_cfg = os.environ.get("XDG_CONFIG_HOME")
         xdg_state = os.environ.get("XDG_STATE_HOME")
+        xdg_cache = os.environ.get("XDG_CACHE_HOME")
         self.config_dir = (Path(xdg_cfg) if xdg_cfg else self.home / ".config") / "steam-auto-profiler"
         self.profile_dir = self.config_dir / "profiles"
+        self.benchmark_dir = self.config_dir / "benchmarks"
         self.state_dir = (Path(xdg_state) if xdg_state else self.home / ".local/state") / "steam-auto-profiler"
+        self.cache_dir = Path(xdg_cache) if xdg_cache else self.home / ".cache"
 
     def find_tool(self, name: str) -> str | None:
         for candidate in (
@@ -241,9 +367,21 @@ class ProfilerBackend:
                         synced[appid] = "Yes"
         return synced
 
+    def discover_shortcuts(self, roots: list[Path] | None = None) -> dict[str, dict[str, str]]:
+        libs = roots if roots is not None else self.discover_steam_libraries()
+        found: dict[str, dict[str, str]] = {}
+        for root in libs:
+            userdata = root / "userdata"
+            if not userdata.is_dir():
+                continue
+            for vdf in userdata.glob("*/config/shortcuts.vdf"):
+                for item in parse_shortcuts_vdf(vdf):
+                    found[item["appid"]] = item
+        return found
+
     def discover_games(self) -> list[dict[str, Any]]:
         roots = self.discover_steam_libraries()
-        games_map: dict[str, str] = {}
+        games_map: dict[str, tuple[str, str, str]] = {}
         for lib in roots:
             steamapps = lib / "steamapps"
             if not steamapps.is_dir():
@@ -258,37 +396,57 @@ class ProfilerBackend:
                 name = name_m.group(1) if name_m else appid
                 if appid in IGNORED_APPIDS or SKIP_TITLE_RE.search(name):
                     continue
-                games_map[appid] = name
+                games_map[appid] = (name, "steam", "")
+
+        for sc_id, sc in self.discover_shortcuts(roots).items():
+            if sc_id not in games_map:
+                games_map[sc_id] = (sc["name"], "shortcut", sc["launch_options"])
 
         synced_map = self._read_synced_map(roots)
         detect_bin = self.find_tool("steam-auto-detect")
 
-        def classify(item: tuple[str, str]) -> dict[str, Any]:
-            appid, name = item
+        def classify(item: tuple[str, tuple[str, str, str]]) -> dict[str, Any]:
+            appid, (name, source, sc_opts) = item
+            if source == "shortcut":
+                if re.search(r"(?:^|\s)(?:\S*/)?vr-run(?:\s|$)", sc_opts):
+                    synced_val = "VR"
+                elif "steam-auto-run" in sc_opts:
+                    synced_val = "Yes"
+                else:
+                    synced_val = "Custom" if sc_opts else "No"
+            else:
+                synced_val = synced_map.get(appid, "No")
+
             info: dict[str, Any] = {
                 "appid": appid,
                 "name": name,
-                "class": "standard",
-                "is_vr": False,
-                "synced": synced_map.get(appid, "No"),
+                "source": source,
+                "launch_options": sc_opts,
+                "class": "vr" if synced_val == "VR" else "standard",
+                "is_vr": synced_val == "VR",
+                "synced": synced_val,
                 "has_profile": (self.profile_dir / f"{appid}.env").is_file(),
                 "rationale": "",
+                "upscaler_info": "None detected",
                 "compat_tokens": "",
             }
             if detect_bin:
-                rc, out = self._run_cmd([detect_bin, "--json", appid], timeout=10)
+                env = os.environ.copy()
+                env["HOME"] = str(self.home)
+                rc, out = self._run_cmd([detect_bin, "--json", appid], env=env, timeout=10)
                 if rc == 0 and out:
                     try:
                         data = json.loads(out)
-                        info["class"] = data.get("class", "standard")
-                        info["is_vr"] = bool(data.get("is_vr", False))
+                        info["class"] = data.get("class", info["class"])
+                        info["is_vr"] = bool(data.get("is_vr", info["is_vr"]))
                         info["rationale"] = data.get("rationale", "")
+                        info["upscaler_info"] = data.get("upscaler_info", "None detected")
                         info["compat_tokens"] = data.get("proton_add_config", "")
                     except json.JSONDecodeError:
                         pass
             return info
 
-        items = sorted(games_map.items(), key=lambda kv: kv[1].lower())
+        items = sorted(games_map.items(), key=lambda kv: kv[1][0].lower())
         if not items:
             return []
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -318,7 +476,6 @@ class ProfilerBackend:
         path = self.profile_dir / f"{appid}.env"
         lines = [f"{key}={norm[key]}" for key, _ in PROFILE_TOGGLES]
         lines.append(f"VRR_CAP={norm.get('VRR_CAP', '')}")
-        # Preserve extra user keys if present
         managed = {key for key, _ in PROFILE_TOGGLES} | {"VRR_CAP", "PARTIAL_PROFILE"}
         for key, value in sorted(norm.items()):
             if key not in managed and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
@@ -353,6 +510,92 @@ class ProfilerBackend:
             return "steam-auto-run not found."
         _, out = self._run_cmd([run_bin, "--dry-run", appid], env=env)
         return out
+
+    def list_benchmarks(self, appid: str | None = None) -> list[dict[str, Any]]:
+        if not self.benchmark_dir.is_dir():
+            return []
+        files = [self.benchmark_dir / f"{appid}.json"] if appid else sorted(self.benchmark_dir.glob("*.json"))
+        runs: list[dict[str, Any]] = []
+        for fpath in files:
+            if not fpath.is_file():
+                continue
+            try:
+                data = json.loads(fpath.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    for rec in data:
+                        if isinstance(rec, dict):
+                            runs.append(rec)
+            except (OSError, json.JSONDecodeError):
+                continue
+        runs.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
+        return runs
+
+    def format_benchmarks_text(self, runs: list[dict[str, Any]]) -> str:
+        if not runs:
+            return "No benchmark runs recorded yet. Launch a game with: BENCH=1 steam-auto-run %command%"
+        header = (
+            f"{'Timestamp':<20} {'AppID':<10} {'Avg FPS':>8} {'1% Low':>8} {'P99(ms)':>8} "
+            f"{'FSR4':>5} {'MLFG':>5} {'XWay':>5} {'Safe12':>6} {'VRR':>5}"
+        )
+        lines = [header, "-" * len(header)]
+        for r in runs:
+            ts = str(r.get("timestamp", ""))[:19].replace("T", " ")
+            lines.append(
+                f"{ts:<20} {str(r.get('appid', '')):<10} "
+                f"{float(r.get('avg_fps', 0)):>8.1f} {float(r.get('low_1pct_fps', 0)):>8.1f} "
+                f"{float(r.get('p99_frametime_ms', 0)):>8.2f} "
+                f"{'on' if r.get('fsr4') else 'off':>5} "
+                f"{'on' if r.get('mlfg') else 'off':>5} "
+                f"{'on' if r.get('xwayland') else 'off':>5} "
+                f"{'on' if r.get('safedx12') else 'off':>6} "
+                f"{str(r.get('vrr_cap', 0)):>5}"
+            )
+        return "\n".join(lines)
+
+    def collect_stack_versions(self) -> list[tuple[str, str]]:
+        pacman = shutil.which("pacman")
+        if not pacman:
+            return []
+        found: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for pkg in STACK_PACKAGES:
+            rc, out = self._run_cmd([pacman, "-Q", pkg], timeout=5)
+            if rc == 0 and out:
+                parts = out.splitlines()[0].split(None, 1)
+                if len(parts) == 2 and parts[0] not in seen:
+                    seen.add(parts[0])
+                    found.append((parts[0], parts[1]))
+        return found
+
+    def measure_shader_cache(self, cache_root: Path | None = None) -> dict[str, Any]:
+        root = cache_root or self.cache_dir
+        total_bytes = 0
+        file_count = 0
+        dirs: list[str] = []
+        if root.is_dir():
+            for pattern in ("mesa_shader_cache*", "radv_builtin_shaders*"):
+                for entry in sorted(root.glob(pattern)):
+                    if entry.is_dir():
+                        dirs.append(entry.name)
+                        for dirpath, _, filenames in os.walk(entry):
+                            for fn in filenames:
+                                try:
+                                    total_bytes += os.path.getsize(os.path.join(dirpath, fn))
+                                    file_count += 1
+                                except OSError:
+                                    pass
+                    elif entry.is_file():
+                        dirs.append(entry.name)
+                        try:
+                            total_bytes += entry.stat().st_size
+                            file_count += 1
+                        except OSError:
+                            pass
+        return {
+            "total_bytes": total_bytes,
+            "file_count": file_count,
+            "dirs": dirs,
+        }
 
     def read_gpu_telemetry(self, drm_dir: Path | None = None) -> list[dict[str, Any]]:
         drm = drm_dir or Path("/sys/class/drm")
@@ -441,6 +684,9 @@ class ProfilerBackend:
             "doctor": doctor_out,
             "scheduler": scx_out,
             "gpus": self.read_gpu_telemetry(),
+            "stack_versions": self.collect_stack_versions(),
+            "shader_cache": self.measure_shader_cache(),
+            "pacman_downgrades": detect_pacman_downgrades(),
             "iface": iface or "unknown",
             "tc_raw": raw_tc or "No qdisc telemetry available.",
             "tc_parsed": tc_parsed,
@@ -450,6 +696,28 @@ class ProfilerBackend:
     def format_telemetry_text(self, telemetry: dict[str, Any]) -> str:
         lines = ["=== System & Network Live Telemetry ==="]
         lines.append(f"Scheduler (sched-ext): {telemetry['scheduler']}")
+
+        lines.append("")
+        lines.append("--- Graphics / VR Stack & Shader Cache Watchdog ---")
+        stack = telemetry.get("stack_versions", [])
+        if stack:
+            for pkg, ver in stack:
+                lines.append(f"  {pkg:<22} {ver}")
+        else:
+            lines.append("  Package version probe unavailable (non-pacman system or packages not installed).")
+        sc = telemetry.get("shader_cache", {})
+        dirs_label = ", ".join(sc.get("dirs", [])) or "none"
+        lines.append(
+            f"  Shader cache usage     {format_bytes(sc.get('total_bytes', 0))} "
+            f"({sc.get('file_count', 0)} files in {dirs_label})"
+        )
+        downgrades = telemetry.get("pacman_downgrades", [])
+        if downgrades:
+            for w in downgrades:
+                lines.append(f"  {w}")
+        else:
+            lines.append("  [OK] No recent git/AUR package downgrades detected in /var/log/pacman.log")
+
         lines.append("")
         lines.append("--- GPU Telemetry ---")
         if telemetry["gpus"]:
@@ -516,8 +784,7 @@ class ProfilerBackend:
     def list_logs(self) -> list[Path]:
         if not self.state_dir.is_dir():
             return []
-        logs = sorted(self.state_dir.glob("last-*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
-        return logs
+        return sorted(self.state_dir.glob("last-*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
 
     def read_log(self, path: Path) -> dict[str, Any]:
         text = path.read_text(encoding="utf-8", errors="ignore") if path.is_file() else ""
@@ -568,11 +835,12 @@ def run_self_check(backend: ProfilerBackend) -> int:
     assert parsed_tc["wan"]["av_delay"][0] == "850us"
 
     norm, warns = validate_profile(
-        {"USE_FSR4": "1", "USE_SHARPEN": "1", "USE_MLFG": "1", "VRR_CAP": "144"},
+        {"USE_FSR4": "1", "USE_SHARPEN": "1", "USE_MLFG": "1", "VRR_CAP": "144", "AUTO_HDR_SWITCH": "1"},
         "standard",
     )
     assert norm["USE_SHARPEN"] == "0"
     assert norm["VRR_CAP"] == ""
+    assert norm["AUTO_HDR_SWITCH"] == "1"
     assert len(warns) >= 2
 
     qt_name, _ = detect_qt_binding()
@@ -587,7 +855,11 @@ def run_self_check(backend: ProfilerBackend) -> int:
         "tools": tools,
         "tc_parser_verified": True,
         "mutual_exclusion_verified": True,
+        "shortcuts_parser_available": True,
+        "stack_packages": dict(backend.collect_stack_versions()),
+        "shader_cache_bytes": backend.measure_shader_cache()["total_bytes"],
         "gpus_detected": len(backend.read_gpu_telemetry()),
+        "benchmarks_found": len(backend.list_benchmarks()),
         "logs_found": len(backend.list_logs()),
     }
     print(json.dumps(report, indent=2))
@@ -606,7 +878,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     win = QtWidgets.QMainWindow()
     win.setWindowTitle(f"Steam Auto-Profiler Control Center ({binding})")
-    win.resize(1120, 740)
+    win.resize(1180, 760)
 
     tabs = QtWidgets.QTabWidget()
     win.setCentralWidget(tabs)
@@ -619,7 +891,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     top_bar = QtWidgets.QHBoxLayout()
     search_edit = QtWidgets.QLineEdit()
-    search_edit.setPlaceholderText("Filter by AppID, game name, or class...")
+    search_edit.setPlaceholderText("Filter by AppID, game name, source (steam/shortcut), or class...")
     refresh_games_btn = QtWidgets.QPushButton("Refresh Library")
     top_bar.addWidget(search_edit)
     top_bar.addWidget(refresh_games_btn)
@@ -628,8 +900,8 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
     games_layout.addWidget(splitter, 1)
 
-    table = QtWidgets.QTableWidget(0, 5)
-    table.setHorizontalHeaderLabels(["AppID", "Game Name", "Auto Class", "Synced", "Profile"])
+    table = QtWidgets.QTableWidget(0, 6)
+    table.setHorizontalHeaderLabels(["AppID", "Game Name", "Source", "Auto Class", "Synced", "Profile"])
     table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
     table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -638,9 +910,13 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     editor_widget = QtWidgets.QWidget()
     editor_layout = QtWidgets.QVBoxLayout(editor_widget)
-    selected_label = QtWidgets.QLabel("Select a game to edit its profile")
+    selected_label = QtWidgets.QLabel("Select a game or Non-Steam shortcut to edit its profile")
     selected_label.setWordWrap(True)
     editor_layout.addWidget(selected_label)
+
+    upscaler_badge = QtWidgets.QLabel("")
+    upscaler_badge.setWordWrap(True)
+    editor_layout.addWidget(upscaler_badge)
 
     warning_label = QtWidgets.QLabel("")
     warning_label.setWordWrap(True)
@@ -663,10 +939,10 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     btn_row = QtWidgets.QHBoxLayout()
     save_btn = QtWidgets.QPushButton("Save Profile")
     dry_run_btn = QtWidgets.QPushButton("Dry-Run Preview")
+    bench_jump_btn = QtWidgets.QPushButton("Benchmarks")
     reset_btn = QtWidgets.QPushButton("Reset Profile")
-    btn_row.addWidget(save_btn)
-    btn_row.addWidget(dry_run_btn)
-    btn_row.addWidget(reset_btn)
+    for b in (save_btn, dry_run_btn, bench_jump_btn, reset_btn):
+        btn_row.addWidget(b)
     editor_layout.addLayout(btn_row)
 
     dry_run_box = QtWidgets.QPlainTextEdit()
@@ -674,7 +950,7 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     dry_run_box.setPlaceholderText("Dry-run environment output appears here...")
     editor_layout.addWidget(dry_run_box, 1)
     splitter.addWidget(editor_widget)
-    splitter.setSizes([640, 460])
+    splitter.setSizes([680, 480])
 
     games_cache: list[dict[str, Any]] = []
     filtered_games: list[dict[str, Any]] = []
@@ -712,13 +988,18 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
         query = search_edit.text().strip().lower()
         filtered_games = [
             g for g in games_cache
-            if not query or query in g["appid"].lower() or query in g["name"].lower() or query in g["class"].lower()
+            if not query
+            or query in g["appid"].lower()
+            or query in g["name"].lower()
+            or query in g["class"].lower()
+            or query in g["source"].lower()
         ]
         table.setRowCount(len(filtered_games))
         for row, g in enumerate(filtered_games):
             values = (
                 g["appid"],
                 g["name"],
+                g["source"],
                 g["class"],
                 g["synced"],
                 "Saved" if g["has_profile"] else "Auto",
@@ -729,11 +1010,11 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     def reload_games() -> None:
         nonlocal games_cache
-        status_bar.showMessage("Scanning Steam libraries...")
+        status_bar.showMessage("Scanning Steam libraries and shortcuts.vdf...")
         app.processEvents()
         games_cache = backend.discover_games()
         populate_table()
-        status_bar.showMessage(f"Loaded {len(games_cache)} installed Steam title(s).")
+        status_bar.showMessage(f"Loaded {len(games_cache)} title(s) (Steam + Non-Steam shortcuts).")
 
     def on_row_selected() -> None:
         nonlocal current_game
@@ -745,13 +1026,24 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
             return
         current_game = filtered_games[idx]
         selected_label.setText(
-            f"{current_game['name']} (AppID {current_game['appid']}) — "
+            f"{current_game['name']} (AppID {current_game['appid']} | source: {current_game['source']}) — "
             f"Class: {current_game['class']} | Synced: {current_game['synced']}"
         )
+        uinfo = current_game.get("upscaler_info", "None detected")
+        upscaler_badge.setText(f"Upscaler SDK: {uinfo}")
+        if "PROTON_FSR4_UPGRADE=1" in uinfo and "will not hook" not in uinfo:
+            upscaler_badge.setStyleSheet("color: #15803d; font-weight: bold;")
+        elif "USE_OPTISCALER=1" in uinfo:
+            upscaler_badge.setStyleSheet("color: #b45309; font-weight: bold;")
+        else:
+            upscaler_badge.setStyleSheet("color: #64748b;")
         prof = backend.load_profile(current_game["appid"])
         norm, warns = validate_profile(prof, current_game.get("class", "standard"))
         apply_editor_profile(norm, warns)
-        dry_run_box.setPlainText(current_game.get("rationale", ""))
+        details = current_game.get("rationale", "")
+        if current_game.get("launch_options"):
+            details = f"Shortcut LaunchOptions: {current_game['launch_options']}\n{details}".strip()
+        dry_run_box.setPlainText(details)
 
     def on_save_profile() -> None:
         if not current_game:
@@ -943,17 +1235,74 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     safe_mode_btn.clicked.connect(on_apply_safe_mode)
     tabs.addTab(tab_logs, "4. Logs & Recovery")
 
+    # --- Tab 5: Benchmarks Comparison ---
+    tab_bench = QtWidgets.QWidget()
+    bench_layout = QtWidgets.QVBoxLayout(tab_bench)
+    bench_bar = QtWidgets.QHBoxLayout()
+    bench_filter_edit = QtWidgets.QLineEdit()
+    bench_filter_edit.setPlaceholderText("Filter benchmarks by AppID (blank = all runs)")
+    bench_refresh_btn = QtWidgets.QPushButton("Refresh Benchmarks")
+    bench_bar.addWidget(bench_filter_edit)
+    bench_bar.addWidget(bench_refresh_btn)
+    bench_layout.addLayout(bench_bar)
+
+    bench_table = QtWidgets.QTableWidget(0, 11)
+    bench_table.setHorizontalHeaderLabels([
+        "Timestamp", "AppID", "Avg FPS", "1% Low FPS", "P99 (ms)",
+        "Samples", "FSR4", "MLFG", "XWayland", "SafeDX12", "VRR Cap",
+    ])
+    bench_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+    bench_table.horizontalHeader().setStretchLastSection(True)
+    bench_layout.addWidget(bench_table, 1)
+
+    bench_hint = QtWidgets.QLabel("Record silent frametime benchmarks with: BENCH=1 steam-auto-run %command%")
+    bench_layout.addWidget(bench_hint)
+
+    def refresh_benchmarks() -> None:
+        flt = bench_filter_edit.text().strip()
+        runs = backend.list_benchmarks(flt if flt.isdigit() else None)
+        bench_table.setRowCount(len(runs))
+        for row, r in enumerate(runs):
+            vals = (
+                str(r.get("timestamp", ""))[:19].replace("T", " "),
+                str(r.get("appid", "")),
+                f"{float(r.get('avg_fps', 0)):.2f}",
+                f"{float(r.get('low_1pct_fps', 0)):.2f}",
+                f"{float(r.get('p99_frametime_ms', 0)):.2f}",
+                str(r.get("samples", 0)),
+                "On" if r.get("fsr4") else "Off",
+                "On" if r.get("mlfg") else "Off",
+                "On" if r.get("xwayland") else "Off",
+                "On" if r.get("safedx12") else "Off",
+                str(r.get("vrr_cap", 0)),
+            )
+            for col, val in enumerate(vals):
+                bench_table.setItem(row, col, QtWidgets.QTableWidgetItem(val))
+        bench_table.resizeColumnsToContents()
+
+    def jump_to_game_benchmarks() -> None:
+        if current_game:
+            bench_filter_edit.setText(current_game["appid"])
+        refresh_benchmarks()
+        tabs.setCurrentWidget(tab_bench)
+
+    bench_filter_edit.textChanged.connect(lambda _t: refresh_benchmarks())
+    bench_refresh_btn.clicked.connect(refresh_benchmarks)
+    bench_jump_btn.clicked.connect(jump_to_game_benchmarks)
+    tabs.addTab(tab_bench, "5. Benchmarks")
+
     reload_games()
     refresh_telemetry()
     update_steam_banner()
     refresh_logs()
+    refresh_benchmarks()
 
     win.show()
     return int(app.exec())
 
 
 def run_curses_tui(backend: ProfilerBackend) -> int:
-    """Zero-dependency stdlib curses 4-view TUI."""
+    """Zero-dependency stdlib curses 5-view TUI."""
 
     def _main(stdscr: Any) -> int:
         curses.curs_set(0)
@@ -961,12 +1310,12 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
         stdscr.keypad(True)
 
         active_tab = 0
-        tab_names = ("1:Games", "2:Telemetry", "3:Sync", "4:Logs")
+        tab_names = ("1:Games", "2:Telemetry", "3:Sync", "4:Logs", "5:Bench")
         games = backend.discover_games()
         search_query = ""
         selected_idx = 0
         scroll = 0
-        status_msg = "Tabs: 1-4/Tab | q:Quit"
+        status_msg = "Tabs: 1-5/Tab | q:Quit"
         profile_cache: dict[str, str] = {}
         last_appid = ""
         output_lines: list[str] = []
@@ -974,12 +1323,17 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
         sync_lines = ["Press [a] Report, [d] Sanitize Dry-Run, [s] Apply Sanitize, [m] Migrate cachy-run"]
         logs = backend.list_logs()
         log_idx = 0
+        bench_lines = backend.format_benchmarks_text(backend.list_benchmarks()).splitlines()
 
         def get_filtered() -> list[dict[str, Any]]:
             q = search_query.lower()
             return [
                 g for g in games
-                if not q or q in g["appid"].lower() or q in g["name"].lower() or q in g["class"].lower()
+                if not q
+                or q in g["appid"].lower()
+                or q in g["name"].lower()
+                or q in g["class"].lower()
+                or q in g["source"].lower()
             ]
 
         while True:
@@ -1010,19 +1364,32 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
                         break
                     g = filtered[idx]
                     mark = "*" if g["has_profile"] else " "
-                    line = f"{mark}{g['appid']:>7} {g['name'][:22]:<22} [{g['class'][:10]}] {g['synced']}"
+                    src = "[sc]" if g["source"] == "shortcut" else "    "
+                    line = f"{mark}{g['appid']:>10} {src} {g['name'][:18]:<18} [{g['class'][:8]}] {g['synced']}"
                     attr = curses.A_REVERSE if idx == selected_idx else curses.A_NORMAL
                     stdscr.addnstr(2 + row_i, 0, line, split_x - 1, attr)
 
                 if cur is not None and max_x > split_x + 10:
-                    stdscr.addnstr(2, split_x, f"AppID: {cur['appid']} ({cur['class']})", max_x - split_x - 1, curses.A_BOLD)
-                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u")
+                    stdscr.addnstr(
+                        2,
+                        split_x,
+                        f"AppID: {cur['appid']} ({cur['class']} | {cur['source']})",
+                        max_x - split_x - 1,
+                        curses.A_BOLD,
+                    )
+                    stdscr.addnstr(
+                        3,
+                        split_x,
+                        f"SDK: {cur.get('upscaler_info', 'None detected')}",
+                        max_x - split_x - 1,
+                    )
+                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h")
                     for i, ((k, label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
-                        if 3 + i >= max_y - 2:
+                        if 4 + i >= max_y - 2:
                             break
                         val = "ON " if profile_cache.get(k, "0") == "1" else "OFF"
-                        stdscr.addnstr(3 + i, split_x, f"[{hk}] {val} {label}", max_x - split_x - 1)
-                    base_y = 3 + len(PROFILE_TOGGLES)
+                        stdscr.addnstr(4 + i, split_x, f"[{hk}] {val} {label}", max_x - split_x - 1)
+                    base_y = 4 + len(PROFILE_TOGGLES)
                     if base_y < max_y - 2:
                         stdscr.addnstr(
                             base_y,
@@ -1066,18 +1433,26 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
                 else:
                     stdscr.addnstr(2, 0, "No launch logs found in state directory.", max_x - 1)
 
+            elif active_tab == 4:
+                stdscr.addnstr(1, 0, "Benchmarks (press [r] to refresh | record via BENCH=1 steam-auto-run %command%)", max_x - 1, curses.A_BOLD)
+                for row_i in range(body_h - 1):
+                    idx = scroll + row_i
+                    if idx >= len(bench_lines):
+                        break
+                    stdscr.addnstr(2 + row_i, 0, bench_lines[idx], max_x - 1)
+
             stdscr.addnstr(max_y - 1, 0, status_msg.ljust(max_x), max_x - 1, curses.A_REVERSE)
             stdscr.refresh()
 
             ch = stdscr.getch()
             if ch in (ord("q"), ord("Q")):
                 return 0
-            if ch in (ord("1"), ord("2"), ord("3"), ord("4")):
+            if ch in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5")):
                 active_tab = ch - ord("1")
                 scroll = 0
                 continue
             if ch == 9:  # Tab
-                active_tab = (active_tab + 1) % 4
+                active_tab = (active_tab + 1) % 5
                 scroll = 0
                 continue
 
@@ -1106,6 +1481,7 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
                         ord("l"): "USE_SDL",
                         ord("o"): "USE_KEEP_OVERLAY",
                         ord("u"): "USE_OPTISCALER",
+                        ord("h"): "AUTO_HDR_SWITCH",
                     }
                     if ch in hk_map:
                         k = hk_map[ch]
@@ -1188,6 +1564,16 @@ def run_curses_tui(backend: ProfilerBackend) -> int:
                         status_msg = f"Applied Safe Mode for AppID {ldata['appid']} ({path})"
                     else:
                         status_msg = "Selected log has no numeric AppID."
+
+            elif active_tab == 4:
+                if ch in (curses.KEY_DOWN, ord("j")):
+                    scroll = min(max(0, len(bench_lines) - 1), scroll + 1)
+                elif ch in (curses.KEY_UP, ord("k")):
+                    scroll = max(0, scroll - 1)
+                elif ch == ord("r"):
+                    bench_lines = backend.format_benchmarks_text(backend.list_benchmarks()).splitlines()
+                    scroll = 0
+                    status_msg = "Benchmarks refreshed."
 
     return curses.wrapper(_main)
 

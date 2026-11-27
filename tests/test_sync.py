@@ -303,6 +303,38 @@ class SyncTests(unittest.TestCase):
         self.assertIn('"LaunchOptions"\t\t"vr-run %command%"', updated)
         self.assertIn("steam-auto-run %command%", updated)
 
+    def test_report_includes_non_steam_shortcuts_read_only(self):
+        import struct
+
+        def pack_str(k: str, v: str) -> bytes:
+            return b"\x01" + k.encode() + b"\x00" + v.encode() + b"\x00"
+
+        def pack_u32(k: str, v: int) -> bytes:
+            return b"\x02" + k.encode() + b"\x00" + struct.pack("<I", v)
+
+        vdf_bytes = (
+            b"\x00shortcuts\x00"
+            + b"\x000\x00"
+            + pack_u32("appid", 3456789012)
+            + pack_str("AppName", "Custom VR Mod")
+            + pack_str("Exe", '"/opt/vrmod/start.sh"')
+            + pack_str("StartDir", '"/opt/vrmod"')
+            + pack_str("LaunchOptions", "vr-run %command% -vr")
+            + b"\x08"
+            + b"\x08"
+        )
+        vdf_path = self.steam / "userdata" / "100" / "config" / "shortcuts.vdf"
+        vdf_path.write_bytes(vdf_bytes)
+
+        res = self.run_sync("--report")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("Source", res.stdout)
+        self.assertIn("Custom VR Mod", res.stdout)
+        self.assertIn("shortcut", res.stdout)
+        self.assertIn("VR", res.stdout)
+        # Binary shortcuts.vdf must remain byte-for-byte untouched
+        self.assertEqual(vdf_path.read_bytes(), vdf_bytes)
+
 
 if __name__ == "__main__":
     unittest.main()

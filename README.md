@@ -66,14 +66,22 @@ chain. `steam-auto-detect` detects VR titles (`AUTO_IS_VR=1`), and `steam-auto-s
 assigns and preserves `vr-run %command%` entries during sync and `--sanitize`. Inspect resolved VR
 settings with `vr-run --dry-run`.
 
-Launch the unified Qt6 GUI / curses TUI control center (also installed in your application menu):
+Launch the unified Qt6 GUI / curses TUI control center (also installed in your application menu or via `steam-auto-run --ui`):
 
 ```bash
+steam-auto-run --ui    # Single-command launcher for steam-auto-ui
 steam-auto-ui          # Auto-detects PySide6/PyQt6 GUI or curses TUI
 steam-auto-ui --gui    # Force native Qt6 window
 steam-auto-ui --tui    # Force terminal curses interface
 steam-auto-ui --check  # Headless CI self-test
 ```
+
+Additional power-user capabilities:
+- **Non-Steam shortcuts (`shortcuts.vdf`):** Safely parsed read-only in `steam-auto-detect`, `steam-auto-sync --report`, and `steam-auto-ui` (`source: shortcut`), preserving custom `vr-run %command%` launch options and supporting per-shortcut `.env` profiles.
+- **Upscaler DLL SDK Hints (`AUTO_UPSCALER_INFO`):** Distinguishes FidelityFX 3.1+ (`amd_fidelityfx_upscaler_*.dll` / `amdxcffx64.dll` -> native `PROTON_FSR4_UPGRADE=1`) from legacy FSR 2 / DLSS / XeSS DLLs (recommending `USE_OPTISCALER=1`) with live badges in `steam-auto-ui`.
+- **Automatic KDE Plasma 6 HDR Toggle (`AUTO_HDR_SWITCH=1`):** Enables HDR on the primary output via `kscreen-doctor` before launch when the game uses HDR and restores SDR cleanly on exit.
+- **Silent Frametime Benchmarks (`BENCH=1`):** Logs MangoHud CSV silently (`no_display`), computes `Avg FPS`, `1% Low FPS`, and `P99 Frametime (ms)` into `~/.config/steam-auto-profiler/benchmarks/<APPID>.json`, and compares runs side-by-side in `steam-auto-ui`.
+- **Stack & Shader Cache Watchdog:** Displays live `mesa-git`/`mesa`, `proton-cachyos-slr`, `wivrn-server`, and `xrizer-git` versions, `~/.cache/mesa_shader_cache*` disk usage, and `/var/log/pacman.log` git/AUR downgrade warnings in `steam-auto-ui`.
 
 Preview batch integration and apply it after closing Steam:
 

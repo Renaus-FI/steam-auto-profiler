@@ -14,7 +14,11 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: Run shellcheck and unit tests
+      - name: Run shellcheck, py_compile, and unit tests
         run: |
-          shellcheck $(find bin -maxdepth 1 -type f ! -name steam-auto-sync -print) install.sh
+          mapfile -t shell_scripts < <(
+            grep -lE '^#!(/(usr/)?bin/(env[[:space:]]+)?(ba|da)?sh)\b' bin/* install.sh
+          )
+          shellcheck "${shell_scripts[@]}"
+          python3 -m py_compile bin/steam-auto-sync bin/steam-auto-ui tests/*.py
           python3 -m unittest discover -s tests -v

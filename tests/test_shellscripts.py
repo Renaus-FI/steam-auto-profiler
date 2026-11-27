@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import unittest
@@ -5,6 +6,18 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SHELL_SHEBANG_RE = re.compile(r"^#!(?:/(?:usr/)?bin/(?:env\s+)?(?:ba|da)?sh)\b")
+
+
+def _is_shell_script(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as fh:
+            first_line = fh.readline()
+    except OSError:
+        return False
+    return bool(SHELL_SHEBANG_RE.match(first_line))
 
 
 class ShellScriptTests(unittest.TestCase):
@@ -15,15 +28,11 @@ class ShellScriptTests(unittest.TestCase):
 
         scripts = [ROOT / "install.sh"]
         scripts.extend(
-            sorted(
-                script
-                for script in (ROOT / "bin").glob("*")
-                if script.is_file()
-                and script.read_text(encoding="utf-8", errors="ignore").startswith("#!")
-                and "python" not in script.read_text(encoding="utf-8", errors="ignore").splitlines()[0]
-            )
+            sorted(script for script in (ROOT / "bin").glob("*") if _is_shell_script(script))
         )
         self.assertIn(ROOT / "bin" / "vr-run", scripts)
+        self.assertNotIn(ROOT / "bin" / "steam-auto-ui", scripts)
+        self.assertNotIn(ROOT / "bin" / "steam-auto-sync", scripts)
         result = subprocess.run(
             [shellcheck, *[str(script) for script in scripts]],
             text=True,

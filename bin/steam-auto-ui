@@ -14,6 +14,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 from typing import Any
 import zlib
 
@@ -197,11 +198,32 @@ def parse_tc_qdisc_stats(raw_tc: str) -> dict[str, Any]:
     }
 
 
-def detect_pacman_downgrades(log_path: Path | str = "/var/log/pacman.log", max_lines: int = 400) -> list[str]:
-    """Scan recent /var/log/pacman.log lines for package or git/AUR revision downgrades."""
+_PACMAN_LOG_CACHE: dict[str, tuple[float, int, list[str]]] = {}
+_PACMAN_LOG_CACHE_TTL_SEC = 30.0
+
+
+def detect_pacman_downgrades(
+    log_path: Path | str = "/var/log/pacman.log",
+    max_lines: int = 400,
+    cache_ttl: float = _PACMAN_LOG_CACHE_TTL_SEC,
+) -> list[str]:
+    """Scan recent /var/log/pacman.log lines for package or git/AUR revision downgrades (cached 30s)."""
     p = Path(log_path)
     if not p.is_file():
         return []
+    try:
+        mtime_ns = p.stat().st_mtime_ns
+    except OSError:
+        return []
+
+    cache_key = f"{p}:{max_lines}"
+    now = time.monotonic()
+    cached = _PACMAN_LOG_CACHE.get(cache_key)
+    if cached is not None and cache_ttl > 0:
+        cached_at, cached_mtime, cached_warnings = cached
+        if cached_mtime == mtime_ns and (now - cached_at) < cache_ttl:
+            return list(cached_warnings)
+
     try:
         lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[-max_lines:]
     except OSError:
@@ -228,7 +250,9 @@ def detect_pacman_downgrades(log_path: Path | str = "/var/log/pacman.log", max_l
                     warnings.append(
                         f"[WARN] Git/AUR revision regression for {pkg}: {old_ver} -> {new_ver} on {ts}"
                     )
-    return warnings[-10:]
+    result = warnings[-10:]
+    _PACMAN_LOG_CACHE[cache_key] = (now, mtime_ns, result)
+    return list(result)
 
 
 def format_bytes(num: int | None) -> str:
@@ -556,15 +580,23 @@ class ProfilerBackend:
         pacman = shutil.which("pacman")
         if not pacman:
             return []
+        try:
+            proc = subprocess.run(
+                [pacman, "-Q", *STACK_PACKAGES],
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
         found: list[tuple[str, str]] = []
         seen: set[str] = set()
-        for pkg in STACK_PACKAGES:
-            rc, out = self._run_cmd([pacman, "-Q", pkg], timeout=5)
-            if rc == 0 and out:
-                parts = out.splitlines()[0].split(None, 1)
-                if len(parts) == 2 and parts[0] not in seen:
-                    seen.add(parts[0])
-                    found.append((parts[0], parts[1]))
+        for line in proc.stdout.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and parts[0] not in seen:
+                seen.add(parts[0])
+                found.append((parts[0], parts[1]))
         return found
 
     def measure_shader_cache(self, cache_root: Path | None = None) -> dict[str, Any]:
@@ -872,6 +904,36 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
         print("Error: Neither PySide6 nor PyQt6 is installed. Use --tui for terminal mode.", file=sys.stderr)
         return 1
     QtWidgets, QtCore = mods
+    qt_signal = getattr(QtCore, "Signal", None) or getattr(QtCore, "pyqtSignal")
+
+    class TelemetryWorker(QtCore.QThread):
+        finished_with_text = qt_signal(str)
+
+        def __init__(self, backend_ref: ProfilerBackend, parent: Any = None):
+            super().__init__(parent)
+            self._backend = backend_ref
+
+        def run(self) -> None:
+            try:
+                telemetry = self._backend.collect_telemetry()
+                text = self._backend.format_telemetry_text(telemetry)
+            except Exception as exc:
+                text = f"Error collecting telemetry: {exc}"
+            self.finished_with_text.emit(text)
+
+    class LibraryWorker(QtCore.QThread):
+        finished_with_games = qt_signal(list)
+
+        def __init__(self, backend_ref: ProfilerBackend, parent: Any = None):
+            super().__init__(parent)
+            self._backend = backend_ref
+
+        def run(self) -> None:
+            try:
+                games = self._backend.discover_games()
+            except Exception:
+                games = []
+            self.finished_with_games.emit(games)
 
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Steam Auto-Profiler")
@@ -956,6 +1018,8 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     filtered_games: list[dict[str, Any]] = []
     current_game: dict[str, Any] = {}
     updating_ui = False
+    library_worker: Any = None
+    library_in_flight = False
 
     def collect_editor_profile() -> dict[str, str]:
         prof = {key: ("1" if cb.isChecked() else "0") for key, cb in checkboxes.items()}
@@ -1008,13 +1072,27 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
                 table.setItem(row, col, QtWidgets.QTableWidgetItem(val))
         table.resizeColumnsToContents()
 
-    def reload_games() -> None:
-        nonlocal games_cache
-        status_bar.showMessage("Scanning Steam libraries and shortcuts.vdf...")
-        app.processEvents()
-        games_cache = backend.discover_games()
+    def on_games_loaded(loaded_games: list[dict[str, Any]]) -> None:
+        nonlocal games_cache, library_in_flight, library_worker
+        games_cache = loaded_games
         populate_table()
+        library_in_flight = False
+        library_worker = None
+        refresh_games_btn.setEnabled(True)
         status_bar.showMessage(f"Loaded {len(games_cache)} title(s) (Steam + Non-Steam shortcuts).")
+
+    def reload_games() -> None:
+        nonlocal library_worker, library_in_flight
+        if library_in_flight:
+            return
+        library_in_flight = True
+        refresh_games_btn.setEnabled(False)
+        status_bar.showMessage("Scanning Steam libraries and shortcuts.vdf...")
+        worker = LibraryWorker(backend, win)
+        library_worker = worker
+        worker.finished_with_games.connect(on_games_loaded)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
     def on_row_selected() -> None:
         nonlocal current_game
@@ -1098,12 +1176,35 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
 
     tel_box = QtWidgets.QPlainTextEdit()
     tel_box.setReadOnly(True)
+    tel_box.setPlainText("Loading telemetry...")
     tel_layout.addWidget(tel_box, 1)
 
-    def refresh_telemetry() -> None:
-        telemetry = backend.collect_telemetry()
-        tel_box.setPlainText(backend.format_telemetry_text(telemetry))
+    telemetry_worker: Any = None
+    telemetry_in_flight = False
+
+    def on_telemetry_ready(text: str) -> None:
+        nonlocal telemetry_in_flight, telemetry_worker
+        scrollbar = tel_box.verticalScrollBar()
+        prev_scroll = scrollbar.value() if scrollbar is not None else 0
+        tel_box.setPlainText(text)
+        if scrollbar is not None:
+            scrollbar.setValue(min(prev_scroll, scrollbar.maximum()))
+        telemetry_in_flight = False
+        telemetry_worker = None
+        tel_refresh_btn.setEnabled(True)
         status_bar.showMessage("Telemetry updated.")
+
+    def refresh_telemetry() -> None:
+        nonlocal telemetry_worker, telemetry_in_flight
+        if telemetry_in_flight:
+            return
+        telemetry_in_flight = True
+        tel_refresh_btn.setEnabled(False)
+        worker = TelemetryWorker(backend, win)
+        telemetry_worker = worker
+        worker.finished_with_text.connect(on_telemetry_ready)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
     tel_timer = QtCore.QTimer(win)
     tel_timer.setInterval(3000)
@@ -1291,13 +1392,23 @@ def run_qt_gui(backend: ProfilerBackend) -> int:
     bench_jump_btn.clicked.connect(jump_to_game_benchmarks)
     tabs.addTab(tab_bench, "5. Benchmarks")
 
-    reload_games()
-    refresh_telemetry()
+    def cleanup_workers() -> None:
+        tel_timer.stop()
+        for worker in (telemetry_worker, library_worker):
+            if worker is not None and worker.isRunning():
+                worker.wait(2000)
+
+    app.aboutToQuit.connect(cleanup_workers)
+
+    # Lightweight reads first, show window immediately, then load heavy library/telemetry off-thread.
     update_steam_banner()
     refresh_logs()
     refresh_benchmarks()
+    status_bar.showMessage("Loading library and telemetry...")
 
     win.show()
+    QtCore.QTimer.singleShot(0, reload_games)
+    QtCore.QTimer.singleShot(0, refresh_telemetry)
     return int(app.exec())
 
 

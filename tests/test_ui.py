@@ -261,6 +261,37 @@ class UiTests(unittest.TestCase):
                 self.assertEqual(len(warns), 2)
                 self.assertIn("mesa-git", warns[0])
                 self.assertIn("xrizer-git", warns[1])
+                # Second call within 30s returns cached results cleanly
+                warns_cached = ui.detect_pacman_downgrades(paclog)
+                self.assertEqual(warns_cached, warns)
+
+                # Batched pacman -Q query runs in a single subprocess invocation
+                mock_bin = home / "mock-bin"
+                mock_bin.mkdir()
+                call_log = home / "pacman.calls"
+                pacman_mock = mock_bin / "pacman"
+                pacman_mock.write_text(
+                    "#!/bin/sh\n"
+                    f'echo "$*" >> "{call_log}"\n'
+                    'echo "mesa-git 27.0.0_devel.234834-1"\n'
+                    'echo "mesa-git 27.0.0_devel.234834-1"\n'
+                    'echo "mangohud 0.8.4-1.1"\n'
+                    'echo "error: package \'xrizer\' was not found" >&2\n'
+                    "exit 1\n",
+                    encoding="utf-8",
+                )
+                pacman_mock.chmod(0o755)
+                orig_path = os.environ.get("PATH", "")
+                os.environ["PATH"] = f"{mock_bin}:{orig_path}"
+                try:
+                    versions = backend.collect_stack_versions()
+                finally:
+                    os.environ["PATH"] = orig_path
+                self.assertEqual(len(call_log.read_text(encoding="utf-8").splitlines()), 1)
+                self.assertEqual(
+                    versions,
+                    [("mesa-git", "27.0.0_devel.234834-1"), ("mangohud", "0.8.4-1.1")],
+                )
             finally:
                 if orig_cfg is None:
                     os.environ.pop("XDG_CONFIG_HOME", None)

@@ -747,6 +747,242 @@ class RunTests(unittest.TestCase):
             self.assertAlmostEqual(rec["low_1pct_fps"], 40.0, places=1)
             self.assertAlmostEqual(rec["p99_frametime_ms"], 25.0, places=1)
 
+    @staticmethod
+    def _make_mock_drm(base: Path, vendor: str, device: str, vram_bytes: int = 17179869184) -> Path:
+        drm = base / "drm"
+        dev = drm / "card0" / "device"
+        dev.mkdir(parents=True, exist_ok=True)
+        (dev / "vendor").write_text(f"{vendor}\n", encoding="utf-8")
+        (dev / "device").write_text(f"{device}\n", encoding="utf-8")
+        (dev / "mem_info_vram_total").write_text(f"{vram_bytes}\n", encoding="utf-8")
+        (dev / "boot_vga").write_text("0\n", encoding="utf-8")
+        v_short = vendor.lower().removeprefix("0x").upper()
+        d_short = device.lower().removeprefix("0x").upper()
+        (dev / "uevent").write_text(f"PCI_ID={v_short}:{d_short}\n", encoding="utf-8")
+        return drm
+
+    def test_transfer_queue_rdna4_and_default_sam(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            rdna2_drm = self._make_mock_drm(home / "rdna2", "0x1002", "0x73bf")
+            base_env = os.environ.copy()
+            for key in ("RADV_PERFTEST", "TRANSFER_QUEUE", "USE_TRANSFER_QUEUE"):
+                base_env.pop(key, None)
+            base_env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+            })
+
+            # Default keeps RADV_PERFTEST=sam without transfer_queue
+            res_default = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=base_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_default.returncode, 0, res_default.stderr)
+            self.assertIn("RADV_PERFTEST=sam\n", res_default.stdout)
+            self.assertNotIn("transfer_queue", res_default.stdout)
+
+            # Env override TRANSFER_QUEUE=1 appends transfer_queue on RDNA 4
+            res_env = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**base_env, "TRANSFER_QUEUE": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_env.returncode, 0, res_env.stderr)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res_env.stdout)
+
+            # Profile USE_TRANSFER_QUEUE=1 appends transfer_queue on RDNA 4
+            profile_dir = home / ".config/steam-auto-profiler/profiles"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            (profile_dir / "361420.env").write_text("USE_TRANSFER_QUEUE=1\n", encoding="utf-8")
+            res_prof = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env=base_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_prof.returncode, 0, res_prof.stderr)
+            self.assertIn("RADV_PERFTEST=sam,transfer_queue", res_prof.stdout)
+
+            # Older non-RDNA3/4 AMD GPU does not append transfer_queue
+            res_old = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**base_env, "SAP_DRM_DIR": str(rdna2_drm)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_old.returncode, 0, res_old.stderr)
+            self.assertIn("RADV_PERFTEST=sam\n", res_old.stdout)
+            self.assertNotIn("transfer_queue", res_old.stdout)
+
+    def test_native_antilag_disables_legacy_layer_and_respects_mlfg(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            env = os.environ.copy()
+            for key in ("MLFG", "USE_MLFG", "REFLEX_LAYER", "USE_REFLEX_LAYER", "NATIVE_ANTILAG", "USE_NATIVE_ANTILAG"):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "ENABLE_LAYER_MESA_ANTI_LAG": "1",
+            })
+
+            res_native = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "NATIVE_ANTILAG": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_native.returncode, 0, res_native.stderr)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_native.stdout)
+            self.assertIn("PROTON_DXVK_LOWLATENCY=1", res_native.stdout)
+            self.assertIn("PROTON_VKD3D_LOWLATENCY=1", res_native.stdout)
+
+            # MLFG still disables low-latency pacing when USE_NATIVE_ANTILAG=1
+            res_mlfg = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "USE_NATIVE_ANTILAG": "1", "USE_MLFG": "1", "VRR_CAP": "240"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_mlfg.returncode, 0, res_mlfg.stderr)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_mlfg.stdout)
+            self.assertIn("PROTON_DXVK_LOWLATENCY=0", res_mlfg.stdout)
+            self.assertIn("PROTON_VKD3D_LOWLATENCY=0", res_mlfg.stdout)
+            self.assertNotIn("DXVK_FRAME_RATE=", res_mlfg.stdout)
+
+    def test_reflex_layer_exports_and_mutual_exclusion_guards(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            env = os.environ.copy()
+            for key in (
+                "MLFG", "USE_MLFG", "REFLEX_LAYER", "USE_REFLEX_LAYER",
+                "LOW_LATENCY_LAYER", "LOW_LATENCY_LAYER_REFLEX",
+            ):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "ENABLE_LAYER_MESA_ANTI_LAG": "1",
+            })
+
+            # Standard title with USE_REFLEX_LAYER=1 enables LOW_LATENCY_LAYER + REFLEX and disables Mesa Anti-Lag layer
+            res_std = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "USE_REFLEX_LAYER": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_std.returncode, 0, res_std.stderr)
+            self.assertIn("LOW_LATENCY_LAYER=1", res_std.stdout)
+            self.assertIn("LOW_LATENCY_LAYER_REFLEX=1", res_std.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_std.stdout)
+            self.assertIn("lowlatencylayer", res_std.stdout)
+
+            # MLFG=1 disables Reflex layer and omits lowlatencylayer token
+            res_mlfg = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "USE_REFLEX_LAYER": "1", "MLFG": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_mlfg.returncode, 0, res_mlfg.stderr)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_mlfg.stdout)
+            self.assertIn("LOW_LATENCY_LAYER_REFLEX=0", res_mlfg.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_mlfg.stdout)
+            self.assertNotIn("lowlatencylayer", res_mlfg.stdout)
+
+            # competitive-anticheat (2357570) hard-blocks LOW_LATENCY_LAYER and LOW_LATENCY_LAYER_REFLEX
+            res_ac = subprocess.run(
+                [str(RUN), "--dry-run", "2357570"],
+                env={
+                    **env,
+                    "REFLEX_LAYER": "1",
+                    "USE_REFLEX_LAYER": "1",
+                    "LOW_LATENCY_LAYER": "1",
+                    "LOW_LATENCY_LAYER_REFLEX": "1",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_ac.returncode, 0, res_ac.stderr)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_ac.stdout)
+            self.assertIn("LOW_LATENCY_LAYER_REFLEX=0", res_ac.stdout)
+            self.assertNotIn("lowlatencylayer", res_ac.stdout)
+
+    def test_vk_video_decode_experimental_and_retired_proton_flag_purge(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            env = os.environ.copy()
+            for key in ("RADV_PERFTEST", "RADV_EXPERIMENTAL", "VK_VIDEO_DECODE", "USE_VK_VIDEO_DECODE"):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "PROTON_ENABLE_HDR": "1",
+                "PROTON_VKREFLEX": "1",
+                "PROTON_MEDIA_USE_GST": "1",
+                "PROTON_FSR3_UPGRADE": "1",
+                "PROTON_VKD3D_HEAP": "1",
+                "WINEPULSE_FAST_POLLING": "1",
+            })
+
+            res_vid = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "USE_VK_VIDEO_DECODE": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_vid.returncode, 0, res_vid.stderr)
+            self.assertIn("RADV_EXPERIMENTAL=video_decode", res_vid.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_vid.stdout)
+            for retired in (
+                "PROTON_ENABLE_HDR=",
+                "PROTON_VKREFLEX=",
+                "PROTON_MEDIA_USE_GST=",
+                "PROTON_FSR3_UPGRADE=",
+                "PROTON_VKD3D_HEAP=",
+                "WINEPULSE_FAST_POLLING=",
+            ):
+                self.assertNotIn(retired, res_vid.stdout)
+
+            # Legacy RADV_PERFTEST=sam,video_decode is migrated to RADV_EXPERIMENTAL=video_decode
+            res_mig = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "RADV_PERFTEST": "sam,video_decode"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_mig.returncode, 0, res_mig.stderr)
+            self.assertIn("RADV_EXPERIMENTAL=video_decode", res_mig.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_mig.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

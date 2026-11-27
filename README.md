@@ -125,9 +125,14 @@ Steam Auto-Profiler consists of six focused tools in `bin/`:
 
 Key built-in mutual-exclusion rules:
 - **FSR 4 / OptiScaler vs vkBasalt:** `ENABLE_VKBASALT=0` is enforced whenever `PROTON_FSR4_UPGRADE=1`, `PROTON_FSR4_RDNA3_UPGRADE=1`, or `USE_OPTISCALER=1` (prevents double-sharpening and HDR10 clipping).
-- **MLFG vs Low-Latency / VRR Caps:** `MLFG=1` sets `ENABLE_LAYER_MESA_ANTI_LAG=0`, `PROTON_DXVK_LOWLATENCY=0`, `PROTON_VKD3D_LOWLATENCY=0`, unsets `DXVK_FRAME_RATE` / `VKD3D_FRAME_RATE` / `DXVK_FRAME_PACE`, and adds `DXIL_SPIRV_CONFIG=wmma_rdna3_workaround` on AMD RDNA 3.
+- **MLFG vs Low-Latency / VRR Caps:** `MLFG=1` sets `ENABLE_LAYER_MESA_ANTI_LAG=0`, `LOW_LATENCY_LAYER=0`, `LOW_LATENCY_LAYER_REFLEX=0`, `PROTON_DXVK_LOWLATENCY=0`, `PROTON_VKD3D_LOWLATENCY=0`, unsets `DXVK_FRAME_RATE` / `VKD3D_FRAME_RATE` / `DXVK_FRAME_PACE`, and adds `DXIL_SPIRV_CONFIG=wmma_rdna3_workaround` on AMD RDNA 3.
+- **Mesa 27.0 / RDNA 4 & Proton-CachyOS 11.0 Experimental Toggles:**
+  - `TRANSFER_QUEUE=1` (`USE_TRANSFER_QUEUE=1`): appends `,transfer_queue` to `RADV_PERFTEST` on AMD RDNA 3/4 GPUs for dedicated SDMA queue offloading (keeps default `RADV_PERFTEST=sam` when unset).
+  - `NATIVE_ANTILAG=1` (`USE_NATIVE_ANTILAG=1`): relies on Mesa 26.3+/27.0 RADV driver-native `VK_AMD_anti_lag` while disabling the legacy external `ENABLE_LAYER_MESA_ANTI_LAG=0` layer.
+  - `REFLEX_LAYER=1` (`USE_REFLEX_LAYER=1`): enables Proton-CachyOS `LOW_LATENCY_LAYER=1` + `LOW_LATENCY_LAYER_REFLEX=1` (translates NVIDIA Reflex `VK_NV_low_latency2` into native `VK_AMD_anti_lag`), forces `ENABLE_LAYER_MESA_ANTI_LAG=0` so latency layers never stack, is disabled when `MLFG=1`, and is hard-blocked (`=0`) in `competitive-anticheat` titles.
+  - `VK_VIDEO_DECODE=1` (`USE_VK_VIDEO_DECODE=1`): exports Mesa 27.0 `RADV_EXPERIMENTAL=video_decode` (and automatically migrates legacy `RADV_PERFTEST=video_decode`).
 - **Modern DX12 vs Safe DX12:** Exports `PROTON_NATIVE_AGS=1` on AMD and `VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer` by default; `SAFEDX12=1` omits experimental VKD3D flags and `vkd3dbindlesstb`.
-- **Compat-Token Mapping:** Maps managed features into both `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG` (`wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `localshadercache`, `pipewire`, `fsr4`, `mlfg`, `vkreflex`, `nontsync`, `nowmdecoration`) while preserving existing user tokens.
+- **Compat-Token Mapping & Retired Flag Purge:** Maps managed features into both `PROTON_ADD_CONFIG` and `STEAM_COMPAT_CONFIG` (`wayland`, `sdlinput`, `nativeags`, `noopwr`, `vkd3dbindlesstb`, `dxvklowlatency`, `vkd3dlowlatency`, `lowlatencylayer`, `localshadercache`, `pipewire`, `fsr4`, `mlfg`, `vkreflex`, `nontsync`, `nowmdecoration`) while purging retired Proton/Wine variables (`PROTON_ENABLE_HDR`, `PROTON_VKREFLEX`, `PROTON_MEDIA_USE_GST`, `PROTON_FSR3_UPGRADE`, `PROTON_VKD3D_HEAP`, `WINEPULSE_FAST_POLLING`).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full technical specification.
 

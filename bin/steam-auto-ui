@@ -55,6 +55,9 @@ PROFILE_TOGGLES = (
     ("USE_KEEP_OVERLAY", "Keep Steam Overlay (LD_PRELOAD)"),
     ("USE_OPTISCALER", "OptiScaler Bridge"),
     ("AUTO_HDR_SWITCH", "Auto KDE Plasma 6 HDR Toggle"),
+    ("USE_TRANSFER_QUEUE", "Transfer Queue (RDNA 3/4 SDMA)"),
+    ("USE_NATIVE_ANTILAG", "Native RADV Anti-Lag (VK_AMD_anti_lag)"),
+    ("USE_REFLEX_LAYER", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)"),
 )
 
 SUPPORTED_LANGUAGES: tuple[tuple[str, str], ...] = (
@@ -97,6 +100,7 @@ _I18N_KEYS: tuple[str, ...] = (
     "toggle_USE_XWAYLAND", "toggle_USE_FSR4", "toggle_USE_MLFG", "toggle_USE_SHARPEN",
     "toggle_USE_SAFEDX12", "toggle_USE_NET_OPT", "toggle_USE_SDL", "toggle_USE_KEEP_OVERLAY",
     "toggle_USE_OPTISCALER", "toggle_AUTO_HDR_SWITCH",
+    "toggle_USE_TRANSFER_QUEUE", "toggle_USE_NATIVE_ANTILAG", "toggle_USE_REFLEX_LAYER",
     "vrr_cap_label", "vrr_cap_placeholder",
     "btn_save_profile", "btn_dry_run", "btn_benchmarks", "btn_reset_profile", "dry_run_placeholder",
     "status_scanning_library", "status_loaded_titles", "status_saved_profile",
@@ -129,6 +133,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Use XWayland (disable Wayland)", "FSR 4 Driver Upgrade", "Frame Generation (MLFG)", "vkBasalt Sharpening",
         "Safe DX12 (disable experimental VKD3D)", "Session Network QoS", "Prefer SDL / Steam Input", "Keep Steam Overlay (LD_PRELOAD)",
         "OptiScaler Bridge", "Auto KDE Plasma 6 HDR Toggle",
+        "Transfer Queue (RDNA 3/4 SDMA)", "Native RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (empty=Auto, 0=Off):", "Auto",
         "Save Profile", "Dry-Run Preview", "Benchmarks", "Reset Profile", "Dry-run environment output appears here...",
         "Scanning Steam libraries and shortcuts.vdf...", "Loaded {count} title(s) (Steam + Non-Steam shortcuts).", "Saved {path}",
@@ -159,6 +164,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Käytä XWaylandia (poista Wayland käytöstä)", "FSR 4 -ajuripäivitys", "Kuvagenerointi (MLFG)", "vkBasalt-terävöitys",
         "Turvallinen DX12 (poista kokeellinen VKD3D)", "Istunnon verkon QoS", "Suosi SDL / Steam Inputia", "Säilytä Steam Overlay (LD_PRELOAD)",
         "OptiScaler-silta", "Automaattinen KDE Plasma 6 HDR -kytkin",
+        "Siirtojono / Transfer Queue (RDNA 3/4 SDMA)", "Natiivi RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (tyhjä=Auto, 0=Pois):", "Auto",
         "Tallenna profiili", "Esikatselu (Dry-Run)", "Testit", "Nollaa profiili", "Dry-run-ympäristön tuloste näkyy tässä...",
         "Skannataan Steam-kirjastoja ja shortcuts.vdf-tiedostoja...", "Ladattu {count} nimikettä (Steam + Non-Steam-pikakuvakkeet).", "Tallennettu: {path}",
@@ -189,6 +195,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Использовать XWayland (отключить Wayland)", "Обновление драйвера FSR 4", "Генерация кадров (MLFG)", "Резкость vkBasalt",
         "Безопасный DX12 (отключить эксперим. VKD3D)", "Сетевой QoS на сессию", "Предпочитать SDL / Steam Input", "Сохранить Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Автопереключение HDR в KDE Plasma 6",
+        "Очередь передачи SDMA (RDNA 3/4 Transfer Queue)", "Нативный RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (пусто=Авто, 0=Выкл):", "Авто",
         "Сохранить профиль", "Предпросмотр (Dry-Run)", "Бенчмарки", "Сбросить профиль", "Вывод dry-run окружения появится здесь...",
         "Сканирование библиотек Steam и shortcuts.vdf...", "Загружено игр/ярлыков: {count} (Steam + Non-Steam).", "Сохранено: {path}",
@@ -219,6 +226,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Використовувати XWayland (вимкнути Wayland)", "Оновлення драйвера FSR 4", "Генерація кадрів (MLFG)", "Різкість vkBasalt",
         "Безпечний DX12 (вимкнути експерим. VKD3D)", "Мережевий QoS на сесію", "Надавати перевагу SDL / Steam Input", "Зберегти Steam Overlay (LD_PRELOAD)",
         "Міст OptiScaler", "Автоперемикач HDR у KDE Plasma 6",
+        "Черга передачі SDMA (RDNA 3/4 Transfer Queue)", "Нативний RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (порожньо=Авто, 0=Вимк):", "Авто",
         "Зберегти профіль", "Попередній перегляд (Dry-Run)", "Бенчмарки", "Скинути профіль", "Вивід dry-run середовища з'явиться тут...",
         "Сканування бібліотек Steam і shortcuts.vdf...", "Завантажено {count} позицій (Steam + Non-Steam).", "Збережено: {path}",
@@ -249,6 +257,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Выкарыстоўваць XWayland (адключыць Wayland)", "Абнаўленне драйвера FSR 4", "Генерацыя кадраў (MLFG)", "Рэзкасць vkBasalt",
         "Бяспечны DX12 (адключыць эксперым. VKD3D)", "Сеткавы QoS на сесію", "Аддаваць перавагу SDL / Steam Input", "Захаваць Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Аўтапераключальнік HDR у KDE Plasma 6",
+        "Чарга перадачы SDMA (RDNA 3/4 Transfer Queue)", "Натыўны RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (пуста=Аўта, 0=Выкл):", "Аўта",
         "Захаваць профіль", "Прадпрагляд (Dry-Run)", "Бенчмаркі", "Скінуць профіль", "Вывад dry-run асяроддзя з'явіцца тут...",
         "Сканаванне бібліятэк Steam і shortcuts.vdf...", "Загружана пазіцый: {count} (Steam + Non-Steam).", "Захавана: {path}",
@@ -279,6 +288,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWayland қолдану (Wayland өшіру)", "FSR 4 драйверін жаңарту", "Кадр генерациясы (MLFG)", "vkBasalt айқындығы",
         "Қауіпсіз DX12 (эксперименттік VKD3D өшіру)", "Сеанстық желі QoS", "SDL / Steam Input таңдау", "Steam Overlay сақтау (LD_PRELOAD)",
         "OptiScaler көпірі", "KDE Plasma 6 авто-HDR ауыстырғышы",
+        "SDMA тасымалдау кезегі (RDNA 3/4 Transfer Queue)", "Нативті RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (бос=Авто, 0=Өшірулі):", "Авто",
         "Профильді сақтау", "Алдын ала қарау (Dry-Run)", "Бенчмарктер", "Профильді тастау", "Dry-run ортасының нәтижесі осында шығады...",
         "Steam кітапханалары мен shortcuts.vdf сканерленуде...", "{count} ойын/таңбаша жүктелді (Steam + Non-Steam).", "Сақталды: {path}",
@@ -309,6 +319,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWayland ishlatish (Waylandni o'chirish)", "FSR 4 drayver yangilanishi", "Kadr generatsiyasi (MLFG)", "vkBasalt keskinlashtirish",
         "Xavfsiz DX12 (eksperimental VKD3Dni o'chirish)", "Sessiya tarmoq QoS", "SDL / Steam Inputni afzal ko'rish", "Steam Overlayni saqlash (LD_PRELOAD)",
         "OptiScaler ko'prigi", "KDE Plasma 6 avto-HDR almashtirgichi",
+        "SDMA uzatish navbati (RDNA 3/4 Transfer Queue)", "Mahalliy RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (bo'sh=Avto, 0=O'chiq):", "Avto",
         "Profilni saqlash", "Oldindan ko'rish (Dry-Run)", "Benchmarklar", "Profilni tiklash", "Dry-run muhit chiqishi shu yerda ko'rinadi...",
         "Steam kutubxonalari va shortcuts.vdf skanerlanmoqda...", "{count} ta o'yin/yorliq yuklandi (Steam + Non-Steam).", "Saqlandi: {path}",
@@ -339,6 +350,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Օգտագործել XWayland (անջատել Wayland)", "FSR 4 դրայվերի թարմացում", "Կադրերի գեներացիա (MLFG)", "vkBasalt հստակություն",
         "Անվտանգ DX12 (անջատել փորձարարական VKD3D)", "Սեսիայի ցանցային QoS", "Նախընտրել SDL / Steam Input", "Պահել Steam Overlay (LD_PRELOAD)",
         "OptiScaler կամուրջ", "KDE Plasma 6 ավտո-HDR փոխարկիչ",
+        "SDMA փոխանցման հերթ (RDNA 3/4 Transfer Queue)", "Բնիկ RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (դատարկ=Ավտո, 0=Անջատ):", "Ավտո",
         "Պահպանել պրոֆիլը", "Նախադիտում (Dry-Run)", "Բենչմարկներ", "Վերակայել պրոֆիլը", "Dry-run միջավայրի արդյունքը կհայտնվի այստեղ...",
         "Սկանավորվում են Steam գրադարաններն ու shortcuts.vdf-ը...", "Բեռնվել է {count} խաղ/պիտակ (Steam + Non-Steam):", "Պահպանվեց՝ {path}",
@@ -369,6 +381,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWayland istifadə et (Wayland söndür)", "FSR 4 drayver yeniləməsi", "Kadr generasiyası (MLFG)", "vkBasalt kəskinləşdirmə",
         "Təhlükəsiz DX12 (eksperimental VKD3D söndür)", "Sessiya şəbəkə QoS", "SDL / Steam Input üstün tut", "Steam Overlay saxla (LD_PRELOAD)",
         "OptiScaler körpüsü", "KDE Plasma 6 avto-HDR açarı",
+        "SDMA ötürmə növbəsi (RDNA 3/4 Transfer Queue)", "Yerli RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (boş=Avto, 0=Sönülü):", "Avto",
         "Profili saxla", "Önizləmə (Dry-Run)", "Bençmarklar", "Profili sıfırla", "Dry-run mühit çıxışı burada görünəcək...",
         "Steam kitabxanaları və shortcuts.vdf skan edilir...", "{count} oyun/qısayol yükləndi (Steam + Non-Steam).", "Saxlanıldı: {path}",
@@ -399,6 +412,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWayland колдонуу (Wayland өчүрүү)", "FSR 4 драйверин жаңылоо", "Кадр генерациясы (MLFG)", "vkBasalt тактыгы",
         "Коопсуз DX12 (эксперименттик VKD3D өчүрүү)", "Сеанстык тармак QoS", "SDL / Steam Input артык көрүү", "Steam Overlay сактоо (LD_PRELOAD)",
         "OptiScaler көпүрөсү", "KDE Plasma 6 авто-HDR которгучу",
+        "SDMA өткөрүү кезеги (RDNA 3/4 Transfer Queue)", "Нативдик RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (бош=Авто, 0=Өчүк):", "Авто",
         "Профилди сактоо", "Алдын ала көрүү (Dry-Run)", "Бенчмарктар", "Профилди таштоо", "Dry-run чөйрөсүнүн натыйжасы бул жерде көрүнөт...",
         "Steam китепканалары жана shortcuts.vdf сканерленүүдө...", "{count} оюн/жарлык жүктөлдү (Steam + Non-Steam).", "Сакталды: {path}",
@@ -429,6 +443,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Истифодаи XWayland (хомӯш кардани Wayland)", "Навсозии драйвери FSR 4", "Тавлиди кадрҳо (MLFG)", "Тезии vkBasalt",
         "DX12-и бехатар (хомӯш кардани VKD3D-и таҷрибавӣ)", "QoS-и шабака барои сессия", "Афзалият ба SDL / Steam Input", "Нигоҳ доштани Steam Overlay (LD_PRELOAD)",
         "Пули OptiScaler", "Авто-калиди HDR дар KDE Plasma 6",
+        "Навбати интиқоли SDMA (RDNA 3/4 Transfer Queue)", "RADV Anti-Lag-и аслӣ (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (холӣ=Авто, 0=Хомӯш):", "Авто",
         "Сабти профил", "Пешнамоиш (Dry-Run)", "Бенчмаркҳо", "Бозсозии профил", "Натиҷаи муҳити dry-run дар ин ҷо пайдо мешавад...",
         "Скан кардани китобхонаҳои Steam ва shortcuts.vdf...", "{count} бозӣ/нишона бор шуд (Steam + Non-Steam).", "Сабт шуд: {path}",
@@ -459,6 +474,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Użyj XWayland (wyłącz Wayland)", "Aktualizacja sterownika FSR 4", "Generowanie klatek (MLFG)", "Wyostrzanie vkBasalt",
         "Bezpieczny DX12 (wyłącz eksperym. VKD3D)", "Sieciowy QoS sesji", "Preferuj SDL / Steam Input", "Zachowaj nakładkę Steam (LD_PRELOAD)",
         "Mostek OptiScaler", "Automatyczny przełącznik HDR w KDE Plasma 6",
+        "Kolejka transferu SDMA (RDNA 3/4 Transfer Queue)", "Natywny RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (puste=Auto, 0=Wył):", "Auto",
         "Zapisz profil", "Podgląd Dry-Run", "Benchmarki", "Resetuj profil", "Tutaj pojawi się wynik środowiska dry-run...",
         "Skanowanie bibliotek Steam i shortcuts.vdf...", "Wczytano {count} pozycji (Steam + skróty Non-Steam).", "Zapisano {path}",
@@ -489,6 +505,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Použít XWayland (vypnout Wayland)", "Upgrade ovladače FSR 4", "Generování snímků (MLFG)", "Doostření vkBasalt",
         "Bezpečný DX12 (vypnout experim. VKD3D)", "Síťové QoS pro relaci", "Upřednostnit SDL / Steam Input", "Zachovat Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Automatický přepínač HDR v KDE Plasma 6",
+        "Přenosová fronta SDMA (RDNA 3/4 Transfer Queue)", "Nativní RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (prázdné=Auto, 0=Vyp):", "Auto",
         "Uložit profil", "Náhled Dry-Run", "Benchmarky", "Obnovit výchozí", "Výstup prostředí dry-run se zobrazí zde...",
         "Skenování knihoven Steam a shortcuts.vdf...", "Načteno {count} položek (Steam + zástupci Non-Steam).", "Uloženo {path}",
@@ -519,6 +536,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Použiť XWayland (vypnúť Wayland)", "Upgrade ovládača FSR 4", "Generovanie snímok (MLFG)", "Doostrenie vkBasalt",
         "Bezpečný DX12 (vypnúť experim. VKD3D)", "Sieťové QoS pre reláciu", "Uprednostniť SDL / Steam Input", "Zachovať Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Automatický prepínač HDR v KDE Plasma 6",
+        "Prenosový front SDMA (RDNA 3/4 Transfer Queue)", "Natívny RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (prázdne=Auto, 0=Vyp):", "Auto",
         "Uložiť profil", "Náhľad Dry-Run", "Benchmarky", "Resetovať profil", "Výstup prostredia dry-run sa zobrazí tu...",
         "Skenujem knižnice Steam a shortcuts.vdf...", "Načítaných {count} položiek (Steam + odkazy Non-Steam).", "Uložené {path}",
@@ -549,6 +567,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Използвай XWayland (изключи Wayland)", "Драйверно обновяване FSR 4", "Генериране на кадри (MLFG)", "Изостряне vkBasalt",
         "Безопасен DX12 (изключи експерим. VKD3D)", "Мрежов QoS за сесията", "Предпочитай SDL / Steam Input", "Запази Steam Overlay (LD_PRELOAD)",
         "Мост OptiScaler", "Автоматичен HDR в KDE Plasma 6",
+        "SDMA опашка за пренос (RDNA 3/4 Transfer Queue)", "Вграден RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (празно=Авто, 0=Изкл):", "Авто",
         "Запази профила", "Преглед (Dry-Run)", "Бенчмаркове", "Нулирай профила", "Изходът от dry-run средата ще се появи тук...",
         "Сканиране на Steam библиотеки и shortcuts.vdf...", "Заредени са {count} заглавия (Steam + Non-Steam).", "Запазено: {path}",
@@ -579,6 +598,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Користи XWayland (искључи Wayland)", "FSR 4 надоградња драјвера", "Генерисање кадрова (MLFG)", "vkBasalt оштрење",
         "Безбедни DX12 (искључи експерим. VKD3D)", "Мрежни QoS за сесију", "Дај предност SDL / Steam Input-у", "Задржи Steam Overlay (LD_PRELOAD)",
         "OptiScaler мост", "Аутоматски KDE Plasma 6 HDR прекидач",
+        "SDMA ред преноса (RDNA 3/4 Transfer Queue)", "Изворни RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (празно=Ауто, 0=Искљ):", "Ауто",
         "Сачувај профил", "Преглед (Dry-Run)", "Бенчмаркови", "Ресетуј профил", "Излаз dry-run окружења појавиће се овде...",
         "Скенирање Steam библиотека и shortcuts.vdf...", "Учитано {count} наслова (Steam + Non-Steam).", "Сачувано: {path}",
@@ -609,6 +629,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Koristi XWayland (onemogući Wayland)", "FSR 4 nadogradnja upravljačkog programa", "Generiranje sličica (MLFG)", "vkBasalt izoštravanje",
         "Sigurni DX12 (onemogući eksperim. VKD3D)", "Mrežni QoS za sesiju", "Preferiraj SDL / Steam Input", "Zadrži Steam Overlay (LD_PRELOAD)",
         "OptiScaler most", "Automatski KDE Plasma 6 HDR prekidač",
+        "SDMA red prijenosa (RDNA 3/4 Transfer Queue)", "Izvorni RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (prazno=Auto, 0=Isklj):", "Auto",
         "Spremi profil", "Pregled (Dry-Run)", "Benchmarkovi", "Poništi profil", "Izlaz dry-run okruženja pojavit će se ovdje...",
         "Skeniranje Steam biblioteka i shortcuts.vdf...", "Učitano {count} naslova (Steam + Non-Steam).", "Spremljeno: {path}",
@@ -639,6 +660,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Uporabi XWayland (onemogoči Wayland)", "Nadgradnja gonilnika FSR 4", "Generiranje sličic (MLFG)", "Ostrenje vkBasalt",
         "Varni DX12 (onemogoči eksperim. VKD3D)", "Omrežni QoS seje", "Daj prednost SDL / Steam Input", "Ohrani Steam Overlay (LD_PRELOAD)",
         "Most OptiScaler", "Samodejni preklop HDR v KDE Plasma 6",
+        "Prenosna vrsta SDMA (RDNA 3/4 Transfer Queue)", "Izvorni RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (prazno=Samod., 0=Izkl):", "Samod.",
         "Shrani profil", "Predogled Dry-Run", "Testi", "Ponastavi profil", "Izpis okolja dry-run se prikaže tukaj...",
         "Pregledovanje knjižnic Steam in shortcuts.vdf...", "Naloženih {count} naslovov (Steam + Non-Steam).", "Shranjeno: {path}",
@@ -669,6 +691,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWayland verwenden (Wayland deaktivieren)", "FSR-4-Treiber-Upgrade", "Frame-Generierung (MLFG)", "vkBasalt-Schärfung",
         "Sicheres DX12 (experim. VKD3D deaktivieren)", "Sitzungs-Netzwerk-QoS", "SDL / Steam Input bevorzugen", "Steam-Overlay behalten (LD_PRELOAD)",
         "OptiScaler-Brücke", "Automatischer KDE-Plasma-6-HDR-Schalter",
+        "Transfer-Warteschlange (RDNA 3/4 SDMA)", "Natives RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (leer=Auto, 0=Aus):", "Auto",
         "Profil speichern", "Dry-Run-Vorschau", "Benchmarks", "Profil zurücksetzen", "Die Dry-Run-Ausgabe erscheint hier...",
         "Steam-Bibliotheken und shortcuts.vdf werden gescannt...", "{count} Titel geladen (Steam + Non-Steam-Verknüpfungen).", "Gespeichert: {path}",
@@ -699,6 +722,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Utiliser XWayland (désactiver Wayland)", "Mise à niveau pilote FSR 4", "Génération d'images (MLFG)", "Netteté vkBasalt",
         "DX12 sûr (désactiver VKD3D expérimental)", "QoS réseau de session", "Préférer SDL / Steam Input", "Conserver l'overlay Steam (LD_PRELOAD)",
         "Passerelle OptiScaler", "Bascule HDR auto KDE Plasma 6",
+        "File de transfert SDMA (RDNA 3/4)", "RADV Anti-Lag natif (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (vide=Auto, 0=Désact.) :", "Auto",
         "Enregistrer le profil", "Aperçu Dry-Run", "Benchmarks", "Réinitialiser", "La sortie dry-run s'affichera ici...",
         "Analyse des bibliothèques Steam et de shortcuts.vdf...", "{count} titre(s) chargé(s) (Steam + raccourcis Non-Steam).", "Enregistré : {path}",
@@ -729,6 +753,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Usar XWayland (desactivar Wayland)", "Mejora de controlador FSR 4", "Generación de fotogramas (MLFG)", "Nitidez vkBasalt",
         "DX12 seguro (desactivar VKD3D experimental)", "QoS de red por sesión", "Preferir SDL / Steam Input", "Conservar Steam Overlay (LD_PRELOAD)",
         "Puente OptiScaler", "Cambio automático de HDR en KDE Plasma 6",
+        "Cola de transferencia SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (vacío=Auto, 0=Desact.):", "Auto",
         "Guardar perfil", "Vista previa Dry-Run", "Benchmarks", "Restablecer perfil", "La salida del entorno dry-run aparecerá aquí...",
         "Escaneando bibliotecas de Steam y shortcuts.vdf...", "Se cargaron {count} título(s) (Steam + accesos Non-Steam).", "Guardado: {path}",
@@ -759,6 +784,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Usar XWayland (desativar Wayland)", "Upgrade de driver FSR 4", "Geração de quadros (MLFG)", "Nitidez vkBasalt",
         "DX12 seguro (desativar VKD3D experimental)", "QoS de rede da sessão", "Preferir SDL / Steam Input", "Manter Steam Overlay (LD_PRELOAD)",
         "Ponte OptiScaler", "Alternância automática de HDR no KDE Plasma 6",
+        "Fila de transferência SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (vazio=Auto, 0=Deslig.):", "Auto",
         "Salvar perfil", "Prévia Dry-Run", "Benchmarks", "Redefinir perfil", "A saída do ambiente dry-run aparecerá aqui...",
         "Verificando bibliotecas Steam e shortcuts.vdf...", "{count} título(s) carregado(s) (Steam + atalhos Non-Steam).", "Salvo: {path}",
@@ -789,6 +815,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Usa XWayland (disabilita Wayland)", "Upgrade driver FSR 4", "Generazione fotogrammi (MLFG)", "Nitidezza vkBasalt",
         "DX12 sicuro (disabilita VKD3D sperimentale)", "QoS di rete per sessione", "Preferisci SDL / Steam Input", "Mantieni Steam Overlay (LD_PRELOAD)",
         "Bridge OptiScaler", "Switch automatico HDR su KDE Plasma 6",
+        "Coda di trasferimento SDMA (RDNA 3/4)", "RADV Anti-Lag nativo (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (vuoto=Auto, 0=Off):", "Auto",
         "Salva profilo", "Anteprima Dry-Run", "Benchmark", "Ripristina profilo", "L'output dell'ambiente dry-run apparirà qui...",
         "Scansione librerie Steam e shortcuts.vdf...", "Caricati {count} titoli (Steam + collegamenti Non-Steam).", "Salvato: {path}",
@@ -819,6 +846,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWaylandを使用 (Waylandを無効化)", "FSR 4 ドライバーアップグレード", "フレーム生成 (MLFG)", "vkBasalt シャープニング",
         "安全DX12 (実験的VKD3Dを無効化)", "セッションネットワーク QoS", "SDL / Steam Input を優先", "Steamオーバーレイを維持 (LD_PRELOAD)",
         "OptiScaler ブリッジ", "KDE Plasma 6 HDR 自動切替",
+        "転送キュー / Transfer Queue (RDNA 3/4 SDMA)", "ネイティブ RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (空欄=自動, 0=無効):", "自動",
         "プロファイル保存", "Dry-Run プレビュー", "ベンチマーク", "プロファイル初期化", "Dry-run の環境変数出力がここに表示されます...",
         "Steam ライブラリと shortcuts.vdf をスキャン中...", "{count} 件のタイトルを読み込みました (Steam + 非Steam)。", "保存しました: {path}",
@@ -849,6 +877,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWayland 사용 (Wayland 비활성화)", "FSR 4 드라이버 업그레이드", "프레임 생성 (MLFG)", "vkBasalt 선명도",
         "안전 DX12 (실험적 VKD3D 비활성화)", "세션 네트워크 QoS", "SDL / Steam Input 우선", "Steam 오버레이 유지 (LD_PRELOAD)",
         "OptiScaler 브리지", "KDE Plasma 6 자동 HDR 전환",
+        "전송 큐 / Transfer Queue (RDNA 3/4 SDMA)", "네이티브 RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (비움=자동, 0=끔):", "자동",
         "프로필 저장", "Dry-Run 미리보기", "벤치마크", "프로필 초기화", "Dry-run 환경 변수 출력이 여기에 표시됩니다...",
         "Steam 라이브러리 및 shortcuts.vdf 스캔 중...", "{count}개 항목을 불러왔습니다 (Steam + 비-Steam).", "저장됨: {path}",
@@ -879,6 +908,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "使用 XWayland（禁用 Wayland）", "FSR 4 驱动级升级", "帧生成 (MLFG)", "vkBasalt 锐化",
         "安全 DX12（禁用实验性 VKD3D）", "会话网络 QoS", "优先 SDL / Steam Input", "保留 Steam 覆盖层 (LD_PRELOAD)",
         "OptiScaler 桥接", "KDE Plasma 6 自动 HDR 切换",
+        "SDMA 传输队列 (RDNA 3/4 Transfer Queue)", "原生 RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP（留空=自动，0=关闭）：", "自动",
         "保存配置", "Dry-Run 预览", "基准测试", "重置配置", "Dry-run 环境变量预览将显示在此处...",
         "正在扫描 Steam 游戏库与 shortcuts.vdf...", "已加载 {count} 个项目（Steam + 非 Steam 快捷方式）。", "已保存：{path}",
@@ -909,6 +939,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "XWayland Kullan (Wayland'ı kapat)", "FSR 4 Sürücü Yükseltmesi", "Kare Üretimi (MLFG)", "vkBasalt Keskinleştirme",
         "Güvenli DX12 (deneysel VKD3D'yi kapat)", "Oturum Ağı QoS", "SDL / Steam Input Tercih Et", "Steam Arayüzünü Koru (LD_PRELOAD)",
         "OptiScaler Köprüsü", "Otomatik KDE Plasma 6 HDR Anahtarı",
+        "SDMA Aktarım Kuyruğu (RDNA 3/4 Transfer Queue)", "Yerel RADV Anti-Lag (VK_AMD_anti_lag)", "Reflex -> Anti-Lag 2 (LOW_LATENCY_LAYER)",
         "VRR_CAP (boş=Oto, 0=Kapalı):", "Oto",
         "Profili Kaydet", "Dry-Run Önizleme", "Kıyaslamalar", "Profili Sıfırla", "Dry-run ortam çıktısı burada görünür...",
         "Steam kütüphaneleri ve shortcuts.vdf taranıyor...", "{count} başlık yüklendi (Steam + Non-Steam kısayollar).", "Kaydedildi: {path}",
@@ -1216,14 +1247,21 @@ def validate_profile(profile: dict[str, str], game_class: str = "standard") -> t
         if norm["USE_SHARPEN"] == "1":
             norm["USE_SHARPEN"] = "0"
             warnings.append("vkBasalt sharpening disabled automatically for competitive-anticheat titles.")
+        if norm["USE_REFLEX_LAYER"] == "1":
+            norm["USE_REFLEX_LAYER"] = "0"
+            warnings.append("Reflex -> Anti-Lag 2 layer disabled automatically for competitive-anticheat titles.")
 
     if norm["USE_SHARPEN"] == "1" and (norm["USE_FSR4"] == "1" or norm["USE_OPTISCALER"] == "1"):
         norm["USE_SHARPEN"] = "0"
         warnings.append("vkBasalt disabled: mutually exclusive with FSR 4 / OptiScaler (prevents HDR10 clipping).")
 
-    if norm["USE_MLFG"] == "1" and norm["VRR_CAP"] and int(norm["VRR_CAP"]) > 0:
-        norm["VRR_CAP"] = ""
-        warnings.append("VRR_CAP cleared: MLFG disables frame caps and Anti-Lag to avoid frame-pacing stutter.")
+    if norm["USE_MLFG"] == "1":
+        if norm["USE_REFLEX_LAYER"] == "1":
+            norm["USE_REFLEX_LAYER"] = "0"
+            warnings.append("Reflex -> Anti-Lag 2 disabled: mutually exclusive with Frame Generation (MLFG).")
+        if norm["VRR_CAP"] and int(norm["VRR_CAP"]) > 0:
+            norm["VRR_CAP"] = ""
+            warnings.append("VRR_CAP cleared: MLFG disables frame caps and Anti-Lag to avoid frame-pacing stutter.")
 
     return norm, warnings
 
@@ -1978,13 +2016,33 @@ def run_self_check(backend: ProfilerBackend, lang: str = "en") -> int:
     assert parsed_tc["wan"]["av_delay"][0] == "850us"
 
     norm, warns = validate_profile(
-        {"USE_FSR4": "1", "USE_SHARPEN": "1", "USE_MLFG": "1", "VRR_CAP": "144", "AUTO_HDR_SWITCH": "1"},
+        {
+            "USE_FSR4": "1",
+            "USE_SHARPEN": "1",
+            "USE_MLFG": "1",
+            "USE_REFLEX_LAYER": "1",
+            "USE_TRANSFER_QUEUE": "1",
+            "USE_NATIVE_ANTILAG": "1",
+            "VRR_CAP": "144",
+            "AUTO_HDR_SWITCH": "1",
+        },
         "standard",
     )
     assert norm["USE_SHARPEN"] == "0"
+    assert norm["USE_REFLEX_LAYER"] == "0"
+    assert norm["USE_TRANSFER_QUEUE"] == "1"
+    assert norm["USE_NATIVE_ANTILAG"] == "1"
     assert norm["VRR_CAP"] == ""
     assert norm["AUTO_HDR_SWITCH"] == "1"
-    assert len(warns) >= 2
+    assert len(warns) >= 3
+
+    ac_norm, ac_warns = validate_profile(
+        {"USE_REFLEX_LAYER": "1", "USE_NATIVE_ANTILAG": "1"},
+        "competitive-anticheat",
+    )
+    assert ac_norm["USE_REFLEX_LAYER"] == "0"
+    assert ac_norm["USE_NATIVE_ANTILAG"] == "1"
+    assert len(ac_warns) >= 1
 
     active_lang = normalize_lang(lang)
     for code, _ in SUPPORTED_LANGUAGES:
@@ -2819,7 +2877,7 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         f"SDK: {cur.get('upscaler_info', 'None detected')}",
                         max_x - split_x - 1,
                     )
-                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h")
+                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h", "t", "a", "r")
                     for i, ((k, _label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
                         if 4 + i >= max_y - 2:
                             break
@@ -2925,6 +2983,9 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         ord("o"): "USE_KEEP_OVERLAY",
                         ord("u"): "USE_OPTISCALER",
                         ord("h"): "AUTO_HDR_SWITCH",
+                        ord("t"): "USE_TRANSFER_QUEUE",
+                        ord("a"): "USE_NATIVE_ANTILAG",
+                        ord("r"): "USE_REFLEX_LAYER",
                     }
                     if ch in hk_map:
                         k = hk_map[ch]

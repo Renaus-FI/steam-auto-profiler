@@ -112,6 +112,10 @@ Environment overrides:
   AUTO_HDR_SWITCH=1 Toggle KDE Plasma 6 HDR on launch and restore SDR on exit
   BENCH=1           Enable silent MangoHud CSV benchmark logging on exit
   BENCH_DURATION=60 Benchmark logging duration in seconds (default: 60)
+  TRANSFER_QUEUE=1  Enable RDNA 3/4 SDMA transfer queue (RADV_PERFTEST=...,transfer_queue)
+  NATIVE_ANTILAG=1  Use Mesa 26.3+/27.0 native RADV VK_AMD_anti_lag (no legacy layer)
+  REFLEX_LAYER=1    Enable Reflex -> Anti-Lag 2 translation layer (off in anti-cheat/MLFG)
+  VK_VIDEO_DECODE=1 Enable Mesa 27.0 Vulkan video decode (RADV_EXPERIMENTAL=video_decode)
 EOF
 }
 
@@ -469,9 +473,11 @@ if [[ "$CONFIGURE_ONLY" -eq 0 && "$DRY_RUN" -eq 0 && "$#" -eq 0 ]]; then
     exit 2
 fi
 
+DRM_SYSFS_DIR="${SAP_DRM_DIR:-/sys/class/drm}"
+
 detect_gpu_vendor() {
     local vendor_file found_intel=0
-    for vendor_file in /sys/class/drm/card*/device/vendor; do
+    for vendor_file in "$DRM_SYSFS_DIR"/card*/device/vendor; do
         [[ -r "$vendor_file" ]] || continue
         case "$(cat "$vendor_file" 2>/dev/null)" in
             0x1002) echo amd; return ;;
@@ -594,14 +600,14 @@ detect_primary_hdr_output() {
 
 detect_rdna3() {
     local modalias
-    for modalias in /sys/class/drm/card*/device/uevent; do
+    for modalias in "$DRM_SYSFS_DIR"/card*/device/uevent; do
         [[ -r "$modalias" ]] || continue
         if grep -qiE 'PCI_ID=1002:(744C|745E|747E|7480|740F)' "$modalias"; then
             echo 1
             return
         fi
     done
-    if command -v lspci >/dev/null 2>&1 &&
+    if [[ -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
         lspci -nn 2>/dev/null | grep -qiE '1002:(744c|745e|747e|7480|740f)'; then
         echo 1
         return
@@ -611,14 +617,14 @@ detect_rdna3() {
 
 detect_rdna4() {
     local uevent
-    for uevent in /sys/class/drm/card*/device/uevent; do
+    for uevent in "$DRM_SYSFS_DIR"/card*/device/uevent; do
         [[ -r "$uevent" ]] || continue
         if grep -qiE 'PCI_ID=1002:(7550|7590)' "$uevent"; then
             echo 1
             return
         fi
     done
-    if command -v lspci >/dev/null 2>&1 &&
+    if [[ -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
         lspci -nn 2>/dev/null | grep -qiE '1002:(7550|7590)'; then
         echo 1
         return
@@ -629,7 +635,7 @@ detect_rdna4() {
 detect_discrete_gpu() {
     local card_dir vendor device vram boot_vga best_card=""
     local best_vram=0
-    for card_dir in /sys/class/drm/card*/device; do
+    for card_dir in "$DRM_SYSFS_DIR"/card*/device; do
         [[ -d "$card_dir" ]] || continue
         [[ -r "$card_dir/vendor" && -r "$card_dir/device" ]] || continue
         vendor="$(cat "$card_dir/vendor" 2>/dev/null)"
@@ -668,6 +674,10 @@ if [[ -z "${MESA_VK_DEVICE_SELECT:-}" ]]; then
 fi
 
 export LD_PRELOAD=""
+
+# Purge retired Proton/Wine flags that are superseded in Proton-CachyOS 11.0 / Mesa 27.0.
+unset PROTON_ENABLE_HDR PROTON_VKREFLEX PROTON_MEDIA_USE_GST
+unset PROTON_FSR3_UPGRADE PROTON_VKD3D_HEAP WINEPULSE_FAST_POLLING
 
 if [[ "$GPU_VENDOR" == "amd" ]]; then
     export AMD_VULKAN_ICD="${AMD_VULKAN_ICD:-RADV}"
@@ -708,6 +718,30 @@ if [[ -n "${AUTO_HDR_SWITCH+x}" ]]; then
     ORIG_AUTO_HDR_SWITCH_SET=1
     ORIG_AUTO_HDR_SWITCH="$AUTO_HDR_SWITCH"
 fi
+ORIG_USE_TRANSFER_QUEUE_SET=0
+ORIG_USE_TRANSFER_QUEUE=""
+if [[ -n "${USE_TRANSFER_QUEUE+x}" ]]; then
+    ORIG_USE_TRANSFER_QUEUE_SET=1
+    ORIG_USE_TRANSFER_QUEUE="$USE_TRANSFER_QUEUE"
+fi
+ORIG_USE_NATIVE_ANTILAG_SET=0
+ORIG_USE_NATIVE_ANTILAG=""
+if [[ -n "${USE_NATIVE_ANTILAG+x}" ]]; then
+    ORIG_USE_NATIVE_ANTILAG_SET=1
+    ORIG_USE_NATIVE_ANTILAG="$USE_NATIVE_ANTILAG"
+fi
+ORIG_USE_REFLEX_LAYER_SET=0
+ORIG_USE_REFLEX_LAYER=""
+if [[ -n "${USE_REFLEX_LAYER+x}" ]]; then
+    ORIG_USE_REFLEX_LAYER_SET=1
+    ORIG_USE_REFLEX_LAYER="$USE_REFLEX_LAYER"
+fi
+ORIG_USE_VK_VIDEO_DECODE_SET=0
+ORIG_USE_VK_VIDEO_DECODE=""
+if [[ -n "${USE_VK_VIDEO_DECODE+x}" ]]; then
+    ORIG_USE_VK_VIDEO_DECODE_SET=1
+    ORIG_USE_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"
+fi
 
 USE_XWAYLAND=0
 USE_MLFG="${USE_MLFG:-0}"
@@ -723,6 +757,10 @@ USE_KEEP_OVERLAY=0
 USE_NO_NTSYNC=0
 USE_NO_DECORATION=0
 USE_HDR="${USE_HDR:-0}"
+USE_TRANSFER_QUEUE="${USE_TRANSFER_QUEUE:-0}"
+USE_NATIVE_ANTILAG="${USE_NATIVE_ANTILAG:-0}"
+USE_REFLEX_LAYER="${USE_REFLEX_LAYER:-0}"
+USE_VK_VIDEO_DECODE="${USE_VK_VIDEO_DECODE:-0}"
 AUTO_HDR_SWITCH="${AUTO_HDR_SWITCH:-0}"
 BENCH="${BENCH:-0}"
 BENCH_DURATION="${BENCH_DURATION:-60}"
@@ -783,6 +821,18 @@ if [[ "$ORIG_WAYLANDDRV_SHORTCUT_INHIBIT_SET" -eq 1 ]]; then
 fi
 if [[ "$ORIG_AUTO_HDR_SWITCH_SET" -eq 1 ]]; then
     AUTO_HDR_SWITCH="$ORIG_AUTO_HDR_SWITCH"
+fi
+if [[ "$ORIG_USE_TRANSFER_QUEUE_SET" -eq 1 ]]; then
+    USE_TRANSFER_QUEUE="$ORIG_USE_TRANSFER_QUEUE"
+fi
+if [[ "$ORIG_USE_NATIVE_ANTILAG_SET" -eq 1 ]]; then
+    USE_NATIVE_ANTILAG="$ORIG_USE_NATIVE_ANTILAG"
+fi
+if [[ "$ORIG_USE_REFLEX_LAYER_SET" -eq 1 ]]; then
+    USE_REFLEX_LAYER="$ORIG_USE_REFLEX_LAYER"
+fi
+if [[ "$ORIG_USE_VK_VIDEO_DECODE_SET" -eq 1 ]]; then
+    USE_VK_VIDEO_DECODE="$ORIG_USE_VK_VIDEO_DECODE"
 fi
 AUTO_VRR_CAP="$(detect_vrr_cap)"
 
@@ -932,6 +982,10 @@ fi
 [[ "${SAFEDX12:-0}" -eq 1 ]] && USE_SAFEDX12=1
 [[ "${NO_NTSYNC:-0}" -eq 1 ]] && USE_NO_NTSYNC=1
 [[ "${NO_DECORATION:-0}" -eq 1 ]] && USE_NO_DECORATION=1
+[[ "${TRANSFER_QUEUE:-0}" -eq 1 ]] && USE_TRANSFER_QUEUE=1
+[[ "${NATIVE_ANTILAG:-0}" -eq 1 ]] && USE_NATIVE_ANTILAG=1
+[[ "${REFLEX_LAYER:-0}" -eq 1 ]] && USE_REFLEX_LAYER=1
+[[ "${VK_VIDEO_DECODE:-0}" -eq 1 ]] && USE_VK_VIDEO_DECODE=1
 if [[ -z "${FSR4+x}" && -n "${USE_FSR4+x}" ]]; then
     FSR4="$USE_FSR4"
 fi
@@ -940,7 +994,10 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
     USE_MLFG=0
     USE_NO_DECORATION=0
+    USE_REFLEX_LAYER=0
     export PROTON_USE_OPTISCALER=0
+    export LOW_LATENCY_LAYER=0
+    export LOW_LATENCY_LAYER_REFLEX=0
     # Async shader pipelines must stay disabled for anti-cheat/multiplayer titles.
     export PROTON_DXVK_SAREK=0
     export PROTON_DXVK_GPLASYNC=0
@@ -1024,9 +1081,12 @@ if [[ "$GPU_VENDOR" == "nvidia" && ( "${USE_FSR_HUD:-0}" -eq 1 || "${FSR_HUD:-0}
 fi
 
 if [[ "$USE_MLFG" -eq 1 ]]; then
+    USE_REFLEX_LAYER=0
     export PROTON_MLFG_UPGRADE=1
     export MLFG_UPGRADE=1
     export ENABLE_LAYER_MESA_ANTI_LAG=0
+    export LOW_LATENCY_LAYER=0
+    export LOW_LATENCY_LAYER_REFLEX=0
     export PROTON_VKD3D_LOWLATENCY=0
     export PROTON_DXVK_LOWLATENCY=0
     unset DXVK_FRAME_RATE VKD3D_FRAME_RATE DXVK_FRAME_PACE
@@ -1036,7 +1096,15 @@ if [[ "$USE_MLFG" -eq 1 ]]; then
 else
     export PROTON_MLFG_UPGRADE=0
     export MLFG_UPGRADE=0
-    export ENABLE_LAYER_MESA_ANTI_LAG="${ENABLE_LAYER_MESA_ANTI_LAG:-1}"
+    if [[ "$USE_REFLEX_LAYER" -eq 1 ]]; then
+        export ENABLE_LAYER_MESA_ANTI_LAG=0
+        export LOW_LATENCY_LAYER=1
+        export LOW_LATENCY_LAYER_REFLEX=1
+    elif [[ "$USE_NATIVE_ANTILAG" -eq 1 ]]; then
+        export ENABLE_LAYER_MESA_ANTI_LAG=0
+    else
+        export ENABLE_LAYER_MESA_ANTI_LAG="${ENABLE_LAYER_MESA_ANTI_LAG:-1}"
+    fi
     export PROTON_DXVK_LOWLATENCY="${PROTON_DXVK_LOWLATENCY:-1}"
     export PROTON_VKD3D_LOWLATENCY="${PROTON_VKD3D_LOWLATENCY:-1}"
     if [[ "$GAMESCOPE_SESSION" -eq 0 ]] && (( AUTO_VRR_CAP > 0 )); then
@@ -1094,6 +1162,27 @@ fi
 
 if [[ "$GPU_VENDOR" == "amd" ]]; then
     export PROTON_NATIVE_AGS="${PROTON_NATIVE_AGS:-1}"
+    # Migrate any legacy RADV_PERFTEST=video_decode token to Mesa 27.0 RADV_EXPERIMENTAL=video_decode.
+    if [[ ",${RADV_PERFTEST:-}," == *",video_decode,"* ]]; then
+        USE_VK_VIDEO_DECODE=1
+        _radv_clean=""
+        IFS=',' read -r -a _radv_parts <<<"${RADV_PERFTEST}"
+        for _radv_tok in "${_radv_parts[@]}"; do
+            [[ -n "$_radv_tok" && "$_radv_tok" != "video_decode" ]] || continue
+            _radv_clean="${_radv_clean:+${_radv_clean},}${_radv_tok}"
+        done
+        export RADV_PERFTEST="${_radv_clean:-sam}"
+    fi
+    if [[ "$USE_TRANSFER_QUEUE" -eq 1 && ( "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ) ]]; then
+        if [[ ",${RADV_PERFTEST:-}," != *",transfer_queue,"* ]]; then
+            export RADV_PERFTEST="${RADV_PERFTEST:+${RADV_PERFTEST},}transfer_queue"
+        fi
+    fi
+    if [[ "$USE_VK_VIDEO_DECODE" -eq 1 ]]; then
+        if [[ ",${RADV_EXPERIMENTAL:-}," != *",video_decode,"* ]]; then
+            export RADV_EXPERIMENTAL="${RADV_EXPERIMENTAL:+${RADV_EXPERIMENTAL},}video_decode"
+        fi
+    fi
 fi
 if [[ "$USE_SAFEDX12" -eq 0 ]]; then
     export VKD3D_CONFIG="${VKD3D_CONFIG:-descriptor_heap,dxr12,force_bindless_texel_buffer}"
@@ -1109,6 +1198,7 @@ if [[ "${PROTON_LOCAL_SHADER_CACHE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("localsha
 if [[ "${PROTON_USE_PIPEWIRE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("pipewire"); fi
 if [[ "${PROTON_DXVK_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("dxvklowlatency"); fi
 if [[ "${PROTON_VKD3D_LOWLATENCY:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkd3dlowlatency"); fi
+if [[ "$USE_MLFG" -eq 0 && "$USE_REFLEX_LAYER" -eq 1 && "${LOW_LATENCY_LAYER:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("lowlatencylayer"); fi
 if [[ "${PROTON_FSR4_UPGRADE:-0}" -eq 1 || "${PROTON_FSR4_RDNA3_UPGRADE:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("fsr4"); fi
 if [[ "$USE_MLFG" -eq 1 ]]; then COMPAT_TOKENS+=("mlfg"); fi
 if [[ "$USE_MLFG" -eq 0 && "$GPU_VENDOR" == "nvidia" && "${DXVK_NVAPI_VKREFLEX:-0}" -eq 1 ]]; then COMPAT_TOKENS+=("vkreflex"); fi
@@ -1147,6 +1237,7 @@ fi
 if [[ "$AUTO_NATIVE_LINUX" -eq 1 && "${NATIVE_RUNTIME:-0}" -eq 1 ]]; then
     unset PROTON_ADD_CONFIG STEAM_COMPAT_CONFIG PROTON_MLFG_UPGRADE MLFG_UPGRADE
     unset PROTON_FSR4_UPGRADE PROTON_FSR4_RDNA3_UPGRADE PROTON_USE_OPTISCALER
+    unset LOW_LATENCY_LAYER LOW_LATENCY_LAYER_REFLEX
     while IFS='=' read -r env_name _; do
         case "$env_name" in
             PROTON_*|WINE_*|DXVK_*|VKD3D_*)
@@ -1187,7 +1278,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     fi
     echo "Exported launch variables:"
     env | LC_ALL=C sort | awk -F= '
-        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|MANGOHUD)/ ||
+        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|MANGOHUD|LOW_LATENCY_LAYER)/ ||
         $1 == "STEAM_COMPAT_CONFIG" {
             print
         }'
@@ -1231,7 +1322,7 @@ write_last_log() {
         printf '\n'
         printf 'exported_variables:\n'
         env | LC_ALL=C sort | awk -F= '
-            $1 ~ /^(PROTON_|DXVK_|VKD3D_|WINE_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_)/ ||
+            $1 ~ /^(PROTON_|DXVK_|VKD3D_|WINE_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|LOW_LATENCY_LAYER)/ ||
             $1 == "STEAM_COMPAT_CONFIG" { print }
         '
         printf 'exit_code=%s\n' "$exit_code"

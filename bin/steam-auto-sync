@@ -93,8 +93,19 @@ def find_launch_options(text):
 WRAPPERS = {"cachy-run", "game-performance", "gamemoderun", "steam-auto-run"}
 VR_WRAPPERS = {"vr-run"}
 MANAGED_ENV_PREFIXES = (
-    "PROTON_", "DXVK_", "VKD3D_", "WINE", "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT="
+    "PROTON_", "DXVK_", "VKD3D_", "WINE",
+    "ENABLE_LAYER_MESA_ANTI_LAG=", "ENABLE_VKBASALT=",
+    "RADV_PERFTEST=", "RADV_EXPERIMENTAL=",
+    "LOW_LATENCY_LAYER=", "LOW_LATENCY_LAYER_REFLEX=",
 )
+RETIRED_PROTON_VARS = {
+    "PROTON_ENABLE_HDR",
+    "PROTON_VKREFLEX",
+    "PROTON_MEDIA_USE_GST",
+    "PROTON_FSR3_UPGRADE",
+    "PROTON_VKD3D_HEAP",
+    "WINEPULSE_FAST_POLLING",
+}
 
 
 def config_home(home):
@@ -328,6 +339,30 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
         elif key == "PROTON_ENABLE_MEDIACONV":
             if value in ("1", "true", "TRUE"):
                 profile["USE_VIDEO_FIX"] = "1"
+        elif key in RETIRED_PROTON_VARS:
+            continue
+        elif key == "RADV_PERFTEST":
+            parts = {p.strip().lower() for p in value.split(",") if p.strip()}
+            if "transfer_queue" in parts:
+                profile["USE_TRANSFER_QUEUE"] = "1"
+            if "video_decode" in parts:
+                profile["USE_VK_VIDEO_DECODE"] = "1"
+        elif key == "RADV_EXPERIMENTAL":
+            parts = {p.strip().lower() for p in value.split(",") if p.strip()}
+            if "video_decode" in parts:
+                profile["USE_VK_VIDEO_DECODE"] = "1"
+        elif key in ("TRANSFER_QUEUE", "USE_TRANSFER_QUEUE"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_TRANSFER_QUEUE"] = "1"
+        elif key in ("NATIVE_ANTILAG", "USE_NATIVE_ANTILAG"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_NATIVE_ANTILAG"] = "1"
+        elif key in ("LOW_LATENCY_LAYER_REFLEX", "REFLEX_LAYER", "USE_REFLEX_LAYER"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_REFLEX_LAYER"] = "1"
+        elif key in ("VK_VIDEO_DECODE", "USE_VK_VIDEO_DECODE"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_VK_VIDEO_DECODE"] = "1"
 
     if wayland_enabled:
         profile.pop("USE_XWAYLAND", None)
@@ -356,7 +391,18 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
     if not has_command and env_only:
         replacement = ""
 
-    if profile and write_profile and not dry_run:
+    should_clean_existing = False
+    if write_profile and not dry_run and not profile:
+        profile_file = profile_dir / f"{appid}.env"
+        if profile_file.exists():
+            for raw in profile_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = raw.strip()
+                if "=" in line and not line.startswith("#"):
+                    if line.split("=", 1)[0].strip().upper() in RETIRED_PROTON_VARS:
+                        should_clean_existing = True
+                        break
+
+    if (profile or should_clean_existing) and write_profile and not dry_run:
         profile_dir.mkdir(parents=True, exist_ok=True)
         profile_file = profile_dir / f"{appid}.env"
         existing = {}
@@ -367,7 +413,10 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
                 line = raw.strip()
                 if "=" in line and not line.startswith("#"):
                     key, value = line.split("=", 1)
-                    existing[key.strip()] = value.strip()
+                    key = key.strip()
+                    if key.upper() in RETIRED_PROTON_VARS:
+                        continue
+                    existing[key] = value.strip()
         for key, value in profile.items():
             existing.setdefault(key, value)
         if existing_lines:
@@ -417,6 +466,8 @@ def migrate_cachy_profiles(home, dry_run=False):
             key, value = line.split("=", 1)
             key = key.strip()
             value = value.strip()
+            if key.upper() in RETIRED_PROTON_VARS:
+                continue
             if key == "USE_RCAS":
                 key = "USE_SHARPEN"
             elif key == "AUTO_PRESET":
@@ -798,6 +849,8 @@ def main():
                                 r"(?:^|\s)WINE[A-Z0-9_]*=",
                                 r"(?:^|\s)ENABLE_LAYER_MESA_ANTI_LAG=",
                                 r"(?:^|\s)ENABLE_VKBASALT=",
+                                r"(?:^|\s)RADV_(?:PERFTEST|EXPERIMENTAL)=",
+                                r"(?:^|\s)LOW_LATENCY_LAYER(?:_REFLEX)?=",
                             )
                         )
                         if not looks_managed:

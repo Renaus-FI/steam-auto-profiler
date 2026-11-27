@@ -335,6 +335,58 @@ class SyncTests(unittest.TestCase):
         # Binary shortcuts.vdf must remain byte-for-byte untouched
         self.assertEqual(vdf_path.read_bytes(), vdf_bytes)
 
+    def test_sanitize_strips_retired_proton_flags_and_migrates_mesa27_flags(self):
+        loader = importlib.machinery.SourceFileLoader("steam_auto_sync_mesa27", str(SYNC))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        profile_dir = self.home / ".config/steam-auto-profiler/profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        # Seed existing profile with retired vars to verify they get purged
+        (profile_dir / "730.env").write_text(
+            "PROTON_ENABLE_HDR=1\n"
+            "PROTON_VKD3D_HEAP=1\n"
+            "WINEPULSE_FAST_POLLING=1\n"
+            "USE_SDL=1\n",
+            encoding="utf-8",
+        )
+
+        messy = (
+            "PROTON_ENABLE_HDR=1 PROTON_VKREFLEX=1 PROTON_MEDIA_USE_GST=1 "
+            "PROTON_FSR3_UPGRADE=1 PROTON_VKD3D_HEAP=1 WINEPULSE_FAST_POLLING=1 "
+            "RADV_PERFTEST=sam,video_decode,transfer_queue "
+            "LOW_LATENCY_LAYER=1 LOW_LATENCY_LAYER_REFLEX=1 "
+            "NATIVE_ANTILAG=1 %command% -dx12"
+        )
+        replacement, profile = module.sanitize_launch_option("730", messy, profile_dir)
+        self.assertEqual(replacement, "steam-auto-run %command% -dx12")
+        self.assertEqual(profile.get("USE_TRANSFER_QUEUE"), "1")
+        self.assertEqual(profile.get("USE_VK_VIDEO_DECODE"), "1")
+        self.assertEqual(profile.get("USE_REFLEX_LAYER"), "1")
+        self.assertEqual(profile.get("USE_NATIVE_ANTILAG"), "1")
+        for retired in module.RETIRED_PROTON_VARS:
+            self.assertNotIn(retired, profile)
+
+        written = (profile_dir / "730.env").read_text(encoding="utf-8")
+        self.assertIn("USE_TRANSFER_QUEUE=1", written)
+        self.assertIn("USE_VK_VIDEO_DECODE=1", written)
+        self.assertIn("USE_REFLEX_LAYER=1", written)
+        self.assertIn("USE_NATIVE_ANTILAG=1", written)
+        self.assertIn("USE_SDL=1", written)
+        for retired in module.RETIRED_PROTON_VARS:
+            self.assertNotIn(retired, written)
+
+        # Retired-only launch string strips cleanly without creating a redundant profile
+        clean_rep, clean_prof = module.sanitize_launch_option(
+            "999002",
+            "PROTON_ENABLE_HDR=1 PROTON_VKREFLEX=1 PROTON_FSR3_UPGRADE=1 WINEPULSE_FAST_POLLING=1 %command%",
+            profile_dir,
+        )
+        self.assertEqual(clean_rep, "steam-auto-run %command%")
+        self.assertEqual(clean_prof, {})
+        self.assertFalse((profile_dir / "999002.env").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

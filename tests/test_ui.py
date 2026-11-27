@@ -71,15 +71,44 @@ class UiTests(unittest.TestCase):
         self.assertEqual(norm3["VRR_CAP"], "")
         self.assertTrue(any("VRR_CAP" in w for w in warns3))
 
-        # Anti-cheat disables MLFG, OptiScaler, vkBasalt
+        # Anti-cheat disables MLFG, OptiScaler, vkBasalt, Reflex -> Anti-Lag 2 (preserves Native Anti-Lag & Transfer Queue)
         norm4, warns4 = ui.validate_profile(
-            {"USE_FSR4": "0", "USE_MLFG": "1", "USE_OPTISCALER": "1", "USE_SHARPEN": "1"},
+            {
+                "USE_FSR4": "0",
+                "USE_MLFG": "1",
+                "USE_OPTISCALER": "1",
+                "USE_SHARPEN": "1",
+                "USE_REFLEX_LAYER": "1",
+                "USE_NATIVE_ANTILAG": "1",
+                "USE_TRANSFER_QUEUE": "1",
+            },
             "competitive-anticheat",
         )
         self.assertEqual(norm4["USE_MLFG"], "0")
         self.assertEqual(norm4["USE_OPTISCALER"], "0")
         self.assertEqual(norm4["USE_SHARPEN"], "0")
-        self.assertGreaterEqual(len(warns4), 3)
+        self.assertEqual(norm4["USE_REFLEX_LAYER"], "0")
+        self.assertEqual(norm4["USE_NATIVE_ANTILAG"], "1")
+        self.assertEqual(norm4["USE_TRANSFER_QUEUE"], "1")
+        self.assertGreaterEqual(len(warns4), 4)
+
+        # MLFG + Reflex -> Anti-Lag 2 disables USE_REFLEX_LAYER
+        norm5, warns5 = ui.validate_profile(
+            {"USE_MLFG": "1", "USE_REFLEX_LAYER": "1", "USE_TRANSFER_QUEUE": "1"},
+            "standard",
+        )
+        self.assertEqual(norm5["USE_REFLEX_LAYER"], "0")
+        self.assertEqual(norm5["USE_TRANSFER_QUEUE"], "1")
+        self.assertTrue(any("Reflex" in w for w in warns5))
+
+        # Verify all 3 new Mesa 27 / Proton 11 toggles exist in PROFILE_TOGGLES and all 27 languages
+        toggle_keys = {k for k, _ in ui.PROFILE_TOGGLES}
+        for new_key in ("USE_TRANSFER_QUEUE", "USE_NATIVE_ANTILAG", "USE_REFLEX_LAYER"):
+            self.assertIn(new_key, toggle_keys)
+            for lang_code, _ in ui.SUPPORTED_LANGUAGES:
+                label = ui.tr(lang_code, f"toggle_{new_key}")
+                self.assertNotEqual(label, f"toggle_{new_key}")
+                self.assertTrue(label.strip())
 
     def test_backend_profile_safe_mode_and_log_parsing(self):
         ui = _load_ui_module()

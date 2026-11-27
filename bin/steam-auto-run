@@ -42,7 +42,6 @@ if [[ $# -gt 0 ]]; then
 fi
 
 PROFILE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles"
-mkdir -p "$PROFILE_DIR"
 
 load_profile_safe() {
     local file="$1" line key value
@@ -876,6 +875,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
         done
 
         if [[ "$SAVE_PROFILE" -eq 1 && -n "$PROFILE_FILE" ]]; then
+            mkdir -p "$PROFILE_DIR"
             cat >"$PROFILE_FILE" <<EOF
 USE_XWAYLAND=$USE_XWAYLAND
 USE_MLFG=$USE_MLFG
@@ -896,6 +896,7 @@ fi
 
 if [[ "$CONFIGURE_ONLY" -eq 1 && "$#" -eq 0 ]]; then
     if [[ "$CONFIGURE_FALLBACK" -eq 0 ]]; then
+        mkdir -p "$PROFILE_DIR"
         cat >"$PROFILE_FILE" <<EOF
 USE_XWAYLAND=$USE_XWAYLAND
 USE_MLFG=$USE_MLFG

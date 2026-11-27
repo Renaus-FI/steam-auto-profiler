@@ -4,7 +4,13 @@
 
 set -euo pipefail
 
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+for _sap_dir in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+    case ":${PATH:-}:" in
+        *:"$_sap_dir":*) ;;
+        *) PATH="${PATH:+${PATH}:}$_sap_dir" ;;
+    esac
+done
+export PATH
 
 load_profile_safe() {
     local file="$1" line key value
@@ -506,7 +512,7 @@ PY
         AUTO_PRESET="standard"
         AUTO_OPTISCALER=0
         AUTO_SHARPEN=0
-        AUTO_REASON="Legacy upscaler detected ($(basename "$UPSCALE_MATCH")); optional OptiScaler bridge available via USE_OPTISCALER=1"
+        AUTO_REASON="Legacy upscaler detected ($(basename "$UPSCALE_MATCH")); OptiScaler auto-enabled on AMD RDNA 3/4 (or via USE_OPTISCALER=1)"
     fi
 
     if [[ -n "$GAME_DIR" && -n "${CEF_MATCH:-}" ]]; then
@@ -518,7 +524,7 @@ PY
         AUTO_UPSCALER_INFO="FidelityFX 3.1+ (${fsr31_list}) -> eligible for native PROTON_FSR4_UPGRADE=1"
     elif (( ${#DETECTED_LEGACY_DLLS[@]} > 0 )); then
         legacy_list="$(IFS=', '; echo "${DETECTED_LEGACY_DLLS[*]}")"
-        AUTO_UPSCALER_INFO="Legacy upscaler (${legacy_list}) -> PROTON_FSR4_UPGRADE=1 alone will not hook; recommend USE_OPTISCALER=1"
+        AUTO_UPSCALER_INFO="Legacy upscaler (${legacy_list}) -> PROTON_FSR4_UPGRADE=1 alone will not hook; USE_OPTISCALER=1 auto-enabled on AMD RDNA 3/4"
     fi
 fi
 
@@ -528,12 +534,15 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
     AUTO_RDNA4="$(detect_rdna4)"
 fi
 
-# Smart hardware- and class-aware experimental defaults (v2.2.0)
+# Smart hardware- and class-aware experimental defaults (v2.2.0 / v2.3.0)
 if [[ "$GPU_VENDOR" == "amd" ]]; then
     AUTO_NATIVE_ANTILAG=1
     AUTO_VK_VIDEO_DECODE=1
     if [[ "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ]]; then
         AUTO_TRANSFER_QUEUE=1
+        if [[ "$AUTO_CLASS" == "legacy-upscaler" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
+            AUTO_OPTISCALER=1
+        fi
     fi
     if [[ "$AUTO_HAS_REFLEX" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
         AUTO_REFLEX_LAYER=1
@@ -542,6 +551,12 @@ fi
 if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
     AUTO_BLEEDING_EDGE=1
 fi
+DEFAULT_AUTO_HDR_SWITCH=0
+if [[ ( -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ) &&
+      "$AUTO_XWAYLAND" -eq 0 && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" &&
+      "${DXVK_NO_HDR:-0}" != "1" ]] && command -v kscreen-doctor >/dev/null 2>&1; then
+    DEFAULT_AUTO_HDR_SWITCH=1
+fi
 
 # Capture pure smart defaults before applying saved .env profile or runtime overrides
 DEFAULT_TRANSFER_QUEUE="$AUTO_TRANSFER_QUEUE"
@@ -549,6 +564,7 @@ DEFAULT_NATIVE_ANTILAG="$AUTO_NATIVE_ANTILAG"
 DEFAULT_REFLEX_LAYER="$AUTO_REFLEX_LAYER"
 DEFAULT_VK_VIDEO_DECODE="$AUTO_VK_VIDEO_DECODE"
 DEFAULT_BLEEDING_EDGE="$AUTO_BLEEDING_EDGE"
+DEFAULT_OPTISCALER="$AUTO_OPTISCALER"
 
 ORIG_USE_STEAM_CONTROLLER_SET=0
 ORIG_USE_STEAM_CONTROLLER=""
@@ -566,6 +582,10 @@ ORIG_USE_VK_VIDEO_DECODE_SET=0; ORIG_USE_VK_VIDEO_DECODE=""
 if [[ -n "${USE_VK_VIDEO_DECODE+x}" ]]; then ORIG_USE_VK_VIDEO_DECODE_SET=1; ORIG_USE_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"; fi
 ORIG_USE_BLEEDING_EDGE_SET=0; ORIG_USE_BLEEDING_EDGE=""
 if [[ -n "${USE_BLEEDING_EDGE+x}" ]]; then ORIG_USE_BLEEDING_EDGE_SET=1; ORIG_USE_BLEEDING_EDGE="$USE_BLEEDING_EDGE"; fi
+ORIG_USE_OPTISCALER_SET=0; ORIG_USE_OPTISCALER=""
+if [[ -n "${USE_OPTISCALER+x}" ]]; then ORIG_USE_OPTISCALER_SET=1; ORIG_USE_OPTISCALER="$USE_OPTISCALER"; fi
+ORIG_AUTO_HDR_SWITCH_SET=0; ORIG_AUTO_HDR_SWITCH=""
+if [[ -n "${AUTO_HDR_SWITCH+x}" ]]; then ORIG_AUTO_HDR_SWITCH_SET=1; ORIG_AUTO_HDR_SWITCH="$AUTO_HDR_SWITCH"; fi
 ORIG_USE_CONSERVATIVE_SET=0; ORIG_USE_CONSERVATIVE=""
 if [[ -n "${USE_CONSERVATIVE+x}" ]]; then ORIG_USE_CONSERVATIVE_SET=1; ORIG_USE_CONSERVATIVE="$USE_CONSERVATIVE"; fi
 ORIG_USE_MLFG_SET=0; ORIG_USE_MLFG=""
@@ -584,6 +604,8 @@ USE_NATIVE_ANTILAG="$AUTO_NATIVE_ANTILAG"
 USE_REFLEX_LAYER="$AUTO_REFLEX_LAYER"
 USE_VK_VIDEO_DECODE="$AUTO_VK_VIDEO_DECODE"
 USE_BLEEDING_EDGE="$AUTO_BLEEDING_EDGE"
+USE_OPTISCALER="$AUTO_OPTISCALER"
+AUTO_HDR_SWITCH="$DEFAULT_AUTO_HDR_SWITCH"
 USE_CONSERVATIVE=0
 
 PROFILE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles/$APPID.env"
@@ -605,6 +627,7 @@ if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
     USE_REFLEX_LAYER=0
     USE_VK_VIDEO_DECODE=0
     USE_BLEEDING_EDGE=0
+    USE_OPTISCALER=0
 fi
 
 if [[ "$ORIG_USE_TRANSFER_QUEUE_SET" -eq 1 ]]; then apply_bool_override USE_TRANSFER_QUEUE "$ORIG_USE_TRANSFER_QUEUE"; fi
@@ -617,6 +640,9 @@ if [[ "$ORIG_USE_VK_VIDEO_DECODE_SET" -eq 1 ]]; then apply_bool_override USE_VK_
 if [[ -n "${VK_VIDEO_DECODE+x}" ]]; then apply_bool_override USE_VK_VIDEO_DECODE "$VK_VIDEO_DECODE"; fi
 if [[ "$ORIG_USE_BLEEDING_EDGE_SET" -eq 1 ]]; then apply_bool_override USE_BLEEDING_EDGE "$ORIG_USE_BLEEDING_EDGE"; fi
 if [[ -n "${BLEEDING_EDGE+x}" ]]; then apply_bool_override USE_BLEEDING_EDGE "$BLEEDING_EDGE"; fi
+if [[ "$ORIG_USE_OPTISCALER_SET" -eq 1 ]]; then apply_bool_override USE_OPTISCALER "$ORIG_USE_OPTISCALER"; fi
+if [[ -n "${OPTISCALER+x}" ]]; then apply_bool_override USE_OPTISCALER "$OPTISCALER"; fi
+if [[ "$ORIG_AUTO_HDR_SWITCH_SET" -eq 1 ]]; then apply_bool_override AUTO_HDR_SWITCH "$ORIG_AUTO_HDR_SWITCH"; fi
 if [[ "$ORIG_USE_MLFG_SET" -eq 1 ]]; then apply_bool_override USE_MLFG "$ORIG_USE_MLFG"; fi
 if [[ -n "${MLFG+x}" ]]; then apply_bool_override USE_MLFG "$MLFG"; fi
 if [[ "$ORIG_USE_XWAYLAND_SET" -eq 1 ]]; then apply_bool_override USE_XWAYLAND "$ORIG_USE_XWAYLAND"; fi
@@ -636,13 +662,16 @@ AUTO_NATIVE_ANTILAG="$USE_NATIVE_ANTILAG"
 AUTO_REFLEX_LAYER="$USE_REFLEX_LAYER"
 AUTO_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"
 AUTO_BLEEDING_EDGE="$USE_BLEEDING_EDGE"
+AUTO_OPTISCALER="$USE_OPTISCALER"
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" || "$APPID" == "594650" ]]; then
     AUTO_BLEEDING_EDGE=0
     AUTO_REFLEX_LAYER=0
+    AUTO_OPTISCALER=0
 fi
 if [[ "$APPID" == "594650" ]]; then
     USE_MLFG=0
+    AUTO_HDR_SWITCH=0
 fi
 if [[ "${USE_MLFG:-0}" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$APPID" != "594650" ]]; then
     AUTO_NATIVE_ANTILAG=0
@@ -651,6 +680,11 @@ fi
 if [[ "$AUTO_NATIVE_LINUX" -eq 1 ]]; then
     AUTO_BLEEDING_EDGE=0
     AUTO_REFLEX_LAYER=0
+    AUTO_OPTISCALER=0
+    AUTO_HDR_SWITCH=0
+fi
+if [[ "${USE_XWAYLAND:-0}" -eq 1 || "${AUTO_XWAYLAND:-0}" -eq 1 || "${DXVK_NO_HDR:-0}" == "1" ]]; then
+    AUTO_HDR_SWITCH=0
 fi
 
 DETECTED_STEAM_CONTROLLER="$(detect_steam_controller_2026)"
@@ -764,7 +798,8 @@ if [[ "$JSON_MODE" -eq 1 ]]; then
         "$AUTO_TRANSFER_QUEUE" "$AUTO_NATIVE_ANTILAG" "$AUTO_REFLEX_LAYER" "$AUTO_VK_VIDEO_DECODE" \
         "$AUTO_STEAM_CONTROLLER_MODE" "$GPU_VENDOR" "$AUTO_RDNA3" "$AUTO_RDNA4" \
         "$DEFAULT_TRANSFER_QUEUE" "$DEFAULT_NATIVE_ANTILAG" "$DEFAULT_REFLEX_LAYER" \
-        "$DEFAULT_VK_VIDEO_DECODE" "$DEFAULT_BLEEDING_EDGE" <<'PY'
+        "$DEFAULT_VK_VIDEO_DECODE" "$DEFAULT_BLEEDING_EDGE" "$DEFAULT_OPTISCALER" \
+        "$DEFAULT_AUTO_HDR_SWITCH" "$AUTO_HDR_SWITCH" <<'PY'
 import json
 import sys
 
@@ -775,8 +810,8 @@ import sys
     source, upscaler_info, xwayland, safedx12, native_ags, bleeding_edge,
     transfer_queue, native_antilag, reflex_layer, vk_video_decode,
     steam_controller_mode, gpu_vendor, rdna3, rdna4,
-    def_tq, def_na, def_rl, def_vd, def_be,
-) = sys.argv[1:38]
+    def_tq, def_na, def_rl, def_vd, def_be, def_opti, def_hdr, auto_hdr,
+) = sys.argv[1:41]
 
 print(json.dumps({
     "app_id": appid or None,
@@ -790,6 +825,7 @@ print(json.dumps({
     "cef_fix": cef_fix == "1",
     "sharpen_layer": sharpen == "1",
     "optiscaler": optiscaler == "1",
+    "auto_hdr_switch": auto_hdr == "1",
     "xwayland": xwayland == "1",
     "safedx12": safedx12 == "1",
     "native_ags": native_ags == "1",
@@ -811,11 +847,11 @@ print(json.dumps({
         "USE_XWAYLAND": xwayland,
         "USE_SAFEDX12": safedx12,
         "USE_NET_OPT": net_opt,
-        "USE_OPTISCALER": optiscaler,
+        "USE_OPTISCALER": def_opti,
         "USE_SHARPEN": "0",
         "USE_FSR4": "1",
         "USE_MLFG": "0",
-        "AUTO_HDR_SWITCH": "0",
+        "AUTO_HDR_SWITCH": def_hdr,
         "USE_STEAM_CONTROLLER": "auto",
     },
     "rationale": reason,
@@ -844,7 +880,8 @@ Preset       : $AUTO_PRESET
 Net QoS Hook : $AUTO_NET_OPT
 CEF Fix      : $AUTO_CEF_FIX
 Sharpen Layer: $AUTO_SHARPEN
-OptiScaler   : $AUTO_OPTISCALER (optional plugin)
+OptiScaler   : $AUTO_OPTISCALER
+Auto HDR Sw  : $AUTO_HDR_SWITCH
 Transfer Q   : $AUTO_TRANSFER_QUEUE
 Native AntiL : $AUTO_NATIVE_ANTILAG
 Reflex Layer : $AUTO_REFLEX_LAYER

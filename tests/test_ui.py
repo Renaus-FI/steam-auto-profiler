@@ -348,6 +348,56 @@ class UiTests(unittest.TestCase):
                 self.assertEqual(from_game["USE_BLEEDING_EDGE"], "1")
                 self.assertEqual(from_game["USE_REFLEX_LAYER"], "1")
                 self.assertEqual(from_game["USE_VK_VIDEO_DECODE"], "1")
+
+                # v2.3.0: Legacy-upscaler RDNA 4 title loads USE_OPTISCALER=1 & AUTO_HDR_SWITCH=1 on Wayland+kscreen-doctor
+                leg_dir = steamapps / "common/Legacy_DLSS_Game"
+                leg_dir.mkdir(parents=True)
+                (leg_dir / "game.exe").touch()
+                (leg_dir / "nvngx_dlss.dll").touch()
+                (steamapps / "appmanifest_990002.acf").write_text(
+                    '"AppState"\n{\n\t"appid"\t\t"990002"\n\t"installdir"\t\t"Legacy_DLSS_Game"\n\t"name"\t\t"Legacy DLSS Game"\n}\n',
+                    encoding="utf-8",
+                )
+                mock_ks_bin = home / "mock-ks-bin"
+                mock_ks_bin.mkdir()
+                ks = mock_ks_bin / "kscreen-doctor"
+                ks.write_text("#!/bin/sh\necho 'Output: 1 DP-1'\n", encoding="utf-8")
+                ks.chmod(0o755)
+                orig_wl = os.environ.get("WAYLAND_DISPLAY")
+                orig_path = os.environ.get("PATH", "")
+                orig_nohdr = os.environ.get("DXVK_NO_HDR")
+                os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+                os.environ["PATH"] = f"{mock_ks_bin}:{orig_path}"
+                os.environ.pop("DXVK_NO_HDR", None)
+                try:
+                    leg_prof = backend.load_profile("990002")
+                    self.assertEqual(leg_prof["USE_OPTISCALER"], "1")
+                    self.assertEqual(leg_prof["AUTO_HDR_SWITCH"], "1")
+                    # Explicit saved overrides win, and Reset Profile restores smart defaults + clears recovery state
+                    backend.save_profile("990002", {"USE_OPTISCALER": "0", "AUTO_HDR_SWITCH": "0"}, "legacy-upscaler")
+                    saved_leg = backend.load_profile("990002")
+                    self.assertEqual(saved_leg["USE_OPTISCALER"], "0")
+                    self.assertEqual(saved_leg["AUTO_HDR_SWITCH"], "0")
+                    backend.state_dir.mkdir(parents=True, exist_ok=True)
+                    rec_file = backend.state_dir / "recovery-990002.state"
+                    rec_file.write_text("RECOVERY_STAGE=2\n", encoding="utf-8")
+                    backend.reset_profile("990002")
+                    self.assertFalse(rec_file.exists())
+                    reset_leg = backend.load_profile("990002")
+                    self.assertEqual(reset_leg["USE_OPTISCALER"], "1")
+                    self.assertEqual(reset_leg["AUTO_HDR_SWITCH"], "1")
+                    # Hunt 594650 keeps USE_OPTISCALER=0 and AUTO_HDR_SWITCH=0
+                    hunt_v23 = backend.load_profile("594650")
+                    self.assertEqual(hunt_v23["USE_OPTISCALER"], "0")
+                    self.assertEqual(hunt_v23["AUTO_HDR_SWITCH"], "0")
+                finally:
+                    if orig_wl is None:
+                        os.environ.pop("WAYLAND_DISPLAY", None)
+                    else:
+                        os.environ["WAYLAND_DISPLAY"] = orig_wl
+                    os.environ["PATH"] = orig_path
+                    if orig_nohdr is not None:
+                        os.environ["DXVK_NO_HDR"] = orig_nohdr
             finally:
                 for k, v in orig_env.items():
                     if v is None:

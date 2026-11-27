@@ -505,87 +505,147 @@ class RunTests(unittest.TestCase):
         self.assertEqual(res_flag.returncode, 0, res_flag.stderr)
         self.assertEqual(res_flag.stdout.strip(), "-vr vr-direct")
 
-    def test_fast_crash_logs_hint_and_offers_safe_mode_prompt(self):
+    def test_fast_crash_silent_two_stage_self_healing_and_reset(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4-crash", "0x1002", "0x7550")
             state_dir = home / ".local" / "state" / "steam-auto-profiler"
             profile_dir = home / ".config" / "steam-auto-profiler" / "profiles"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            (profile_dir / "361420.env").write_text("USE_SDL=1\n", encoding="utf-8")
+
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            kd_log = home / "kdialog.calls"
+            kdialog = mock_bin / "kdialog"
+            kdialog.write_text(f'#!/bin/sh\necho "$*" >> "{kd_log}"\nexit 0\n', encoding="utf-8")
+            kdialog.chmod(0o755)
+
+            notify_log = home / "notify.calls"
+            notify_mock = mock_bin / "notify-send"
+            notify_mock.write_text(f'#!/bin/sh\necho "$*" >> "{notify_log}"\n', encoding="utf-8")
+            notify_mock.chmod(0o755)
+
             env = os.environ.copy()
-            env.pop("SAFEDX12", None)
-            env.pop("XWAYLAND", None)
+            for key in (
+                "SAFEDX12", "XWAYLAND", "NO_GUI", "FORCE_GUI", "CONSERVATIVE",
+                "BLEEDING_EDGE", "TRANSFER_QUEUE", "REFLEX_LAYER", "VK_VIDEO_DECODE", "OPTISCALER",
+            ):
+                env.pop(key, None)
             env.update({
                 "HOME": str(home),
                 "XDG_CONFIG_HOME": str(home / ".config"),
                 "XDG_STATE_HOME": str(home / ".local" / "state"),
-                "NO_GUI": "1",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "WAYLAND_DISPLAY": "wayland-0",
                 "GAMEID": "361420",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
             })
 
-            # Headless fast crash records duration_sec and crash_hint in logs
-            res_crash = subprocess.run(
+            # Crash 1: experimental flags active -> Stage 1 silently disables experimental flags (NO kdialog popup!)
+            res_stage1 = subprocess.run(
                 [str(RUN), "/bin/false"],
                 env=env,
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertNotEqual(res_crash.returncode, 0)
-            last_log = (state_dir / "last-launch.log").read_text(encoding="utf-8")
-            self.assertIn("duration_sec=", last_log)
-            self.assertIn("crash_hint=fast_crash_detected", last_log)
-            self.assertIn("USE_XWAYLAND=1,USE_SAFEDX12=1", last_log)
+            self.assertNotEqual(res_stage1.returncode, 0)
+            self.assertFalse(kd_log.exists(), "Fast crash recovery must be non-blocking with zero kdialog popups")
+            self.assertTrue(notify_log.is_file(), "Optional non-blocking notify-send should fire")
+            self.assertIn("Stage 1", notify_log.read_text(encoding="utf-8"))
 
-            # With GUI enabled (mock kdialog accepting Safe Mode), saves USE_XWAYLAND=1 & USE_SAFEDX12=1
-            mock_bin = home / "mock-bin"
-            mock_bin.mkdir()
-            kdialog = mock_bin / "kdialog"
-            kdialog.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            kdialog.chmod(0o755)
-            # Pre-create profile so pre-launch checklist is skipped and only crash prompt fires
-            profile_dir.mkdir(parents=True, exist_ok=True)
-            (profile_dir / "361420.env").write_text("USE_SDL=1\n", encoding="utf-8")
+            saved1 = (profile_dir / "361420.env").read_text(encoding="utf-8")
+            self.assertIn("USE_OPTISCALER=0", saved1)
+            self.assertIn("USE_BLEEDING_EDGE=0", saved1)
+            self.assertIn("USE_REFLEX_LAYER=0", saved1)
+            self.assertIn("USE_TRANSFER_QUEUE=0", saved1)
+            self.assertIn("USE_VK_VIDEO_DECODE=0", saved1)
+            self.assertIn("USE_SDL=1", saved1)
+            self.assertNotIn("USE_SAFEDX12=1", saved1)
+            self.assertNotIn("USE_XWAYLAND=1", saved1)
+            self.assertEqual((state_dir / "recovery-361420.state").read_text(encoding="utf-8").strip(), "RECOVERY_STAGE=1")
+            log1 = (state_dir / "last-361420.log").read_text(encoding="utf-8")
+            self.assertIn("crash_hint=fast_crash_detected stage=1", log1)
+            self.assertIn("crash_recovery=stage1_experimental_disabled", log1)
 
-            gui_env = {
-                **env,
-                "NO_GUI": "0",
-                "WAYLAND_DISPLAY": "wayland-0",
-                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
-            }
-            res_gui = subprocess.run(
-                [str(RUN), "/bin/false"],
-                env=gui_env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertNotEqual(res_gui.returncode, 0)
-            saved_profile = (profile_dir / "361420.env").read_text(encoding="utf-8")
-            self.assertIn("USE_XWAYLAND=1", saved_profile)
-            self.assertIn("USE_SAFEDX12=1", saved_profile)
-            self.assertIn("USE_BLEEDING_EDGE=0", saved_profile)
-            self.assertIn("USE_TRANSFER_QUEUE=0", saved_profile)
-            self.assertIn("USE_REFLEX_LAYER=0", saved_profile)
-            self.assertIn("USE_VK_VIDEO_DECODE=0", saved_profile)
-            self.assertIn("USE_SDL=1", saved_profile)
-            gui_log = (state_dir / "last-361420.log").read_text(encoding="utf-8")
-            self.assertIn("crash_recovery=safe_mode_saved", gui_log)
-
-            # Next launch honors the saved safe-mode rollback (bleeding-edge & experimental flags off)
-            rdna4_drm = self._make_mock_drm(home / "rdna4-crash", "0x1002", "0x7550")
-            res_after = subprocess.run(
+            # Verify Stage 1 dry-run uses stable baseline (experimental off, still native Wayland + DX12)
+            res_dry1 = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
-                env={**env, "SAP_DRM_DIR": str(rdna4_drm)},
+                env=env,
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertEqual(res_after.returncode, 0, res_after.stderr)
-            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_after.stdout)
-            self.assertNotIn("VKD3D_CONFIG=", res_after.stdout)
-            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_after.stdout)
-            self.assertNotIn("PROTON_USE_WOW64=", res_after.stdout)
-            self.assertNotIn("transfer_queue", res_after.stdout)
-            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_after.stdout)
+            self.assertEqual(res_dry1.returncode, 0, res_dry1.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_dry1.stdout)
+            self.assertIn("VKD3D_CONFIG=", res_dry1.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_dry1.stdout)
+            self.assertNotIn("transfer_queue", res_dry1.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res_dry1.stdout)
+
+            # Crash 2: still fast-crashes after Stage 1 -> Stage 2 escalates to USE_SAFEDX12=1 & USE_XWAYLAND=1
+            res_stage2 = subprocess.run(
+                [str(RUN), "/bin/false"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(res_stage2.returncode, 0)
+            self.assertFalse(kd_log.exists(), "Stage 2 recovery must remain silent with zero kdialog popups")
+            self.assertIn("Stage 2", notify_log.read_text(encoding="utf-8"))
+
+            saved2 = (profile_dir / "361420.env").read_text(encoding="utf-8")
+            self.assertIn("USE_SAFEDX12=1", saved2)
+            self.assertIn("USE_XWAYLAND=1", saved2)
+            self.assertIn("USE_OPTISCALER=0", saved2)
+            self.assertIn("USE_BLEEDING_EDGE=0", saved2)
+            self.assertIn("USE_SDL=1", saved2)
+            self.assertEqual((state_dir / "recovery-361420.state").read_text(encoding="utf-8").strip(), "RECOVERY_STAGE=2")
+            log2 = (state_dir / "last-361420.log").read_text(encoding="utf-8")
+            self.assertIn("crash_hint=fast_crash_detected stage=2", log2)
+            self.assertIn("crash_recovery=stage2_safe_mode_saved", log2)
+
+            # Verify Stage 2 dry-run applies XWayland + SafeDX12 + both SDL x11 variables
+            res_dry2 = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={**env, "SDL_VIDEO_DRIVER": "wayland"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_dry2.returncode, 0, res_dry2.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_dry2.stdout)
+            self.assertIn("SDL_VIDEODRIVER=x11", res_dry2.stdout)
+            self.assertIn("SDL_VIDEO_DRIVER=x11", res_dry2.stdout)
+            self.assertNotIn("VKD3D_CONFIG=", res_dry2.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_dry2.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_dry2.stdout)
+
+            # Healthy run (>= threshold) resets the recovery state marker cleanly
+            res_healthy = subprocess.run(
+                [str(RUN), "/bin/true"],
+                env={**env, "SAP_CRASH_THRESHOLD_SEC": "0"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_healthy.returncode, 0, res_healthy.stderr)
+            self.assertFalse((state_dir / "recovery-361420.state").exists())
+
+            # --reset removes both the .env profile and any recovery state marker
+            (state_dir / "recovery-361420.state").write_text("RECOVERY_STAGE=2\n", encoding="utf-8")
+            res_reset = subprocess.run(
+                [str(RUN), "--reset", "361420"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_reset.returncode, 0, res_reset.stderr)
+            self.assertFalse((profile_dir / "361420.env").exists())
+            self.assertFalse((state_dir / "recovery-361420.state").exists())
 
     def test_profile_use_fsr4_zero_disables_fsr4(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1713,6 +1773,193 @@ class RunTests(unittest.TestCase):
                 steam_log.read_text(encoding="utf-8").splitlines(),
                 ["steam://forceinputappid/361420", "steam://forceinputappid/0"],
             )
+
+    def test_v23_silent_launch_default_vs_force_gui_and_sdl_video_driver_x11(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            kd_log = home / "kdialog.calls"
+            kdialog = mock_bin / "kdialog"
+            kdialog.write_text(f'#!/bin/sh\necho "$*" >> "{kd_log}"\necho "xwayland"\nexit 0\n', encoding="utf-8")
+            kdialog.chmod(0o755)
+
+            env = os.environ.copy()
+            for k in ("NO_GUI", "FORCE_GUI", "XWAYLAND", "USE_XWAYLAND", "GAMESCOPE_WAYLAND_DISPLAY"):
+                env.pop(k, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "WAYLAND_DISPLAY": "wayland-0",
+                "GAMEID": "361420",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+
+            # 1) Default launch with no saved .env runs silently without invoking kdialog
+            res_silent = subprocess.run(
+                [str(RUN), "/usr/bin/env"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_silent.returncode, 0, res_silent.stderr)
+            self.assertFalse(kd_log.exists(), "Default launch must be silent (NO_GUI=1 by default)")
+            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_silent.stdout)
+
+            # 2) FORCE_GUI=1 opens interactive kdialog on demand
+            res_force = subprocess.run(
+                [str(RUN), "/usr/bin/env"],
+                env={**env, "FORCE_GUI": "1"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_force.returncode, 0, res_force.stderr)
+            self.assertTrue(kd_log.is_file(), "FORCE_GUI=1 must open pre-launch checklist dialog")
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_force.stdout)
+            self.assertIn("SDL_VIDEODRIVER=x11", res_force.stdout)
+            self.assertIn("SDL_VIDEO_DRIVER=x11", res_force.stdout)
+
+            # 3) Inherited SDL_VIDEO_DRIVER=wayland from environment.d is overridden to x11 under XWayland / Hunt 594650
+            res_hunt = subprocess.run(
+                [str(RUN), "--dry-run", "594650"],
+                env={**env, "SDL_VIDEO_DRIVER": "wayland", "SDL_VIDEODRIVER": "wayland"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_hunt.returncode, 0, res_hunt.stderr)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_hunt.stdout)
+            self.assertIn("SDL_VIDEODRIVER=x11", res_hunt.stdout)
+            self.assertIn("SDL_VIDEO_DRIVER=x11", res_hunt.stdout)
+
+    def test_v23_auto_optiscaler_and_auto_hdr_smart_defaults_and_opt_outs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            steamapps = home / ".local/share/Steam/steamapps"
+            common = steamapps / "common"
+
+            def add_game(appid: str, name: str, files: tuple[str, ...]) -> None:
+                gdir = common / name.replace(" ", "_")
+                gdir.mkdir(parents=True, exist_ok=True)
+                for rel in files:
+                    p = gdir / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.touch()
+                (steamapps / f"appmanifest_{appid}.acf").write_text(
+                    f'"AppState"\n{{\n\t"appid"\t\t"{appid}"\n\t"installdir"\t\t"{gdir.name}"\n\t"name"\t\t"{name}"\n}}\n',
+                    encoding="utf-8",
+                )
+
+            add_game("5101", "Legacy DLSS Game", ("game.exe", "nvngx_dlss.dll"))
+            add_game("5102", "AC Legacy DLSS", ("game.exe", "nvngx_dlss.dll", "EasyAntiCheat/EasyAntiCheat.exe"))
+
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            ks_log = home / "kscreen.log"
+            hdr_state = home / "hdr.state"
+            hdr_state.write_text("disabled\n", encoding="utf-8")
+            kscreen = mock_bin / "kscreen-doctor"
+            kscreen.write_text(
+                "#!/bin/sh\n"
+                'if [ "$1" = "-o" ]; then\n'
+                f'  state="$(cat "{hdr_state}")"\n'
+                '  printf "Output: 1 DP-1 uuid-1\\n\\tenabled\\n\\tconnected\\n\\tpriority 1\\n\\tHDR: %s\\n" "$state"\n'
+                "else\n"
+                f'  echo "$*" >> "{ks_log}"\n'
+                "fi\n",
+                encoding="utf-8",
+            )
+            kscreen.chmod(0o755)
+
+            env = os.environ.copy()
+            for k in (
+                "OPTISCALER", "USE_OPTISCALER", "CONSERVATIVE", "USE_CONSERVATIVE",
+                "AUTO_HDR_SWITCH", "DXVK_NO_HDR", "XWAYLAND", "GAMESCOPE_WAYLAND_DISPLAY",
+                "XDG_CURRENT_DESKTOP", "SHARPEN", "NO_GUI",
+            ):
+                env.pop(k, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "WAYLAND_DISPLAY": "wayland-0",
+                "GAMEID": "5101",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+
+            # 1) Legacy upscaler on RDNA 4 auto-enables OptiScaler + Auto HDR Switch by default
+            res_auto = subprocess.run([str(RUN), "--dry-run", "5101"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_auto.returncode, 0, res_auto.stderr)
+            self.assertIn("PROTON_USE_OPTISCALER=1", res_auto.stdout)
+            self.assertIn("PROTON_OPTISCALER_STREAMLINE=1", res_auto.stdout)
+            self.assertIn("ENABLE_VKBASALT=0", res_auto.stdout)
+            self.assertIn("HDR auto-switch: DP-1 (state=disabled)", res_auto.stdout)
+
+            # Real launch without AUTO_HDR_SWITCH env var auto-enables HDR from SDR and restores on exit
+            res_hdr_sdr = subprocess.run([str(RUN), "/bin/true"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_hdr_sdr.returncode, 0, res_hdr_sdr.stderr)
+            self.assertEqual(ks_log.read_text(encoding="utf-8").splitlines(), ["output.DP-1.hdr.enable", "output.DP-1.hdr.disable"])
+
+            # When desktop HDR is already enabled, auto-HDR is a zero-flicker no-op
+            ks_log.unlink()
+            hdr_state.write_text("enabled\n", encoding="utf-8")
+            res_hdr_on = subprocess.run([str(RUN), "/bin/true"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_hdr_on.returncode, 0, res_hdr_on.stderr)
+            self.assertFalse(ks_log.exists())
+
+            # Explicit AUTO_HDR_SWITCH=0 and DXVK_NO_HDR=1 disable Auto HDR Switch even when desktop is SDR
+            hdr_state.write_text("disabled\n", encoding="utf-8")
+            for disable_env in ({"AUTO_HDR_SWITCH": "0"}, {"DXVK_NO_HDR": "1"}):
+                res_off = subprocess.run([str(RUN), "/bin/true"], env={**env, **disable_env}, text=True, capture_output=True, check=False)
+                self.assertEqual(res_off.returncode, 0, res_off.stderr)
+                self.assertFalse(ks_log.exists(), f"HDR must not toggle with {disable_env}")
+
+            # 2) Explicit OPTISCALER=0, CONSERVATIVE=1, and anti-cheat disable OptiScaler cleanly
+            res_opt0 = subprocess.run([str(RUN), "--dry-run", "5101"], env={**env, "OPTISCALER": "0"}, text=True, capture_output=True, check=False)
+            self.assertEqual(res_opt0.returncode, 0, res_opt0.stderr)
+            self.assertIn("PROTON_USE_OPTISCALER=0", res_opt0.stdout)
+
+            res_cons = subprocess.run([str(RUN), "--dry-run", "5101"], env={**env, "CONSERVATIVE": "1"}, text=True, capture_output=True, check=False)
+            self.assertEqual(res_cons.returncode, 0, res_cons.stderr)
+            self.assertIn("PROTON_USE_OPTISCALER=0", res_cons.stdout)
+
+            res_ac = subprocess.run([str(RUN), "--dry-run", "5102"], env={**env, "OPTISCALER": "1"}, text=True, capture_output=True, check=False)
+            self.assertEqual(res_ac.returncode, 0, res_ac.stderr)
+            self.assertIn("PROTON_USE_OPTISCALER=0", res_ac.stdout)
+
+    def test_doctor_reports_mesa_shader_hook_and_pending_flag(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            hooks_dir = home / "pacman-hooks"
+            hooks_dir.mkdir()
+            state_dir = home / ".local" / "state" / "steam-auto-profiler"
+            state_dir.mkdir(parents=True)
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "SAP_PACMAN_HOOKS_DIR": str(hooks_dir),
+            })
+
+            res_missing = subprocess.run([str(RUN), "--doctor"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_missing.returncode, 0, res_missing.stderr)
+            self.assertIn("[INFO] Automatic Mesa shader-cleanup pacman hook", res_missing.stdout)
+            self.assertIn("--with-mesa-hook", res_missing.stdout)
+
+            (hooks_dir / "95-steam-auto-profiler-mesa-shaders.hook").write_text(
+                "Exec = /usr/local/bin/steam-auto-clean-shaders --hook\n",
+                encoding="utf-8",
+            )
+            (state_dir / "pending-shader-cleanup").write_text("reason=steam_running\n", encoding="utf-8")
+            res_ok = subprocess.run([str(RUN), "--doctor"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_ok.returncode, 0, res_ok.stderr)
+            self.assertIn("[OK] Automatic Mesa shader-cleanup pacman hook installed", res_ok.stdout)
+            self.assertIn("[WARN] Pending Steam shader cache cleanup", res_ok.stdout)
 
 
 if __name__ == "__main__":

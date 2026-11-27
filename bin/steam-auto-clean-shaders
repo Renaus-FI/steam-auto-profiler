@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+
+# Safe Mesa / RADV / Vulkan / Steam shader cache cleaner for Steam Auto-Profiler.
+# Callable manually or from the automatic Mesa upgrade pacman hook.
+
+set -euo pipefail
+
+if [[ "$(id -u)" -eq 0 ]]; then
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+else
+    for _sap_dir in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+        case ":${PATH:-}:" in
+            *:"$_sap_dir":*) ;;
+            *) PATH="${PATH:+${PATH}:}$_sap_dir" ;;
+        esac
+    done
+    export PATH
+fi
+
+DRY_RUN=0
+HOOK_MODE=0
+TARGET_USER=""
+
+usage() {
+    cat <<'EOF'
+Usage:
+  steam-auto-clean-shaders [OPTIONS]
+
+Options:
+  --dry-run, -n        Preview shader caches that would be removed without deleting
+  --user, -u <USER>    Clean shader caches for a specific Linux user
+  --hook               Run in automated pacman post-transaction hook mode
+  --help, -h           Show this help message
+
+Behavior:
+  - Clears Mesa/RADV/Vulkan/Qt caches (~/.cache/mesa_shader_cache*, radv*, vulkan*,
+    AMD, qtshadercache*, dxvk*, vkd3d*) safely.
+  - When Steam is not running, also clears Steam shadercache/* across all
+    libraryfolders.vdf libraries plus DXVK/VKD3D/DirectX/Unreal shader caches.
+  - Strictly preserves PrismLauncher and all shaderpacks directories.
+  - Never terminates or disrupts running Steam processes; if Steam is running,
+    cleans safe driver/Mesa caches only and records a pending-shader-cleanup flag.
+EOF
+}
+
+while (($#)); do
+    case "$1" in
+        --dry-run|-n)
+            DRY_RUN=1
+            shift
+            ;;
+        --hook)
+            HOOK_MODE=1
+            shift
+            ;;
+        --user|-u)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --user requires a username." >&2
+                exit 2
+            fi
+            if [[ ! "$2" =~ ^[A-Za-z0-9._-]+$ ]]; then
+                echo "Error: invalid username: $2" >&2
+                exit 2
+            fi
+            TARGET_USER="$2"
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+is_protected_path() {
+    local p="$1"
+    local lower="${p,,}"
+    [[ -z "$p" || "$p" == "/" ]] && return 0
+    case "$lower" in
+        *prismlauncher*|*/shaderpacks|*/shaderpacks/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+CLEANED_COUNT=0
+
+clean_target() {
+    local target="$1" label="${2:-cache}"
+    [[ -e "$target" || -L "$target" ]] || return 0
+    if is_protected_path "$target"; then
+        echo "[SKIP] Protected path preserved: $target"
+        return 0
+    fi
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "[DRY-RUN] Would remove ($label): $target"
+    else
+        rm -rf -- "$target"
+        echo "[CLEAN] Removed ($label): $target"
+    fi
+    CLEANED_COUNT=$((CLEANED_COUNT + 1))
+}
+
+discover_steam_libraries() {
+    local user_home="$1"
+    local -a candidates=(
+        "$user_home/.local/share/Steam"
+        "$user_home/.steam/steam"
+        "$user_home/.var/app/com.valvesoftware.Steam/.local/share/Steam"
+    )
+    local -A seen_libs=()
+    local root resolved vdf extra_lib extra_resolved
+
+    for root in "${candidates[@]}"; do
+        [[ -d "$root/steamapps" ]] || continue
+        resolved="$(realpath -m "$root" 2>/dev/null || printf '%s' "$root")"
+        if [[ -z "${seen_libs[$resolved]:-}" ]]; then
+            seen_libs["$resolved"]=1
+            printf '%s\n' "$root"
+        fi
+        for vdf in "$root/steamapps/libraryfolders.vdf" "$root/config/libraryfolders.vdf"; do
+            [[ -f "$vdf" ]] || continue
+            while IFS= read -r extra_lib; do
+                [[ -n "$extra_lib" && -d "$extra_lib/steamapps" ]] || continue
+                extra_resolved="$(realpath -m "$extra_lib" 2>/dev/null || printf '%s' "$extra_lib")"
+                if [[ -z "${seen_libs[$extra_resolved]:-}" ]]; then
+                    seen_libs["$extra_resolved"]=1
+                    printf '%s\n' "$extra_lib"
+                fi
+            done < <(
+                grep -oE '"path"[[:space:]]+"[^"]+"' "$vdf" 2>/dev/null \
+                    | sed -E 's/"path"[[:space:]]+"([^"]+)"/\1/' || true
+            )
+        done
+    done
+}
+
+is_steam_running() {
+    command -v pgrep >/dev/null 2>&1 || return 1
+    pgrep -x steam >/dev/null 2>&1
+}
+
+clean_user_shaders() {
+    local username="$1" user_home="$2"
+    local current_user
+    current_user="$(id -un)"
+
+    if [[ -z "$user_home" || ! -d "$user_home" ]]; then
+        echo "[WARN] Home directory not found for user ${username}: ${user_home:-<empty>}" >&2
+        return 0
+    fi
+
+    local user_cache user_state
+    if [[ "$username" == "$current_user" && -n "${XDG_CACHE_HOME:-}" ]]; then
+        user_cache="$XDG_CACHE_HOME"
+    else
+        user_cache="$user_home/.cache"
+    fi
+    if [[ "$username" == "$current_user" && -n "${XDG_STATE_HOME:-}" ]]; then
+        user_state="$XDG_STATE_HOME/steam-auto-profiler"
+    else
+        user_state="$user_home/.local/state/steam-auto-profiler"
+    fi
+
+    if [[ "$HOOK_MODE" -eq 1 ]]; then
+        echo "[HOOK] Mesa upgrade shader cleanup for user ${username} (${user_home})"
+    else
+        echo "[INFO] Scanning shader caches for user ${username} (${user_home})"
+    fi
+
+    local prev_nullglob=0
+    shopt -q nullglob && prev_nullglob=1
+    shopt -s nullglob
+
+    # Phase 1: Safe driver / Mesa / RADV / Vulkan / Qt shader caches
+    if [[ -d "$user_cache" ]]; then
+        local cache_item
+        for cache_item in \
+            "$user_cache"/mesa_shader_cache* \
+            "$user_cache"/radv* \
+            "$user_cache"/vulkan* \
+            "$user_cache"/AMD \
+            "$user_cache"/qtshadercache* \
+            "$user_cache"/dxvk* \
+            "$user_cache"/vkd3d*; do
+            clean_target "$cache_item" "driver-cache"
+        done
+    fi
+
+    # Phase 2: Steam shadercache/* and game DXVK/VKD3D/DirectX/Unreal caches
+    local pending_flag="$user_state/pending-shader-cleanup"
+    if is_steam_running; then
+        echo "[INFO] Steam is currently running; cleaned driver/Mesa caches only and deferred Steam shadercache cleanup."
+        if [[ "$DRY_RUN" -eq 1 ]]; then
+            echo "[DRY-RUN] Would write pending cleanup flag: $pending_flag"
+        else
+            mkdir -p "$user_state"
+            printf 'timestamp=%s\nreason=steam_running\n' "$(date -Is)" > "$pending_flag"
+            if [[ "$(id -u)" -eq 0 && "$username" != "root" ]]; then
+                chown "$username:" "$user_state" "$pending_flag" 2>/dev/null || true
+            fi
+            echo "[INFO] Marked pending Steam shader cleanup: $pending_flag"
+        fi
+        (( prev_nullglob == 1 )) || shopt -u nullglob
+        return 0
+    fi
+
+    local lib sc_entry pfx_local match
+    while IFS= read -r lib; do
+        [[ -n "$lib" ]] || continue
+        if [[ -d "$lib/steamapps/shadercache" ]]; then
+            for sc_entry in "$lib/steamapps/shadercache"/*; do
+                clean_target "$sc_entry" "steam-shadercache"
+            done
+        fi
+        if [[ -d "$lib/steamapps/compatdata" ]]; then
+            for pfx_local in "$lib/steamapps/compatdata"/*/pfx/drive_c/users/*/AppData/Local; do
+                [[ -d "$pfx_local" ]] || continue
+                clean_target "$pfx_local/D3DSCache" "directx-cache"
+                clean_target "$pfx_local/AMD/DxCache" "amd-dxcache"
+                clean_target "$pfx_local/AMD/DxcCache" "amd-dxccache"
+                clean_target "$pfx_local/AMD/GLCache" "amd-glcache"
+                clean_target "$pfx_local/AMD/VkCache" "amd-vkcache"
+                clean_target "$pfx_local/NVIDIA/DXCache" "nvidia-dxcache"
+                clean_target "$pfx_local/NVIDIA/GLCache" "nvidia-glcache"
+                while IFS= read -r match; do
+                    [[ -n "$match" ]] || continue
+                    clean_target "$match" "prefix-shader-cache"
+                done < <(
+                    find "$pfx_local" -maxdepth 5 \
+                        -type d \( -iname '*prismlauncher*' -o -iname 'shaderpacks' \) -prune -o \
+                        -type f \( -iname '*.ushaderprecache' -o -iname '*.dxvk-cache' -o -iname 'vkd3d-proton.cache*' -o -iname '*PipelineCache*.upipelinecache' \) -print 2>/dev/null || true
+                )
+            done
+        fi
+        if [[ -d "$lib/steamapps/common" ]]; then
+            while IFS= read -r match; do
+                [[ -n "$match" ]] || continue
+                clean_target "$match" "game-shader-cache"
+            done < <(
+                find "$lib/steamapps/common" -maxdepth 4 \
+                    -type d \( -iname '*prismlauncher*' -o -iname 'shaderpacks' \) -prune -o \
+                    -type f \( -iname '*.dxvk-cache' -o -iname 'vkd3d-proton.cache*' -o -iname '*.ushaderprecache' -o -iname '*PipelineCache*.upipelinecache' \) -print 2>/dev/null || true
+            )
+        fi
+    done < <(discover_steam_libraries "$user_home")
+
+    if [[ -f "$pending_flag" ]]; then
+        if [[ "$DRY_RUN" -eq 1 ]]; then
+            echo "[DRY-RUN] Would clear pending cleanup flag: $pending_flag"
+        else
+            rm -f "$pending_flag"
+            echo "[CLEAN] Cleared pending cleanup flag: $pending_flag"
+        fi
+    fi
+
+    (( prev_nullglob == 1 )) || shopt -u nullglob
+}
+
+CURRENT_USER="$(id -un)"
+if [[ -n "$TARGET_USER" ]]; then
+    if [[ "$TARGET_USER" == "$CURRENT_USER" && -n "${HOME:-}" && -d "$HOME" ]]; then
+        TARGET_HOME="$HOME"
+    else
+        TARGET_HOME="$(getent passwd "$TARGET_USER" 2>/dev/null | cut -d: -f6 || true)"
+    fi
+    if [[ -z "$TARGET_HOME" || ! -d "$TARGET_HOME" ]]; then
+        echo "Error: could not resolve home directory for user '$TARGET_USER'." >&2
+        exit 1
+    fi
+    clean_user_shaders "$TARGET_USER" "$TARGET_HOME"
+elif [[ "$(id -u)" -eq 0 ]]; then
+    if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+        SUDO_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
+        [[ -n "$SUDO_HOME" ]] && clean_user_shaders "$SUDO_USER" "$SUDO_HOME"
+    else
+        while IFS=: read -r pw_user _ pw_uid _ _ pw_home _; do
+            [[ "$pw_uid" =~ ^[0-9]+$ ]] || continue
+            (( pw_uid >= 1000 && pw_uid < 65534 )) || continue
+            [[ -d "$pw_home" ]] || continue
+            if [[ "$pw_home" == /home/* || -d "$pw_home/.cache" || -d "$pw_home/.local/share/Steam" ]]; then
+                clean_user_shaders "$pw_user" "$pw_home"
+            fi
+        done < <(getent passwd 2>/dev/null || cat /etc/passwd)
+    fi
+else
+    clean_user_shaders "$CURRENT_USER" "$HOME"
+fi
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Dry-run complete (${CLEANED_COUNT} item(s) matched)."
+else
+    echo "Shader cache cleanup complete (${CLEANED_COUNT} item(s) removed)."
+fi

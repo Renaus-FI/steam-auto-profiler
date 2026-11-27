@@ -1816,6 +1816,8 @@ class ProfilerBackend:
             profile["USE_VK_VIDEO_DECODE"] = "1"
             if is_rdna3 or is_rdna4:
                 profile["USE_TRANSFER_QUEUE"] = "1"
+                if game_class == "legacy-upscaler" and not is_native and not is_hunt:
+                    profile["USE_OPTISCALER"] = "1"
             if has_reflex and game_class != "competitive-anticheat" and not is_native and not is_hunt:
                 profile["USE_REFLEX_LAYER"] = "1"
         if game_class != "competitive-anticheat" and not is_native and not is_hunt:
@@ -1826,6 +1828,10 @@ class ProfilerBackend:
             profile["USE_XWAYLAND"] = "1"
             profile["USE_SAFEDX12"] = "1"
             profile["USE_NET_OPT"] = "1"
+        is_wayland = bool(os.environ.get("WAYLAND_DISPLAY")) or os.environ.get("XDG_SESSION_TYPE") == "wayland"
+        dxvk_no_hdr = os.environ.get("DXVK_NO_HDR", "0") == "1"
+        if is_wayland and not is_hunt and not is_native and not dxvk_no_hdr and profile.get("USE_XWAYLAND") != "1" and shutil.which("kscreen-doctor"):
+            profile["AUTO_HDR_SWITCH"] = "1"
         return profile
 
     def load_profile(self, appid: str, game: dict[str, Any] | None = None) -> dict[str, str]:
@@ -1857,6 +1863,7 @@ class ProfilerBackend:
             file_keys.add(key)
         if profile.get("USE_CONSERVATIVE") == "1" or profile.get("CONSERVATIVE") == "1":
             for exp_key in (
+                "USE_OPTISCALER",
                 "USE_BLEEDING_EDGE",
                 "USE_TRANSFER_QUEUE",
                 "USE_NATIVE_ANTILAG",
@@ -1983,6 +1990,12 @@ class ProfilerBackend:
 
     def reset_profile(self, appid: str) -> str:
         path = self.profile_dir / f"{appid}.env"
+        recovery_state = self.state_dir / f"recovery-{appid}.state"
+        if recovery_state.exists():
+            try:
+                recovery_state.unlink()
+            except OSError:
+                pass
         if path.exists():
             path.unlink()
             return f"Removed profile {path}"
@@ -1992,6 +2005,7 @@ class ProfilerBackend:
         profile = self.load_profile(appid)
         profile["USE_XWAYLAND"] = "1"
         profile["USE_SAFEDX12"] = "1"
+        profile["USE_OPTISCALER"] = "0"
         profile["USE_BLEEDING_EDGE"] = "0"
         profile["USE_TRANSFER_QUEUE"] = "0"
         profile["USE_REFLEX_LAYER"] = "0"

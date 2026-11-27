@@ -282,6 +282,108 @@ class ReleaseHardeningTests(unittest.TestCase):
             self.assertNotIn("PROTON_USE_WOW64=", res.stdout)
             self.assertNotIn("RADV_EXPERIMENTAL=video_decode", res.stdout)
 
+    def test_clean_shaders_dry_run_preserves_prismlauncher_and_handles_running_steam(self):
+        cleaner = BIN_DIR / "steam-auto-clean-shaders"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            cache = tmp_path / ".cache"
+            mesa_cache = cache / "mesa_shader_cache_sf"
+            radv_cache = cache / "radv_builtin_shaders64"
+            vk_cache = cache / "vulkan"
+            amd_cache = cache / "AMD"
+            qt_cache = cache / "qtshadercache-x86_64"
+            for d in (mesa_cache, radv_cache, vk_cache, amd_cache, qt_cache):
+                d.mkdir(parents=True)
+                (d / "blob.bin").write_bytes(b"data")
+
+            # PrismLauncher & shaderpacks must NEVER be touched
+            prism_pack = tmp_path / ".local" / "share" / "PrismLauncher" / "instances" / "1.21" / "shaderpacks" / "Complementary.zip"
+            prism_pack.parent.mkdir(parents=True)
+            prism_pack.write_bytes(b"zip")
+            prism_in_steam = tmp_path / ".local" / "share" / "Steam" / "steamapps" / "common" / "PrismLauncher" / "shaderpacks" / "test.dxvk-cache"
+            prism_in_steam.parent.mkdir(parents=True)
+            prism_in_steam.write_bytes(b"keep")
+
+            # Steam primary + secondary library shadercache & prefix caches
+            steam_root = tmp_path / ".local" / "share" / "Steam"
+            lib2 = tmp_path / "nvme2-steam"
+            sc1 = steam_root / "steamapps" / "shadercache" / "361420"
+            sc2 = lib2 / "steamapps" / "shadercache" / "594650"
+            sc1.mkdir(parents=True)
+            sc2.mkdir(parents=True)
+            (sc1 / "foz.bin").write_bytes(b"s1")
+            (sc2 / "foz.bin").write_bytes(b"s2")
+
+            d3d_cache = lib2 / "steamapps" / "compatdata" / "594650" / "pfx" / "drive_c" / "users" / "steamuser" / "AppData" / "Local" / "D3DSCache"
+            d3d_cache.mkdir(parents=True)
+            (d3d_cache / "dx.cache").write_bytes(b"dx")
+            ue_cache = lib2 / "steamapps" / "common" / "UEGame" / "Game.ushaderprecache"
+            ue_cache.parent.mkdir(parents=True)
+            ue_cache.write_bytes(b"ue")
+
+            vdf = (
+                '"libraryfolders"\n{\n'
+                f'\t"0"\n\t{{\n\t\t"path"\t\t"{steam_root}"\n\t}}\n'
+                f'\t"1"\n\t{{\n\t\t"path"\t\t"{lib2}"\n\t}}\n'
+                "}\n"
+            )
+            (steam_root / "steamapps" / "libraryfolders.vdf").write_text(vdf, encoding="utf-8")
+
+            # Mock pgrep returning not-running first
+            mock_bin_idle = tmp_path / "mock-idle"
+            mock_bin_idle.mkdir()
+            pgrep_idle = mock_bin_idle / "pgrep"
+            pgrep_idle.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            pgrep_idle.chmod(0o755)
+
+            env = self._base_env(tmp_path, mock_bin_idle)
+            env["XDG_CACHE_HOME"] = str(cache)
+
+            # 1) --dry-run previews all caches without deleting anything and excludes PrismLauncher
+            res_dry = subprocess.run([str(cleaner), "--dry-run"], capture_output=True, text=True, env=env)
+            self.assertEqual(res_dry.returncode, 0, res_dry.stderr)
+            self.assertIn("mesa_shader_cache_sf", res_dry.stdout)
+            self.assertIn("radv_builtin_shaders64", res_dry.stdout)
+            self.assertIn("shadercache/361420", res_dry.stdout)
+            self.assertIn("shadercache/594650", res_dry.stdout)
+            self.assertIn("D3DSCache", res_dry.stdout)
+            self.assertIn("Game.ushaderprecache", res_dry.stdout)
+            self.assertNotIn("PrismLauncher", res_dry.stdout)
+            self.assertTrue(mesa_cache.exists())
+            self.assertTrue(sc1.exists())
+            self.assertTrue(prism_pack.exists())
+            self.assertTrue(prism_in_steam.exists())
+
+            # 2) When Steam IS running, cleans only safe driver/Mesa caches and sets pending flag
+            mock_bin_run = tmp_path / "mock-running"
+            mock_bin_run.mkdir()
+            pgrep_run = mock_bin_run / "pgrep"
+            pgrep_run.write_text('#!/bin/sh\nif [ "$1" = "-x" ] && [ "$2" = "steam" ]; then exit 0; fi\nexit 1\n', encoding="utf-8")
+            pgrep_run.chmod(0o755)
+            env_running = self._base_env(tmp_path, mock_bin_run)
+            env_running["XDG_CACHE_HOME"] = str(cache)
+
+            res_running = subprocess.run([str(cleaner), "--hook"], capture_output=True, text=True, env=env_running)
+            self.assertEqual(res_running.returncode, 0, res_running.stderr)
+            self.assertIn("Steam is currently running", res_running.stdout)
+            self.assertFalse(mesa_cache.exists(), "Driver Mesa cache should be cleaned safely")
+            self.assertFalse(radv_cache.exists())
+            self.assertTrue(sc1.exists(), "Steam shadercache must be deferred while Steam is running")
+            self.assertTrue(sc2.exists())
+            pending_flag = tmp_path / ".local" / "state" / "steam-auto-profiler" / "pending-shader-cleanup"
+            self.assertTrue(pending_flag.is_file())
+
+            # 3) When Steam is closed, cleans Steam shadercache + prefix/UE caches, clears pending flag, preserves PrismLauncher
+            res_clean = subprocess.run([str(cleaner)], capture_output=True, text=True, env=env)
+            self.assertEqual(res_clean.returncode, 0, res_clean.stderr)
+            self.assertFalse(sc1.exists())
+            self.assertFalse(sc2.exists())
+            self.assertFalse(d3d_cache.exists())
+            self.assertFalse(ue_cache.exists())
+            self.assertFalse(pending_flag.exists())
+            self.assertTrue(prism_pack.exists(), "PrismLauncher shaderpacks must be preserved")
+            self.assertTrue(prism_in_steam.exists(), "PrismLauncher inside Steam dir must be preserved")
+
 
 if __name__ == "__main__":
     unittest.main()

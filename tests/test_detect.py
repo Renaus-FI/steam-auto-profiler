@@ -331,6 +331,96 @@ class DetectTests(unittest.TestCase):
         self.assertFalse(rep_nat["bleeding_edge"])
         self.assertFalse(rep_nat["reflex_layer"])
 
+    def test_v23_auto_optiscaler_legacy_upscaler_and_auto_hdr_defaults(self):
+        drm_rdna4 = self.home / "drm-rdna4-v23"
+        dev4 = drm_rdna4 / "card0" / "device"
+        dev4.mkdir(parents=True)
+        (dev4 / "vendor").write_text("0x1002\n", encoding="utf-8")
+        (dev4 / "device").write_text("0x7550\n", encoding="utf-8")
+        (dev4 / "uevent").write_text("PCI_ID=1002:7550\n", encoding="utf-8")
+
+        drm_rdna2 = self.home / "drm-rdna2-v23"
+        dev2 = drm_rdna2 / "card0" / "device"
+        dev2.mkdir(parents=True)
+        (dev2 / "vendor").write_text("0x1002\n", encoding="utf-8")
+        (dev2 / "device").write_text("0x73bf\n", encoding="utf-8")
+        (dev2 / "uevent").write_text("PCI_ID=1002:73BF\n", encoding="utf-8")
+
+        mock_bin = self.home / "mock-bin-v23"
+        mock_bin.mkdir()
+        ks = mock_bin / "kscreen-doctor"
+        ks.write_text("#!/bin/sh\necho 'Output: 1 DP-1'\n", encoding="utf-8")
+        ks.chmod(0o755)
+
+        base_env = os.environ.copy()
+        for k in (
+            "OPTISCALER", "USE_OPTISCALER", "CONSERVATIVE", "USE_CONSERVATIVE",
+            "AUTO_HDR_SWITCH", "DXVK_NO_HDR", "XWAYLAND", "USE_XWAYLAND",
+        ):
+            base_env.pop(k, None)
+        base_env.update({
+            "HOME": str(self.home),
+            "SAP_DRM_DIR": str(drm_rdna4),
+            "WAYLAND_DISPLAY": "wayland-0",
+            "PATH": f"{mock_bin}:{base_env.get('PATH', '/usr/bin:/bin')}",
+        })
+
+        # 1) Legacy upscaler on AMD RDNA 4 auto-enables optiscaler + auto_hdr_switch
+        self.create_game("4201", "DLSS Legacy Title", files=("game.exe", "nvngx_dlss.dll"))
+        rep_leg = json.loads(subprocess.run(
+            [str(DETECT), "--json", "4201"], env=base_env, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertEqual(rep_leg["class"], "legacy-upscaler")
+        self.assertTrue(rep_leg["optiscaler"])
+        self.assertTrue(rep_leg["auto_hdr_switch"])
+        self.assertEqual(rep_leg["smart_defaults"]["USE_OPTISCALER"], "1")
+        self.assertEqual(rep_leg["smart_defaults"]["AUTO_HDR_SWITCH"], "1")
+
+        # 2) Explicit OPTISCALER=0, CONSERVATIVE=1, and DXVK_NO_HDR=1 opt out cleanly
+        rep_opt0 = json.loads(subprocess.run(
+            [str(DETECT), "--json", "4201"],
+            env={**base_env, "OPTISCALER": "0", "AUTO_HDR_SWITCH": "0"},
+            text=True, capture_output=True, check=True,
+        ).stdout)
+        self.assertFalse(rep_opt0["optiscaler"])
+        self.assertFalse(rep_opt0["auto_hdr_switch"])
+
+        rep_cons = json.loads(subprocess.run(
+            [str(DETECT), "--json", "4201"],
+            env={**base_env, "CONSERVATIVE": "1"},
+            text=True, capture_output=True, check=True,
+        ).stdout)
+        self.assertFalse(rep_cons["optiscaler"])
+
+        rep_nohdr = json.loads(subprocess.run(
+            [str(DETECT), "--json", "4201"],
+            env={**base_env, "DXVK_NO_HDR": "1"},
+            text=True, capture_output=True, check=True,
+        ).stdout)
+        self.assertFalse(rep_nohdr["auto_hdr_switch"])
+        self.assertEqual(rep_nohdr["smart_defaults"]["AUTO_HDR_SWITCH"], "0")
+
+        # 3) Non-RDNA3/4 (RDNA 2) keeps optiscaler=False by default
+        rep_r2 = json.loads(subprocess.run(
+            [str(DETECT), "--json", "4201"],
+            env={**base_env, "SAP_DRM_DIR": str(drm_rdna2)},
+            text=True, capture_output=True, check=True,
+        ).stdout)
+        self.assertFalse(rep_r2["optiscaler"])
+        self.assertEqual(rep_r2["smart_defaults"]["USE_OPTISCALER"], "0")
+
+        # 4) Native FSR 4, Standard, Anti-Cheat, and Native Linux keep optiscaler=False
+        self.create_game("4202", "Native FSR4 Title", files=("game.exe", "amd_fidelityfx_upscaler_dx12.dll", "nvngx_dlss.dll"))
+        self.create_game("4203", "AC DLSS Title", files=("game.exe", "nvngx_dlss.dll", "EasyAntiCheat/EasyAntiCheat.exe"))
+        self.create_game("4204", "Standard Title", files=("game.exe",))
+        self.create_game("4205", "Native Linux DLSS", files=("game.x86_64", "nvngx_dlss.dll"))
+        for aid in ("4202", "4203", "4204", "4205"):
+            rep = json.loads(subprocess.run(
+                [str(DETECT), "--json", aid], env=base_env, text=True, capture_output=True, check=True
+            ).stdout)
+            self.assertFalse(rep["optiscaler"], f"Expected optiscaler=False for {aid} ({rep['class']})")
+            self.assertEqual(rep["smart_defaults"]["USE_OPTISCALER"], "0")
+
 
 if __name__ == "__main__":
     unittest.main()

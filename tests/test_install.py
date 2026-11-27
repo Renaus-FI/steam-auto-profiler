@@ -27,6 +27,7 @@ class InstallTests(unittest.TestCase):
             "steam-net-boost",
             "vr-run",
             "steam-auto-ui",
+            "steam-auto-clean-shaders",
         )
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -127,6 +128,62 @@ class InstallTests(unittest.TestCase):
             )
             self.assertEqual(res_un.returncode, 0, res_un.stderr)
             self.assertFalse(rule_file.exists(), "Failed to uninstall 61-steam-controller-2026.rules")
+
+    def test_with_mesa_hook_installs_and_uninstalls_pacman_hook(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            home = tmp_path / "home"
+            home.mkdir()
+            sys_bin = tmp_path / "sys-bin"
+            hooks_dir = tmp_path / "pacman-hooks"
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_DATA_HOME": str(home / ".local" / "share"),
+                "STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR": str(sys_bin),
+                "STEAM_AUTO_PROFILER_SUDOERS_DIR": str(tmp_path / "sudoers.d"),
+                "STEAM_AUTO_PROFILER_UDEV_DIR": str(tmp_path / "udev.d"),
+                "STEAM_AUTO_PROFILER_PACMAN_HOOKS_DIR": str(hooks_dir),
+            }
+            res_help = subprocess.run([str(ROOT / "install.sh"), "--help"], env=env, text=True, capture_output=True)
+            self.assertEqual(res_help.returncode, 0)
+            self.assertIn("--with-mesa-hook", res_help.stdout)
+
+            res = subprocess.run(
+                [str(ROOT / "install.sh"), "--with-mesa-hook"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            hook_file = hooks_dir / "95-steam-auto-profiler-mesa-shaders.hook"
+            self.assertTrue(hook_file.is_file(), "Missing Mesa shader cleanup pacman hook")
+            self.assertTrue((sys_bin / "steam-auto-clean-shaders").is_file())
+            self.assertTrue(os.access(sys_bin / "steam-auto-clean-shaders", os.X_OK))
+            text = hook_file.read_text(encoding="utf-8")
+            for expected_token in (
+                "Operation = Upgrade",
+                "Target = mesa",
+                "Target = mesa-git",
+                "Target = lib32-mesa",
+                "Target = lib32-mesa-git",
+                "When = PostTransaction",
+                "steam-auto-clean-shaders --hook",
+            ):
+                self.assertIn(expected_token, text)
+
+            res_un = subprocess.run(
+                [str(ROOT / "install.sh"), "--uninstall"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_un.returncode, 0, res_un.stderr)
+            self.assertFalse(hook_file.exists(), "Failed to uninstall Mesa pacman hook")
+            self.assertFalse((sys_bin / "steam-auto-clean-shaders").exists())
 
 
 if __name__ == "__main__":

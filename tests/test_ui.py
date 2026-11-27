@@ -2,8 +2,12 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import signal
 import subprocess
+import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -301,6 +305,192 @@ class UiTests(unittest.TestCase):
                     os.environ.pop("XDG_CACHE_HOME", None)
                 else:
                     os.environ["XDG_CACHE_HOME"] = orig_cache
+
+    def test_backend_cancellation_stops_pending_work_and_subprocesses(self):
+        ui = _load_ui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            steamapps = home / ".local" / "share" / "Steam" / "steamapps"
+            steamapps.mkdir(parents=True)
+            for i in range(8):
+                appid = 900000 + i
+                (steamapps / f"appmanifest_{appid}.acf").write_text(
+                    f'"AppState"\n{{\n\t"appid"\t\t"{appid}"\n\t"name"\t\t"Slow Game {i}"\n}}\n',
+                    encoding="utf-8",
+                )
+
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            calls_file = home / "detect.calls"
+            detect_mock = mock_bin / "steam-auto-detect"
+            detect_mock.write_text(
+                "#!/bin/sh\n"
+                f'echo "$*" >> "{calls_file}"\n'
+                "sleep 20\n"
+                'echo \'{"class":"standard","is_vr":false}\'\n',
+                encoding="utf-8",
+            )
+            detect_mock.chmod(0o755)
+
+            run_mock = mock_bin / "steam-auto-run"
+            run_mock.write_text(
+                "#!/bin/sh\n"
+                "sleep 20\n"
+                'echo "doctor ok"\n',
+                encoding="utf-8",
+            )
+            run_mock.chmod(0o755)
+
+            backend = ui.ProfilerBackend(home=home)
+            backend.script_dir = mock_bin
+
+            games_result: list[list[dict]] = []
+            telemetry_result: list[dict] = []
+
+            t_games = threading.Thread(
+                target=lambda: games_result.append(backend.discover_games()),
+                daemon=True,
+            )
+            t_tel = threading.Thread(
+                target=lambda: telemetry_result.append(backend.collect_telemetry()),
+                daemon=True,
+            )
+            t_games.start()
+            t_tel.start()
+
+            # Wait until slow child processes have actually spawned
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                if calls_file.is_file() and calls_file.read_text(encoding="utf-8").strip():
+                    with backend._proc_lock:
+                        if backend._active_procs:
+                            break
+                time.sleep(0.02)
+
+            start_cancel = time.monotonic()
+            backend.cancel()
+            t_games.join(timeout=2.0)
+            t_tel.join(timeout=2.0)
+            elapsed = time.monotonic() - start_cancel
+
+            self.assertFalse(t_games.is_alive(), "discover_games did not stop promptly after cancel()")
+            self.assertFalse(t_tel.is_alive(), "collect_telemetry did not stop promptly after cancel()")
+            self.assertLess(elapsed, 2.0)
+            self.assertTrue(backend.is_cancelled())
+            self.assertEqual(games_result, [[]])
+            self.assertEqual(len(telemetry_result), 1)
+            with backend._proc_lock:
+                self.assertEqual(len(backend._active_procs), 0)
+            invocations = calls_file.read_text(encoding="utf-8").splitlines()
+            self.assertGreaterEqual(len(invocations), 1)
+            self.assertLess(len(invocations), 8)
+
+    def test_qt_gui_exits_promptly_on_window_close_and_sigint(self):
+        ui = _load_ui_module()
+        binding, _ = ui.detect_qt_binding()
+        if binding is None:
+            self.skipTest("Neither PySide6 nor PyQt6 is installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            steamapps = home / ".local" / "share" / "Steam" / "steamapps"
+            steamapps.mkdir(parents=True)
+            for i in range(6):
+                appid = 910000 + i
+                (steamapps / f"appmanifest_{appid}.acf").write_text(
+                    f'"AppState"\n{{\n\t"appid"\t\t"{appid}"\n\t"name"\t\t"Slow GUI Game {i}"\n}}\n',
+                    encoding="utf-8",
+                )
+
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            for tool in ("steam-auto-detect", "steam-auto-run"):
+                script = mock_bin / tool
+                script.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+                script.chmod(0o755)
+
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            env["XDG_CONFIG_HOME"] = str(home / ".config")
+            env["XDG_STATE_HOME"] = str(home / ".local" / "state")
+            env["XDG_CACHE_HOME"] = str(home / ".cache")
+            env["QT_QPA_PLATFORM"] = "offscreen"
+
+            # 1) Closing the main window terminates background scans and exits promptly without hanging
+            close_driver = (
+                "import importlib.machinery, importlib.util, sys\n"
+                "from pathlib import Path\n"
+                f"loader = importlib.machinery.SourceFileLoader('steam_auto_ui', {str(UI)!r})\n"
+                "spec = importlib.util.spec_from_loader(loader.name, loader)\n"
+                "mod = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(mod)\n"
+                "_, (QtWidgets, QtCore) = mod.detect_qt_binding()\n"
+                f"backend = mod.ProfilerBackend(home=Path({str(home)!r}))\n"
+                f"backend.script_dir = Path({str(mock_bin)!r})\n"
+                "app = QtWidgets.QApplication(sys.argv)\n"
+                "def _close_main():\n"
+                "    for w in app.topLevelWidgets():\n"
+                "        if isinstance(w, QtWidgets.QMainWindow):\n"
+                "            w.close()\n"
+                "            return\n"
+                "    app.quit()\n"
+                "QtCore.QTimer.singleShot(250, _close_main)\n"
+                "sys.exit(mod.run_qt_gui(backend))\n"
+            )
+            t0 = time.monotonic()
+            res = subprocess.run(
+                [sys.executable, "-c", close_driver],
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=8,
+                check=False,
+            )
+            elapsed = time.monotonic() - t0
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertNotIn("Traceback", res.stderr)
+            self.assertNotIn("QThread", res.stderr)
+            self.assertLess(elapsed, 4.0)
+
+            # 2) SIGINT (Ctrl+C) exits with status 0 and zero traceback
+            sigint_driver = (
+                "import importlib.machinery, importlib.util, sys\n"
+                "from pathlib import Path\n"
+                f"loader = importlib.machinery.SourceFileLoader('steam_auto_ui', {str(UI)!r})\n"
+                "spec = importlib.util.spec_from_loader(loader.name, loader)\n"
+                "mod = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(mod)\n"
+                "_, (QtWidgets, QtCore) = mod.detect_qt_binding()\n"
+                f"backend = mod.ProfilerBackend(home=Path({str(home)!r}))\n"
+                f"backend.script_dir = Path({str(mock_bin)!r})\n"
+                "app = QtWidgets.QApplication(sys.argv)\n"
+                "QtCore.QTimer.singleShot(150, lambda: print('GUI_READY', flush=True))\n"
+                "sys.exit(mod.run_qt_gui(backend))\n"
+            )
+            proc = subprocess.Popen(
+                [sys.executable, "-c", sigint_driver],
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                assert proc.stdout is not None
+                ready_line = proc.stdout.readline().strip()
+                self.assertEqual(ready_line, "GUI_READY")
+                t_sig = time.monotonic()
+                proc.send_signal(signal.SIGINT)
+                _, stderr = proc.communicate(timeout=5)
+                sig_elapsed = time.monotonic() - t_sig
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.communicate()
+            self.assertEqual(proc.returncode, 0, stderr)
+            self.assertNotIn("Traceback", stderr)
+            self.assertNotIn("KeyboardInterrupt", stderr)
+            self.assertNotIn("QThread", stderr)
+            self.assertLess(sig_elapsed, 3.0)
 
 
 if __name__ == "__main__":

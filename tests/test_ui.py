@@ -406,6 +406,26 @@ class UiTests(unittest.TestCase):
                 self.assertEqual(ow_prof["USE_NATIVE_ANTILAG"], "1")
                 self.assertEqual(ow_prof["USE_VK_VIDEO_DECODE"], "1")
 
+                # Forza Horizon 6 (2483190) RDNA 4 stability guard keeps Wayland/FSR4/Native Anti-Lag while disabling compute-ring hang flags
+                fh6_prof = backend.load_profile("2483190")
+                self.assertEqual(fh6_prof["USE_BLEEDING_EDGE"], "0")
+                self.assertEqual(fh6_prof["USE_TRANSFER_QUEUE"], "0")
+                self.assertEqual(fh6_prof["USE_REFLEX_LAYER"], "0")
+                self.assertEqual(fh6_prof["USE_VK_VIDEO_DECODE"], "0")
+                self.assertEqual(fh6_prof["USE_AFMF"], "0")
+                self.assertEqual(fh6_prof["USE_OPTISCALER"], "0")
+                self.assertEqual(fh6_prof["USE_NATIVE_ANTILAG"], "1")
+                fh6_norm, fh6_warns = ui.validate_profile(
+                    {"USE_BLEEDING_EDGE": "1", "USE_TRANSFER_QUEUE": "1", "USE_REFLEX_LAYER": "1", "USE_VK_VIDEO_DECODE": "1"},
+                    game_class="native-fsr4",
+                    appid="2483190",
+                )
+                self.assertEqual(fh6_norm["USE_BLEEDING_EDGE"], "0")
+                self.assertEqual(fh6_norm["USE_TRANSFER_QUEUE"], "0")
+                self.assertEqual(fh6_norm["USE_REFLEX_LAYER"], "0")
+                self.assertEqual(fh6_norm["USE_VK_VIDEO_DECODE"], "0")
+                self.assertTrue(any("2483190" in w for w in fh6_warns))
+
                 # Legacy .env missing new keys inherits smart defaults; explicit =0 overrides them
                 backend.profile_dir.mkdir(parents=True, exist_ok=True)
                 (backend.profile_dir / "990001.env").write_text("USE_SDL=1\n", encoding="utf-8")

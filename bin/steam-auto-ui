@@ -1384,6 +1384,24 @@ def validate_profile(
                 "Hunt: Showdown 1896 (AppID 594650) enforces XWayland, Safe DX12, and Session Network QoS for CryEngine/EAC stability."
             )
 
+    if str(appid).strip() == "2483190":
+        fh6_adjusted = False
+        for fh6_key in (
+            "USE_BLEEDING_EDGE",
+            "USE_TRANSFER_QUEUE",
+            "USE_REFLEX_LAYER",
+            "USE_VK_VIDEO_DECODE",
+            "USE_AFMF",
+            "USE_OPTISCALER",
+        ):
+            if norm.get(fh6_key) != "0":
+                norm[fh6_key] = "0"
+                fh6_adjusted = True
+        if fh6_adjusted:
+            warnings.append(
+                "Forza Horizon 6 (AppID 2483190) disables experimental bleeding-edge, transfer_queue, Reflex layer, and RADV video_decode to prevent RDNA 4 / Mesa 27 compute-ring hangs."
+            )
+
     if game_class == "competitive-anticheat":
         if norm["USE_MLFG"] == "1":
             norm["USE_MLFG"] = "0"
@@ -1896,6 +1914,7 @@ class ProfilerBackend:
             "2051620", "2073850", "2100280", "2357570", "2479810", "2767030", "2887580",
         }
         is_hunt = aid == "594650"
+        is_fh6 = aid == "2483190"
         if game is not None:
             game_class = "competitive-anticheat" if is_hunt else str(game.get("class", "standard"))
             is_native = bool(game.get("native_linux")) or str(game.get("runtime", "proton")) == "native_linux"
@@ -1914,19 +1933,20 @@ class ProfilerBackend:
         gpu_vendor, is_rdna3, is_rdna4 = self._detect_gpu_caps()
         if gpu_vendor == "amd":
             profile["USE_NATIVE_ANTILAG"] = "1"
-            profile["USE_VK_VIDEO_DECODE"] = "1"
+            profile["USE_VK_VIDEO_DECODE"] = "0" if is_fh6 else "1"
             if is_rdna3 or is_rdna4:
-                profile["USE_TRANSFER_QUEUE"] = "1"
-                if game_class == "legacy-upscaler" and not is_native and not is_hunt:
+                profile["USE_TRANSFER_QUEUE"] = "0" if is_fh6 else "1"
+                if game_class == "legacy-upscaler" and not is_native and not is_hunt and not is_fh6:
                     profile["USE_OPTISCALER"] = "1"
-            if has_reflex and game_class != "competitive-anticheat" and not is_native and not is_hunt:
+            if has_reflex and game_class != "competitive-anticheat" and not is_native and not is_hunt and not is_fh6:
                 profile["USE_REFLEX_LAYER"] = "1"
-        if game_class != "competitive-anticheat" and not is_native and not is_hunt:
+        if game_class != "competitive-anticheat" and not is_native and not is_hunt and not is_fh6:
             profile["USE_BLEEDING_EDGE"] = "1"
         if (
             self._detect_afmf_installed()
             and game_class not in ("competitive-anticheat", "vr")
             and not is_hunt
+            and not is_fh6
             and not is_vr
             and not has_native_fg
             and not is_tool_or_2d

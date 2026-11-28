@@ -140,7 +140,7 @@ detect_steam_controller_2026() {
         pid="${pid,,}"
         pid="${pid//[[:space:]]/}"
         case "$pid" in
-            1304|1302|1005|1007)
+            1304|1302|1303|1305|1005|1007)
                 printf '%s:%s\n' "$vid" "$pid"
                 return 0
                 ;;
@@ -714,20 +714,30 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
     AUTO_VK_VIDEO_DECODE=1
     if [[ "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ]]; then
         AUTO_TRANSFER_QUEUE=1
-        if [[ "$AUTO_CLASS" == "legacy-upscaler" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
+        if [[ "$AUTO_CLASS" == "legacy-upscaler" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
             AUTO_OPTISCALER=1
         fi
     fi
-    if [[ "$AUTO_HAS_REFLEX" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
+    if [[ "$AUTO_HAS_REFLEX" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
         AUTO_REFLEX_LAYER=1
     fi
 fi
-if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
+if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
     AUTO_BLEEDING_EDGE=1
+fi
+if [[ "$APPID" == "2483190" ]]; then
+    AUTO_BLEEDING_EDGE=0
+    AUTO_TRANSFER_QUEUE=0
+    AUTO_REFLEX_LAYER=0
+    AUTO_VK_VIDEO_DECODE=0
+    AUTO_AFMF=0
+    AUTO_OPTISCALER=0
+    AUTO_REASON="Forza Horizon 6 (AppID 2483190) RDNA 4 / Mesa 27 compute-ring stability guard: Wayland + HDR + native FSR4 without bleeding-edge/transfer_queue/lowlatencylayer/video_decode"
 fi
 if [[ "$AUTO_AFMF_INSTALLED" -eq 1 &&
       "$AUTO_CLASS" != "competitive-anticheat" &&
       "$APPID" != "594650" &&
+      "$APPID" != "2483190" &&
       "$AUTO_CLASS" != "vr" &&
       "$AUTO_IS_VR" -eq 0 &&
       "$AUTO_HAS_NATIVE_FG" -eq 0 &&
@@ -931,6 +941,20 @@ if [[ "$APPID" == "594650" ]]; then
     AUTO_NATIVE_AGS=0
     AUTO_BLEEDING_EDGE=0
     AUTO_REFLEX_LAYER=0
+fi
+if [[ "$APPID" == "2483190" ]]; then
+    USE_BLEEDING_EDGE=0
+    USE_TRANSFER_QUEUE=0
+    USE_REFLEX_LAYER=0
+    USE_VK_VIDEO_DECODE=0
+    USE_AFMF=0
+    USE_OPTISCALER=0
+    AUTO_BLEEDING_EDGE=0
+    AUTO_TRANSFER_QUEUE=0
+    AUTO_REFLEX_LAYER=0
+    AUTO_VK_VIDEO_DECODE=0
+    AUTO_AFMF=0
+    AUTO_OPTISCALER=0
 fi
 COMPAT_TOKENS=()
 if [[ "$AUTO_STEAM_CONTROLLER_MODE" == "wayland-hdr" && "$APPID" != "594650" ]]; then

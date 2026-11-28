@@ -255,18 +255,18 @@ fi
 
 if [[ "$WITH_STEAM_CONTROLLER" -eq 1 ]]; then
     UDEV_RULE_FILE="$UDEV_RULES_DIR/61-steam-controller-2026.rules"
-    UDEV_CONTENT='# Steam Controller (2026, Triton/Proteus) & Wireless Steam Puck (28de:{1302,1304,1005,1007})
+    UDEV_CONTENT='# Steam Controller (2026, Triton/Proteus) & Wireless Steam Puck (28de:{1302,1303,1304,1305,1005,1007})
 # Installed by steam-auto-profiler (--with-steam-controller)
 
 # USB permissions, ModemManager ignore, and disable USB selective suspend for zero wireless wake-up latency
-ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="28de", ATTR{idProduct}=="1302|1304|1005|1007", MODE="0660", GROUP="uucp", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1", TEST=="power/control", ATTR{power/control}="on", TEST=="power/autosuspend", ATTR{power/autosuspend}="-1"
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="28de", ATTR{idProduct}=="1302|1304|1005|1007|1303|1305", MODE="0660", GROUP="uucp", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1", TEST=="power/control", ATTR{power/control}="on", TEST=="power/autosuspend", ATTR{power/autosuspend}="-1"
 
 # HIDRAW access for Steam Input (USB, 2.4 GHz Steam Puck, and BLE)
-KERNEL=="hidraw*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1302|1304|1005|1007", MODE="0660", GROUP="uucp", TAG+="uaccess"
-KERNEL=="hidraw*", KERNELS=="*28DE:1302*|*28DE:1304*|*28DE:1005*|*28DE:1007*", MODE="0660", GROUP="uucp", TAG+="uaccess"
+ACTION!="remove", KERNEL=="hidraw*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1302|1304|1005|1007|1303|1305", MODE="0660", GROUP="uucp", TAG+="uaccess"
+ACTION!="remove", KERNEL=="hidraw*", KERNELS=="*28DE:1302*|*28DE:1303*|*28DE:1304*|*28DE:1305*|*28DE:1005*|*28DE:1007*", MODE="0660", GROUP="uucp", TAG+="uaccess"
 
 # Serial bootloader / firmware update ports (ttyACM*): grant uucp/uaccess and block ModemManager probing
-SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1302|1304|1005|1007", MODE="0660", GROUP="uucp", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"'
+SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="1302|1304|1005|1007|1303|1305", MODE="0660", GROUP="uucp", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"'
     if [[ -n "${STEAM_AUTO_PROFILER_UDEV_DIR:-}" ]]; then
         mkdir -p "$UDEV_RULES_DIR"
         printf '%s\n' "$UDEV_CONTENT" >"$UDEV_RULE_FILE"

@@ -2156,6 +2156,158 @@ class RunTests(unittest.TestCase):
             self.assertIn("[INFO] afmf-linux (VK_LAYER_AFMF) not installed", res_doc_abs.stdout)
             self.assertNotIn("[WARN] afmf-linux", res_doc_abs.stdout)
 
+    def test_v242_fh6_2483190_rdna4_guard_and_radv_token_scrubbing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            empty_usb = home / "usb-empty"
+            empty_usb.mkdir()
+            steamapps = home / ".local/share/Steam/steamapps"
+            fh_dir = steamapps / "common/ForzaHorizon6"
+            fh_dir.mkdir(parents=True)
+            for dll in ("forzahorizon6.exe", "amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll", "sl.reflex.dll", "sl.interposer.dll"):
+                (fh_dir / dll).touch()
+            (steamapps / "appmanifest_2483190.acf").write_text(
+                '"AppState"\n{\n\t"appid"\t\t"2483190"\n\t"installdir"\t\t"ForzaHorizon6"\n\t"name"\t\t"Forza Horizon 6"\n}\n',
+                encoding="utf-8",
+            )
+
+            env = os.environ.copy()
+            for key in (
+                "VKD3D_CONFIG", "VKD3D_FEATURE_LEVEL", "VKD3D_SHADER_MODEL",
+                "PROTON_USE_WOW64", "PROTON_MEDIA_FORCE_GST", "WAYLANDDRV_RAWINPUT",
+                "LOW_LATENCY_LAYER", "LOW_LATENCY_LAYER_REFLEX", "AFMF", "USE_AFMF",
+                "BLEEDING_EDGE", "TRANSFER_QUEUE", "REFLEX_LAYER", "VK_VIDEO_DECODE",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XWAYLAND",
+            ):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "NO_GUI": "1",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_USB_DIR": str(empty_usb),
+                # Simulate inherited session environment.d values that must be scrubbed when disabled
+                "RADV_EXPERIMENTAL": "video_decode",
+                "RADV_PERFTEST": "sam,transfer_queue",
+            })
+
+            res_fh6 = subprocess.run(
+                [str(RUN), "--dry-run", "2483190"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_fh6.returncode, 0, res_fh6.stderr)
+            self.assertIn("Class: native-fsr4", res_fh6.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_fh6.stdout)
+            self.assertIn("DXVK_HDR=1", res_fh6.stdout)
+            self.assertIn("PROTON_FSR4_UPGRADE=1", res_fh6.stdout)
+            self.assertIn("PROTON_NATIVE_AGS=1", res_fh6.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_fh6.stdout)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_fh6.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_fh6.stdout)
+            self.assertNotIn("transfer_queue", res_fh6.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=", res_fh6.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_fh6.stdout)
+            self.assertNotIn("VKD3D_SHADER_MODEL=", res_fh6.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_fh6.stdout)
+            self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_fh6.stdout)
+            self.assertNotIn("lowlatencylayer", res_fh6.stdout)
+            self.assertNotIn("wow64", res_fh6.stdout)
+
+            # Generic title with VK_VIDEO_DECODE=0 & TRANSFER_QUEUE=0 also scrubs inherited tokens cleanly
+            res_scrub = subprocess.run(
+                [str(RUN), "--dry-run", "361420"],
+                env={
+                    **env,
+                    "VK_VIDEO_DECODE": "0",
+                    "TRANSFER_QUEUE": "0",
+                    "RADV_EXPERIMENTAL": "video_decode,other_exp",
+                    "RADV_PERFTEST": "sam,transfer_queue",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(res_scrub.returncode, 0, res_scrub.stderr)
+            self.assertIn("RADV_PERFTEST=sam\n", res_scrub.stdout)
+            self.assertIn("RADV_EXPERIMENTAL=other_exp\n", res_scrub.stdout)
+            self.assertNotIn("video_decode", res_scrub.stdout)
+            self.assertNotIn("transfer_queue", res_scrub.stdout)
+
+    def test_v242_steam_controller_2026_right_trackpad_rawinput_and_desktop_restore(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            usb_dir = home / "usb-sc"
+            dev_dir = usb_dir / "3-2"
+            (dev_dir / "power").mkdir(parents=True)
+            (dev_dir / "idVendor").write_text("28de\n", encoding="utf-8")
+            (dev_dir / "idProduct").write_text("1304\n", encoding="utf-8")
+            (dev_dir / "power" / "control").write_text("on\n", encoding="utf-8")
+
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            steam_log = home / "steam.log"
+            (mock_bin / "pgrep").write_text(
+                '#!/bin/sh\nif [ "$1" = "-x" ] && [ "$2" = "steam" ]; then exit 0; fi\nexit 1\n',
+                encoding="utf-8",
+            )
+            (mock_bin / "pgrep").chmod(0o755)
+            (mock_bin / "steam").write_text(f'#!/bin/sh\necho "$*" >> "{steam_log}"\n', encoding="utf-8")
+            (mock_bin / "steam").chmod(0o755)
+            (mock_bin / "udevadm").write_text("#!/bin/sh\nsleep 5\n", encoding="utf-8")
+            (mock_bin / "udevadm").chmod(0o755)
+            mock_game = home / "mock-game.sh"
+            mock_game.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            mock_game.chmod(0o755)
+
+            env = os.environ.copy()
+            for key in (
+                "WAYLANDDRV_RAWINPUT", "USE_STEAM_CONTROLLER", "STEAM_CONTROLLER",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XWAYLAND",
+            ):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "NO_GUI": "1",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_USB_DIR": str(usb_dir),
+                "GAMEID": "361420",
+                "SAP_FORCE_INPUT_DELAY1": "0",
+                "SAP_FORCE_INPUT_DELAY2": "0",
+                "SAP_FORCE_INPUT_RESET_DELAY": "0",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+
+            # 1) Bleeding-edge Wayland + Steam Controller 2026 must NOT export WAYLANDDRV_RAWINPUT=1
+            res_dry = subprocess.run([str(RUN), "--dry-run", "361420"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_dry.returncode, 0, res_dry.stderr)
+            self.assertIn("Steam Controller 2026: wayland-hdr (28de:1304)", res_dry.stdout)
+            self.assertIn("Bleeding-edge: enabled", res_dry.stdout)
+            self.assertNotIn("WAYLANDDRV_RAWINPUT=", res_dry.stdout)
+
+            # 2) Exit cleanup must explicitly restore Desktop config (413080) BEFORE releasing force lock (0)
+            res_run = subprocess.run([str(RUN), str(mock_game)], env=env, text=True, capture_output=True, timeout=10, check=False)
+            self.assertEqual(res_run.returncode, 0, res_run.stderr)
+            calls = steam_log.read_text(encoding="utf-8").splitlines()
+            self.assertGreaterEqual(len(calls), 2, calls)
+            self.assertEqual(calls[-2:], ["steam://forceinputappid/413080", "steam://forceinputappid/0"], calls)
+
+            # 3) BLE PIDs 1303 and 1305 are also detected
+            for ble_pid in ("1303", "1305"):
+                (dev_dir / "idProduct").write_text(f"{ble_pid}\n", encoding="utf-8")
+                res_ble = subprocess.run([str(RUN), "--dry-run", "361420"], env=env, text=True, capture_output=True, check=False)
+                self.assertEqual(res_ble.returncode, 0, res_ble.stderr)
+                self.assertIn(f"Steam Controller 2026: wayland-hdr (28de:{ble_pid})", res_ble.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -652,6 +652,44 @@ class DetectTests(unittest.TestCase):
                 proc.kill()
                 proc.wait()
 
+    def test_v242_fh6_2483190_rdna4_stability_guard(self):
+        drm = self.home / "drm-rdna4-fh6"
+        dev = drm / "card0" / "device"
+        dev.mkdir(parents=True)
+        (dev / "vendor").write_text("0x1002\n", encoding="utf-8")
+        (dev / "device").write_text("0x7550\n", encoding="utf-8")
+        (dev / "uevent").write_text("PCI_ID=1002:7550\n", encoding="utf-8")
+
+        self.create_game(
+            "2483190",
+            "Forza Horizon 6",
+            files=("forzahorizon6.exe", "amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll", "sl.reflex.dll"),
+        )
+        env = os.environ.copy()
+        for k in ("BLEEDING_EDGE", "TRANSFER_QUEUE", "REFLEX_LAYER", "VK_VIDEO_DECODE", "AFMF", "CONSERVATIVE"):
+            env.pop(k, None)
+        env["HOME"] = str(self.home)
+        env["SAP_DRM_DIR"] = str(drm)
+        env["WAYLAND_DISPLAY"] = "wayland-0"
+
+        rep = json.loads(subprocess.run(
+            [str(DETECT), "--json", "2483190"], env=env, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertEqual(rep["class"], "native-fsr4")
+        self.assertFalse(rep["bleeding_edge"])
+        self.assertFalse(rep["transfer_queue"])
+        self.assertFalse(rep["reflex_layer"])
+        self.assertFalse(rep["vk_video_decode"])
+        self.assertFalse(rep["afmf"])
+        self.assertFalse(rep["optiscaler"])
+        self.assertTrue(rep["native_antilag"])
+        self.assertFalse(rep["xwayland"])
+        tokens = rep["proton_add_config"].split(",")
+        self.assertIn("wayland", tokens)
+        self.assertIn("fsr4", tokens)
+        self.assertNotIn("wow64", tokens)
+        self.assertNotIn("lowlatencylayer", tokens)
+
 
 if __name__ == "__main__":
     unittest.main()

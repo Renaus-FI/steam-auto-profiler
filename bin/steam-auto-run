@@ -168,6 +168,20 @@ dedupe_csv_tokens() {
     printf '%s' "$out"
 }
 
+strip_csv_token() {
+    local input="$1" remove="$2"
+    local out="" tok
+    local -a parts=()
+    IFS=',' read -r -a parts <<<"$input"
+    for tok in "${parts[@]}"; do
+        tok="${tok#"${tok%%[![:space:]]*}"}"
+        tok="${tok%"${tok##*[![:space:]]}"}"
+        [[ -n "$tok" && "$tok" != "$remove" ]] || continue
+        out="${out:+${out},}${tok}"
+    done
+    printf '%s' "$out"
+}
+
 send_steam_force_input_appid() {
     local target_appid="$1"
     [[ "$target_appid" =~ ^[0-9]+$ ]] || return 1
@@ -184,7 +198,7 @@ detect_steam_controller_2026_path() {
         pid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idProduct" 2>/dev/null | tr -d '[:space:]')"
         if [[ "$vid" == "28de" ]]; then
             case "$pid" in
-                1304|1302|1005|1007)
+                1304|1302|1303|1305|1005|1007)
                     printf '%s\n' "$dev_dir"
                     return 0
                     ;;
@@ -1547,6 +1561,23 @@ if [[ "$APPID" == "594650" ]]; then
     unset VKD3D_CONFIG VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL
 fi
 
+# Built-in Per-AppID Compatibility Rule: Forza Horizon 6 (AppID 2483190)
+# Prevents RDNA 4 / Mesa 27 AMDGPU compute ring (comp_1.x.x) hangs in vkd3d_queue on Splash
+# while preserving native Wayland, HDR, VRR, and native FidelityFX FSR 4 upgrade.
+if [[ "$APPID" == "2483190" ]]; then
+    USE_BLEEDING_EDGE=0
+    USE_TRANSFER_QUEUE=0
+    USE_REFLEX_LAYER=0
+    USE_VK_VIDEO_DECODE=0
+    USE_AFMF=0
+    USE_OPTISCALER=0
+    export LOW_LATENCY_LAYER=0
+    export LOW_LATENCY_LAYER_REFLEX=0
+    unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+    export DISABLE_AFMF=1
+    unset PROTON_USE_WOW64 PROTON_MEDIA_FORCE_GST VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL WAYLANDDRV_RAWINPUT
+fi
+
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
     USE_MLFG=0
@@ -1587,13 +1618,13 @@ if [[ "${AUTO_NATIVE_LINUX:-0}" -eq 1 ]]; then
 fi
 
 # Ultra Bleeding-Edge Experimental Mode (default on non-anticheat Proton titles; opt-out via BLEEDING_EDGE=0 or CONSERVATIVE=1)
-if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "${AUTO_NATIVE_LINUX:-0}" -eq 0 && "$APPID" != "594650" ]]; then
+if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "${AUTO_NATIVE_LINUX:-0}" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
     if [[ "$GPU_VENDOR" == "amd" ]]; then
         export PROTON_NATIVE_AGS=1
     fi
     export PROTON_USE_WOW64=1
     export PROTON_MEDIA_FORCE_GST=1
-    if [[ "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 ]]; then
+    if [[ "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 && "$STEAM_CONTROLLER_MODE" == "off" ]]; then
         export WAYLANDDRV_RAWINPUT="${WAYLANDDRV_RAWINPUT:-1}"
     else
         unset WAYLANDDRV_RAWINPUT
@@ -1796,15 +1827,21 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
     fi
     if [[ "$USE_TRANSFER_QUEUE" -eq 1 && ( "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ) ]]; then
         RADV_PERFTEST="${RADV_PERFTEST:+${RADV_PERFTEST},}transfer_queue"
+    else
+        RADV_PERFTEST="$(strip_csv_token "${RADV_PERFTEST:-}" "transfer_queue")"
     fi
     RADV_PERFTEST="$(dedupe_csv_tokens "${RADV_PERFTEST:-sam}")"
     export RADV_PERFTEST="${RADV_PERFTEST:-sam}"
     if [[ "$USE_VK_VIDEO_DECODE" -eq 1 ]]; then
         RADV_EXPERIMENTAL="${RADV_EXPERIMENTAL:+${RADV_EXPERIMENTAL},}video_decode"
+    else
+        RADV_EXPERIMENTAL="$(strip_csv_token "${RADV_EXPERIMENTAL:-}" "video_decode")"
     fi
     if [[ -n "${RADV_EXPERIMENTAL:-}" ]]; then
         RADV_EXPERIMENTAL="$(dedupe_csv_tokens "${RADV_EXPERIMENTAL}")"
         export RADV_EXPERIMENTAL
+    else
+        unset RADV_EXPERIMENTAL
     fi
 fi
 if [[ "$USE_SAFEDX12" -eq 0 ]]; then
@@ -2199,6 +2236,13 @@ cleanup_launch_hooks() {
     fi
     if [[ "$STEAM_INPUT_FORCE_ACTIVE" -eq 1 ]]; then
         STEAM_INPUT_FORCE_ACTIVE=0
+        # Explicitly restore Steam Desktop layout (413080) so the right trackpad returns to
+        # mouse mode immediately on Wayland, then release the URL force lock (0).
+        send_steam_force_input_appid 413080
+        local _reset_delay="${SAP_FORCE_INPUT_RESET_DELAY:-0.2}"
+        if [[ "$_reset_delay" != "0" ]]; then
+            sleep "$_reset_delay" 2>/dev/null || true
+        fi
         send_steam_force_input_appid 0
     fi
     if [[ "$NET_BOOST_ACTIVE" -eq 1 && -n "$NET_BOOST_BIN" ]]; then

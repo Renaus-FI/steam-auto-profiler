@@ -109,6 +109,7 @@ class InstallTests(unittest.TestCase):
             for expected_token in (
                 'idVendor}=="28de"',
                 '1302|1304|1005|1007',
+                '1303|1305',
                 'KERNEL=="hidraw*"',
                 'SUBSYSTEM=="tty"',
                 'KERNEL=="ttyACM*"',

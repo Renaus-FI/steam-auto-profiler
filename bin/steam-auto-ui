@@ -48,6 +48,7 @@ PROFILE_TOGGLES = (
     ("USE_XWAYLAND", "Use XWayland (disable Wayland)"),
     ("USE_FSR4", "FSR 4 Driver Upgrade"),
     ("USE_MLFG", "Frame Generation (MLFG)"),
+    ("USE_AFMF", "AFMF Frame Generation (afmf-linux)"),
     ("USE_SHARPEN", "vkBasalt Sharpening"),
     ("USE_SAFEDX12", "Safe DX12 (disable experimental VKD3D)"),
     ("USE_NET_OPT", "Session Network QoS"),
@@ -125,6 +126,7 @@ _I18N_KEYS: tuple[str, ...] = (
     "val_on", "val_off", "tui_status_help",
     "tip_lang_select", "tip_refresh_library", "tip_save_profile", "tip_dry_run", "tip_safe_mode",
     "sc_mode_auto", "sc_mode_wayland_hdr", "sc_mode_xwayland", "sc_mode_off",
+    "toggle_USE_AFMF", "tip_afmf_locked",
 )
 
 _I18N_PACKS: dict[str, tuple[str, ...]] = {
@@ -161,6 +163,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "On", "Off", "Tabs: 1-5/Tab | L:Lang ({lang}) | q:Quit",
         "Switch interface language live", "Rescan Steam libraries and Non-Steam shortcuts.vdf", "Save validated profile to profiles/<APPID>.env", "Preview resolved launch environment without launching", "Save USE_XWAYLAND=1 and USE_SAFEDX12=1 for crash recovery",
         "Auto", "Wayland + HDR", "XWayland", "Off",
+        "AFMF Frame Generation (afmf-linux)", "Locked off on competitive anti-cheat and VR titles for EAC/frame-timing safety.",
     ),
     "fi": (
         "Steam Auto-Profiler -hallintakeskus", "Kieli:", "Valmis", "Ladataan kirjastoa ja telemetriaa...",
@@ -195,6 +198,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Päällä", "Pois", "Välilehdet: 1-5/Tab | L:Kieli ({lang}) | q:Lopeta",
         "Vaihda käyttöliittymän kieli lennossa", "Skannaa Steam-kirjastot ja shortcuts.vdf uudelleen", "Tallenna tarkistettu profiili tiedostoon profiles/<APPID>.env", "Esikatsele käynnistysmuuttujat käynnistämättä peliä", "Tallenna USE_XWAYLAND=1 ja USE_SAFEDX12=1 kaatumisesta palautumiseen",
         "Auto", "Wayland + HDR", "XWayland", "Pois",
+        "AFMF-kuvagenerointi (afmf-linux)", "Lukittu pois päältä kilpailullisissa huijauksenesto- ja VR-peleissä EAC- ja ajastusturvallisuuden vuoksi.",
     ),
     "ru": (
         "Центр управления Steam Auto-Profiler", "Язык:", "Готово", "Загрузка библиотеки и телеметрии...",
@@ -229,6 +233,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Вкл", "Выкл", "Вкладки: 1-5/Tab | L:Язык ({lang}) | q:Выход",
         "Переключить язык интерфейса на лету", "Повторно просканировать библиотеки Steam и shortcuts.vdf", "Сохранить проверенный профиль в profiles/<APPID>.env", "Показать переменные окружения без запуска игры", "Сохранить USE_XWAYLAND=1 и USE_SAFEDX12=1 после сбоя запуска",
         "Авто", "Wayland + HDR", "XWayland", "Выкл",
+        "Генерация кадров AFMF (afmf-linux)", "Заблокировано для соревновательных игр с античитом и VR ради безопасности EAC и таймингов.",
     ),
     "uk": (
         "Центр керування Steam Auto-Profiler", "Мова:", "Готово", "Завантаження бібліотеки та телеметрії...",
@@ -263,6 +268,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Увімк", "Вимк", "Вкладки: 1-5/Tab | L:Мова ({lang}) | q:Вихід",
         "Змінити мову інтерфейсу на льоту", "Повторно просканувати бібліотеки Steam і shortcuts.vdf", "Зберегти перевірений профіль у profiles/<APPID>.env", "Переглянути змінні запуску без запуску гри", "Зберегти USE_XWAYLAND=1 і USE_SAFEDX12=1 для відновлення після збою",
         "Авто", "Wayland + HDR", "XWayland", "Вимк",
+        "Генерація кадрів AFMF (afmf-linux)", "Заблоковано для змагальних ігор з античітом і VR задля безпеки EAC і таймінгів.",
     ),
     "be": (
         "Цэнтр кіравання Steam Auto-Profiler", "Мова:", "Гатова", "Загрузка бібліятэкі і тэлеметрыі...",
@@ -297,6 +303,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Укл", "Выкл", "Укладкі: 1-5/Tab | L:Мова ({lang}) | q:Выхад",
         "Змяніць мову інтэрфейсу на ляту", "Паўторна прасканаваць бібліятэкі Steam і shortcuts.vdf", "Захаваць правераны профіль у profiles/<APPID>.env", "Паглядзець зменныя запуску без запуску гульні", "Захаваць USE_XWAYLAND=1 і USE_SAFEDX12=1 для аднаўлення пасля збою",
         "Аўта", "Wayland + HDR", "XWayland", "Выкл",
+        "Генерацыя кадраў AFMF (afmf-linux)", "Заблакавана для спаборніцкіх гульняў з антычытам і VR дзеля бяспекі EAC і таймінгаў.",
     ),
     "kk": (
         "Steam Auto-Profiler басқару орталығы", "Тіл:", "Дайын", "Кітапхана мен телеметрия жүктелуде...",
@@ -331,6 +338,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Қосулы", "Өшірулі", "Қойындылар: 1-5/Tab | L:Тіл ({lang}) | q:Шығу",
         "Интерфейс тілін лезде ауыстыру", "Steam кітапханалары мен shortcuts.vdf қайта сканерлеу", "Тексерілген профильді profiles/<APPID>.env файлына сақтау", "Ойынды іске қоспай орта айнымалыларын қарау", "Іске қосу ақауынан кейін USE_XWAYLAND=1 және USE_SAFEDX12=1 сақтау",
         "Авто", "Wayland + HDR", "XWayland", "Өшірулі",
+        "AFMF кадр генерациясы (afmf-linux)", "EAC және кадр уақыты қауіпсіздігі үшін античит және VR ойындарында бұғатталған.",
     ),
     "uz": (
         "Steam Auto-Profiler boshqaruv markazi", "Til:", "Tayyor", "Kutubxona va telemetriya yuklanmoqda...",
@@ -365,6 +373,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Yoqiq", "O'chiq", "Varaqlar: 1-5/Tab | L:Til ({lang}) | q:Chiqish",
         "Interfeys tilini darhol almashtirish", "Steam kutubxonalari va shortcuts.vdfni qayta skanerlash", "Tekshirilgan profilni profiles/<APPID>.env ga saqlash", "O'yinni ochmasdan muhit o'zgaruvchilarini ko'rish", "Nosozlikdan tiklash uchun USE_XWAYLAND=1 va USE_SAFEDX12=1 saqlash",
         "Avto", "Wayland + HDR", "XWayland", "O'chiq",
+        "AFMF kadr generatsiyasi (afmf-linux)", "EAC va kadr vaqti xavfsizligi uchun anticheat va VR o'yinlarida bloklangan.",
     ),
     "hy": (
         "Steam Auto-Profiler կառավարման կենտրոն", "Լեզու՝", "Պատրաստ է", "Բեռնվում են գրադարանը և տելեմետրիան...",
@@ -399,6 +408,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Միացված", "Անջատված", "Ներդիրներ՝ 1-5/Tab | L:Լեզու ({lang}) | q:Ելք",
         "Փոխել միջերեսի լեզուն անմիջապես", "Կրկին սկանավորել Steam գրադարանները և shortcuts.vdf-ը", "Պահպանել ստուգված պրոֆիլը profiles/<APPID>.env-ում", "Դիտել գործարկման փոփոխականները առանց խաղը բացելու", "Պահպանել USE_XWAYLAND=1 և USE_SAFEDX12=1՝ խափանումից վերականգնելու համար",
         "Ավտո", "Wayland + HDR", "XWayland", "Անջատված",
+        "AFMF կադրերի գեներացիա (afmf-linux)", "Արգելափակված է հակաչիթով և VR խաղերում՝ EAC-ի և կադրերի անվտանգության համար։",
     ),
     "az": (
         "Steam Auto-Profiler İdarəetmə Mərkəzi", "Dil:", "Hazırdır", "Kitabxana və telemetriya yüklənir...",
@@ -433,6 +443,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Açıq", "Qapalı", "Tablar: 1-5/Tab | L:Dil ({lang}) | q:Çıxış",
         "İnterfeys dilini canlı dəyişdir", "Steam kitabxanalarını və shortcuts.vdf faylını yenidən skan et", "Yoxlanılmış profili profiles/<APPID>.env faylına yaz", "Oyunu başlatmadan mühit dəyişənlərinə bax", "Qəza bərpası üçün USE_XWAYLAND=1 və USE_SAFEDX12=1 saxla",
         "Avto", "Wayland + HDR", "XWayland", "Qapalı",
+        "AFMF kadr generasiyası (afmf-linux)", "EAC və kadr vaxtı təhlükəsizliyi üçün antiçit və VR oyunlarında kilidlənib.",
     ),
     "ky": (
         "Steam Auto-Profiler башкаруу борбору", "Тил:", "Даяр", "Китепкана жана телеметрия жүктөлүүдө...",
@@ -467,6 +478,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Күйүк", "Өчүк", "Өтмөктөр: 1-5/Tab | L:Тил ({lang}) | q:Чыгуу",
         "Интерфейс тилин дароо алмаштыруу", "Steam китепканаларын жана shortcuts.vdf кайра сканерлөө", "Текшерилген профилди profiles/<APPID>.env ичине сактоо", "Оюнду ачпай чөйрө өзгөрмөлөрүн көрүү", "Катадан калыбына келтирүү үчүн USE_XWAYLAND=1 жана USE_SAFEDX12=1 сактоо",
         "Авто", "Wayland + HDR", "XWayland", "Өчүк",
+        "AFMF кадр генерациясы (afmf-linux)", "EAC жана кадр убактысынын коопсуздугу үчүн античит жана VR оюндарында бөгөттөлгөн.",
     ),
     "tg": (
         "Маркази идоракунии Steam Auto-Profiler", "Забон:", "Омода", "Китобхона ва телеметрия бор мешавад...",
@@ -501,6 +513,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Фаъол", "Хомӯш", "Варақҳо: 1-5/Tab | L:Забон ({lang}) | q:Баромад",
         "Иваз кардани забони интерфейс фавран", "Бозскан кардани китобхонаҳои Steam ва shortcuts.vdf", "Сабти профили тасдиқшуда дар profiles/<APPID>.env", "Дидани тағйирёбандаҳои муҳит бе оғози бозӣ", "Сабти USE_XWAYLAND=1 ва USE_SAFEDX12=1 барои барқарорсозӣ",
         "Авто", "Wayland + HDR", "XWayland", "Хомӯш",
+        "Тавлиди кадрҳои AFMF (afmf-linux)", "Барои амнияти EAC ва вақти кадр дар бозиҳои античит ва VR қулф шудааст.",
     ),
     "pl": (
         "Centrum sterowania Steam Auto-Profiler", "Język:", "Gotowe", "Wczytywanie biblioteki i telemetrii...",
@@ -535,6 +548,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Wł", "Wył", "Karty: 1-5/Tab | L:Język ({lang}) | q:Wyjście",
         "Zmień język interfejsu na żywo", "Przeskanuj ponownie biblioteki Steam i shortcuts.vdf", "Zapisz zweryfikowany profil do profiles/<APPID>.env", "Podgląd zmiennych uruchomieniowych bez włączania gry", "Zapisz USE_XWAYLAND=1 i USE_SAFEDX12=1 do odzyskiwania po awarii",
         "Auto", "Wayland + HDR", "XWayland", "Wył",
+        "Generowanie klatek AFMF (afmf-linux)", "Zablokowane w grach z systemem anti-cheat i VR dla bezpieczeństwa EAC i płynności klatek.",
     ),
     "cs": (
         "Ovládací centrum Steam Auto-Profiler", "Jazyk:", "Připraveno", "Načítání knihovny a telemetrie...",
@@ -569,6 +583,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Zap", "Vyp", "Karty: 1-5/Tab | L:Jazyk ({lang}) | q:Konec",
         "Okamžitě přepnout jazyk rozhraní", "Znovu prohledat knihovny Steam a shortcuts.vdf", "Uložit ověřený profil do profiles/<APPID>.env", "Zobrazit proměnné prostředí bez spuštění hry", "Uložit USE_XWAYLAND=1 a USE_SAFEDX12=1 pro obnovu po pádu",
         "Auto", "Wayland + HDR", "XWayland", "Vyp",
+        "Generování snímků AFMF (afmf-linux)", "Uzamčeno vypnuto u soutěžních her s anti-cheatem a VR kvůli bezpečnosti EAC a časování.",
     ),
     "sk": (
         "Ovládacie centrum Steam Auto-Profiler", "Jazyk:", "Pripravené", "Načítavam knižnicu a telemetriu...",
@@ -603,6 +618,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Zap", "Vyp", "Karty: 1-5/Tab | L:Jazyk ({lang}) | q:Koniec",
         "Okamžite prepnúť jazyk rozhrania", "Znovu preskenovať knižnice Steam a shortcuts.vdf", "Uložiť overený profil do profiles/<APPID>.env", "Zobraziť premenné prostredia bez spustenia hry", "Uložiť USE_XWAYLAND=1 a USE_SAFEDX12=1 na obnovu po páde",
         "Auto", "Wayland + HDR", "XWayland", "Vyp",
+        "Generovanie snímok AFMF (afmf-linux)", "Uzamknuté vypnuté pri súťažných hrách s anti-cheatom a VR kvôli bezpečnosti EAC a časovaniu.",
     ),
     "bg": (
         "Контролен център на Steam Auto-Profiler", "Език:", "Готово", "Зареждане на библиотеката и телеметрията...",
@@ -637,6 +653,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Вкл", "Изкл", "Раздели: 1-5/Tab | L:Език ({lang}) | q:Изход",
         "Смяна на езика на интерфейса в реално време", "Повторно сканиране на Steam библиотеки и shortcuts.vdf", "Запази валидирания профил в profiles/<APPID>.env", "Преглед на променливите без стартиране на играта", "Запази USE_XWAYLAND=1 и USE_SAFEDX12=1 за възстановяване след срив",
         "Авто", "Wayland + HDR", "XWayland", "Изкл",
+        "Генериране на кадри AFMF (afmf-linux)", "Заключено изключено за състезателни игри с античийт и VR за безопасност на EAC и таймингите.",
     ),
     "sr": (
         "Контролни центар Steam Auto-Profiler", "Језик:", "Спремно", "Учитавање библиотеке и телеметрије...",
@@ -671,6 +688,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Укљ", "Искљ", "Картице: 1-5/Tab | L:Језик ({lang}) | q:Излаз",
         "Промените језик интерфејса уживо", "Поново скенирај Steam библиотеке и shortcuts.vdf", "Сачувај проверен профил у profiles/<APPID>.env", "Прегледај променљиве окружења без покретања игре", "Сачувај USE_XWAYLAND=1 и USE_SAFEDX12=1 за опоравак после пада",
         "Ауто", "Wayland + HDR", "XWayland", "Искљ",
+        "Генерисање кадрова AFMF (afmf-linux)", "Закључано искључено за античит и VR наслове ради безбедности EAC-а и тајминга.",
     ),
     "hr": (
         "Kontrolni centar Steam Auto-Profiler", "Jezik:", "Spremno", "Učitavanje biblioteke i telemetrije...",
@@ -705,6 +723,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Uklj", "Isklj", "Kartice: 1-5/Tab | L:Jezik ({lang}) | q:Izlaz",
         "Promijeni jezik sučelja uživo", "Ponovno skeniraj Steam biblioteke i shortcuts.vdf", "Spremi provjereni profil u profiles/<APPID>.env", "Pregledaj varijable okruženja bez pokretanja igre", "Spremi USE_XWAYLAND=1 i USE_SAFEDX12=1 za oporavak nakon rušenja",
         "Auto", "Wayland + HDR", "XWayland", "Isklj",
+        "Generiranje sličica AFMF (afmf-linux)", "Zaključano isključeno na natjecateljskim anti-cheat i VR igrama radi EAC i tajming sigurnosti.",
     ),
     "sl": (
         "Nadzorni center Steam Auto-Profiler", "Jezik:", "Pripravljeno", "Nalaganje knjižnice in telemetrije...",
@@ -739,6 +758,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Vkl", "Izkl", "Zavihki: 1-5/Tab | L:Jezik ({lang}) | q:Izhod",
         "Preklopi jezik vmesnika v živo", "Ponovno preglej knjižnice Steam in shortcuts.vdf", "Shrani preverjen profil v profiles/<APPID>.env", "Predogled spremenljivk okolja brez zagona igre", "Shrani USE_XWAYLAND=1 in USE_SAFEDX12=1 za obnovitev po sesutju",
         "Samod.", "Wayland + HDR", "XWayland", "Izkl",
+        "Generiranje sličic AFMF (afmf-linux)", "Zaklenjeno izklopljeno za tekmovalne igre z anti-cheatom in VR zaradi varnosti EAC in časov.",
     ),
     "de": (
         "Steam Auto-Profiler Kontrollzentrum", "Sprache:", "Bereit", "Bibliothek und Telemetrie werden geladen...",
@@ -773,6 +793,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Ein", "Aus", "Tabs: 1-5/Tab | L:Sprache ({lang}) | q:Beenden",
         "Oberflächensprache live wechseln", "Steam-Bibliotheken und shortcuts.vdf neu scannen", "Geprüftes Profil in profiles/<APPID>.env speichern", "Startumgebung anzeigen ohne das Spiel zu starten", "USE_XWAYLAND=1 und USE_SAFEDX12=1 zur Absturzwiederherstellung speichern",
         "Auto", "Wayland + HDR", "XWayland", "Aus",
+        "AFMF-Frame-Generierung (afmf-linux)", "Bei Anti-Cheat- und VR-Titeln aus EAC- und Frame-Timing-Sicherheitsgründen gesperrt.",
     ),
     "fr": (
         "Centre de contrôle Steam Auto-Profiler", "Langue :", "Prêt", "Chargement de la bibliothèque et de la télémétrie...",
@@ -807,6 +828,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Activé", "Désactivé", "Onglets : 1-5/Tab | L:Langue ({lang}) | q:Quitter",
         "Changer la langue de l'interface à chaud", "Réanalyser les bibliothèques Steam et shortcuts.vdf", "Enregistrer le profil validé dans profiles/<APPID>.env", "Prévisualiser les variables d'environnement sans lancer le jeu", "Enregistrer USE_XWAYLAND=1 et USE_SAFEDX12=1 après un crash",
         "Auto", "Wayland + HDR", "XWayland", "Désactivé",
+        "Génération d'images AFMF (afmf-linux)", "Verrouillé désactivé sur les jeux anti-triche compétitifs et VR pour la sécurité EAC et le timing.",
     ),
     "es": (
         "Centro de control de Steam Auto-Profiler", "Idioma:", "Listo", "Cargando biblioteca y telemetría...",
@@ -841,6 +863,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Sí", "No", "Pestañas: 1-5/Tab | L:Idioma ({lang}) | q:Salir",
         "Cambiar el idioma de la interfaz al instante", "Volver a escanear bibliotecas de Steam y shortcuts.vdf", "Guardar perfil validado en profiles/<APPID>.env", "Previsualizar variables de entorno sin iniciar el juego", "Guardar USE_XWAYLAND=1 y USE_SAFEDX12=1 para recuperarse de cierres",
         "Auto", "Wayland + HDR", "XWayland", "Desactivado",
+        "Generación de fotogramas AFMF (afmf-linux)", "Bloqueado en títulos competitivos con antitrampas y VR por seguridad de EAC y sincronización.",
     ),
     "pt": (
         "Central de Controle Steam Auto-Profiler", "Idioma:", "Pronto", "Carregando biblioteca e telemetria...",
@@ -875,6 +898,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Lig", "Desl", "Abas: 1-5/Tab | L:Idioma ({lang}) | q:Sair",
         "Alternar o idioma da interface em tempo real", "Reescanear bibliotecas Steam e shortcuts.vdf", "Salvar perfil validado em profiles/<APPID>.env", "Visualizar variáveis de ambiente sem abrir o jogo", "Salvar USE_XWAYLAND=1 e USE_SAFEDX12=1 para recuperação de falhas",
         "Auto", "Wayland + HDR", "XWayland", "Desligado",
+        "Geração de quadros AFMF (afmf-linux)", "Bloqueado em jogos competitivos com anticheat e VR por segurança do EAC e tempo de quadros.",
     ),
     "it": (
         "Centro di controllo Steam Auto-Profiler", "Lingua:", "Pronto", "Caricamento libreria e telemetria...",
@@ -909,6 +933,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "On", "Off", "Schede: 1-5/Tab | L:Lingua ({lang}) | q:Esci",
         "Cambia lingua dell'interfaccia in tempo reale", "Riscansiona librerie Steam e shortcuts.vdf", "Salva il profilo validato in profiles/<APPID>.env", "Visualizza le variabili di avvio senza lanciare il gioco", "Salva USE_XWAYLAND=1 e USE_SAFEDX12=1 per il ripristino da crash",
         "Auto", "Wayland + HDR", "XWayland", "Disattivo",
+        "Generazione fotogrammi AFMF (afmf-linux)", "Bloccato su titoli competitivi con anti-cheat e VR per sicurezza EAC e temporizzazione.",
     ),
     "ja": (
         "Steam Auto-Profiler コントロールセンター", "言語:", "準備完了", "ライブラリとテレメトリを読み込み中...",
@@ -943,6 +968,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "オン", "オフ", "タブ: 1-5/Tab | L:言語 ({lang}) | q:終了",
         "UI言語をリアルタイムで切り替え", "Steamライブラリとshortcuts.vdfを再スキャン", "検証済みプロファイルを profiles/<APPID>.env に保存", "ゲームを起動せずに環境変数をプレビュー", "起動クラッシュ復旧用に USE_XWAYLAND=1 と USE_SAFEDX12=1 を保存",
         "自動", "Wayland + HDR", "XWayland", "オフ",
+        "AFMF フレーム生成 (afmf-linux)", "EACおよびフレームタイミングの安全のため、競技アンチチート・VRタイトルでは無効に固定されています。",
     ),
     "ko": (
         "Steam Auto-Profiler 제어 센터", "언어:", "준비됨", "라이브러리 및 텔레메트리 불러오는 중...",
@@ -977,6 +1003,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "켜짐", "꺼짐", "탭: 1-5/Tab | L:언어 ({lang}) | q:종료",
         "인터페이스 언어 실시간 전환", "Steam 라이브러리 및 shortcuts.vdf 다시 스캔", "검증된 프로필을 profiles/<APPID>.env에 저장", "게임을 시작하지 않고 실행 환경 변수 미리보기", "충돌 복구용 USE_XWAYLAND=1 및 USE_SAFEDX12=1 저장",
         "자동", "Wayland + HDR", "XWayland", "꺼짐",
+        "AFMF 프레임 생성 (afmf-linux)", "EAC 및 프레임 타이밍 안전을 위해 경쟁 안티치트 및 VR 타이틀에서는 비활성화로 잠겨 있습니다.",
     ),
     "zh-CN": (
         "Steam Auto-Profiler 控制中心", "语言：", "就绪", "正在加载游戏库与遥测数据...",
@@ -1011,6 +1038,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "开", "关", "标签页: 1-5/Tab | L:语言 ({lang}) | q:退出",
         "实时切换界面语言", "重新扫描 Steam 库与 shortcuts.vdf", "将校验后的配置保存到 profiles/<APPID>.env", "不启动游戏预览最终环境变量", "保存 USE_XWAYLAND=1 与 USE_SAFEDX12=1 用于崩溃恢复",
         "自动", "Wayland + HDR", "XWayland", "关闭",
+        "AFMF 帧生成 (afmf-linux)", "为保障 EAC 与帧时序安全，竞技反作弊与 VR 游戏已强制锁定关闭。",
     ),
     "tr": (
         "Steam Auto-Profiler Kontrol Merkezi", "Dil:", "Hazır", "Kütüphane ve telemetri yükleniyor...",
@@ -1045,6 +1073,7 @@ _I18N_PACKS: dict[str, tuple[str, ...]] = {
         "Açık", "Kapalı", "Sekmeler: 1-5/Tab | L:Dil ({lang}) | q:Çıkış",
         "Arayüz dilini anında değiştir", "Steam kütüphanelerini ve shortcuts.vdf dosyasını yeniden tara", "Doğrulanmış profili profiles/<APPID>.env konumuna kaydet", "Oyunu başlatmadan ortam değişkenlerini önizle", "Çökme kurtarma için USE_XWAYLAND=1 ve USE_SAFEDX12=1 kaydet",
         "Oto", "Wayland + HDR", "XWayland", "Kapalı",
+        "AFMF Kare Üretimi (afmf-linux)", "EAC ve kare zamanlama güvenliği için rekabetçi anti-hile ve VR oyunlarında kapalı olarak kilitlidir.",
     ),
 }
 
@@ -1359,6 +1388,9 @@ def validate_profile(
         if norm["USE_MLFG"] == "1":
             norm["USE_MLFG"] = "0"
             warnings.append("MLFG disabled automatically for competitive-anticheat titles.")
+        if norm["USE_AFMF"] == "1":
+            norm["USE_AFMF"] = "0"
+            warnings.append("AFMF disabled automatically for competitive-anticheat titles.")
         if norm["USE_OPTISCALER"] == "1":
             norm["USE_OPTISCALER"] = "0"
             warnings.append("OptiScaler disabled automatically for competitive-anticheat titles.")
@@ -1372,6 +1404,14 @@ def validate_profile(
             norm["USE_BLEEDING_EDGE"] = "0"
             warnings.append("Ultra Bleeding-Edge disabled automatically for competitive-anticheat titles.")
 
+    if game_class == "vr":
+        if norm["USE_AFMF"] == "1":
+            norm["USE_AFMF"] = "0"
+            warnings.append("AFMF disabled automatically for VR titles.")
+        if norm["USE_MLFG"] == "1":
+            norm["USE_MLFG"] = "0"
+            warnings.append("MLFG disabled automatically for VR titles.")
+
     if norm["USE_BLEEDING_EDGE"] == "1" and norm["USE_SHARPEN"] == "1":
         norm["USE_SHARPEN"] = "0"
         warnings.append("vkBasalt disabled: mutually exclusive with Ultra Bleeding-Edge (FSR 4 active).")
@@ -1381,6 +1421,9 @@ def validate_profile(
         warnings.append("vkBasalt disabled: mutually exclusive with FSR 4 / OptiScaler (prevents HDR10 clipping).")
 
     if norm["USE_MLFG"] == "1":
+        if norm["USE_AFMF"] == "1":
+            norm["USE_AFMF"] = "0"
+            warnings.append("AFMF disabled: mutually exclusive with Frame Generation (MLFG).")
         if norm["USE_REFLEX_LAYER"] == "1":
             norm["USE_REFLEX_LAYER"] = "0"
             warnings.append("Reflex -> Anti-Lag 2 disabled: mutually exclusive with Frame Generation (MLFG).")
@@ -1650,6 +1693,9 @@ class ProfilerBackend:
                 "runtime": "proton",
                 "is_vr": synced_val == "VR",
                 "has_reflex": False,
+                "has_native_fg": False,
+                "is_tool_or_2d": False,
+                "afmf": False,
                 "smart_defaults": {},
                 "synced": synced_val,
                 "has_profile": (self.profile_dir / f"{appid}.env").is_file(),
@@ -1670,6 +1716,9 @@ class ProfilerBackend:
                         info["runtime"] = data.get("runtime", info["runtime"])
                         info["is_vr"] = bool(data.get("is_vr", info["is_vr"]))
                         info["has_reflex"] = bool(data.get("has_reflex", False))
+                        info["has_native_fg"] = bool(data.get("has_native_fg", False))
+                        info["is_tool_or_2d"] = bool(data.get("is_tool_or_2d", False))
+                        info["afmf"] = bool(data.get("afmf", False))
                         if isinstance(data.get("smart_defaults"), dict):
                             info["smart_defaults"] = dict(data["smart_defaults"])
                         info["rationale"] = data.get("rationale", "")
@@ -1759,6 +1808,52 @@ class ProfilerBackend:
             vendor = "intel"
         return vendor, is_rdna3, is_rdna4
 
+    def _detect_afmf_installed(self) -> bool:
+        raw_override = os.environ.get("SAP_AFMF_LAYER_DIRS")
+        if raw_override is not None:
+            search_dirs = [Path(p) for p in raw_override.split(":") if p]
+        else:
+            xdg_data = os.environ.get("XDG_DATA_HOME")
+            search_dirs = [
+                (Path(xdg_data) if xdg_data else self.home / ".local/share") / "vulkan/implicit_layer.d",
+                self.home / ".local/share/vulkan/implicit_layer.d",
+                Path("/usr/local/share/vulkan/implicit_layer.d"),
+                Path("/usr/share/vulkan/implicit_layer.d"),
+                Path("/etc/vulkan/implicit_layer.d"),
+            ]
+            extra_vk = os.environ.get("VK_ADD_IMPLICIT_LAYER_PATH", "")
+            for p in extra_vk.split(":"):
+                if p:
+                    search_dirs.append(Path(p))
+        seen: set[Path] = set()
+        for d in search_dirs:
+            if d in seen or not d.is_dir():
+                continue
+            seen.add(d)
+            for jf in sorted(d.glob("*.json")):
+                try:
+                    data = json.loads(jf.read_text(encoding="utf-8", errors="ignore"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                layer = data.get("layer") if isinstance(data, dict) else None
+                if not isinstance(layer, dict) or layer.get("name") != "VK_LAYER_AFMF":
+                    continue
+                lib_raw = str(layer.get("library_path") or "").strip()
+                if not lib_raw:
+                    continue
+                lib_p = Path(lib_raw)
+                if lib_p.is_absolute():
+                    if lib_p.is_file():
+                        return True
+                elif "/" in lib_raw:
+                    if (d / lib_p).is_file():
+                        return True
+                else:
+                    for ld in (d, self.home / ".local/lib", Path("/usr/local/lib"), Path("/usr/lib"), Path("/usr/lib64")):
+                        if (ld / lib_raw).is_file():
+                            return True
+        return False
+
     def _compute_smart_defaults(self, appid: str, game: dict[str, Any] | None = None) -> dict[str, str]:
         profile: dict[str, str] = {}
         for key, _ in PROFILE_TOGGLES:
@@ -1805,10 +1900,16 @@ class ProfilerBackend:
             game_class = "competitive-anticheat" if is_hunt else str(game.get("class", "standard"))
             is_native = bool(game.get("native_linux")) or str(game.get("runtime", "proton")) == "native_linux"
             has_reflex = bool(game.get("has_reflex", False))
+            is_vr = bool(game.get("is_vr", False)) or game_class == "vr"
+            has_native_fg = bool(game.get("has_native_fg", False))
+            is_tool_or_2d = bool(game.get("is_tool_or_2d", False))
         else:
             game_class = "competitive-anticheat" if aid in known_anticheat else "standard"
             is_native = False
             has_reflex = False
+            is_vr = False
+            has_native_fg = False
+            is_tool_or_2d = aid in {"480", "4690330", "228980", "975370"}
 
         gpu_vendor, is_rdna3, is_rdna4 = self._detect_gpu_caps()
         if gpu_vendor == "amd":
@@ -1822,6 +1923,15 @@ class ProfilerBackend:
                 profile["USE_REFLEX_LAYER"] = "1"
         if game_class != "competitive-anticheat" and not is_native and not is_hunt:
             profile["USE_BLEEDING_EDGE"] = "1"
+        if (
+            self._detect_afmf_installed()
+            and game_class not in ("competitive-anticheat", "vr")
+            and not is_hunt
+            and not is_vr
+            and not has_native_fg
+            and not is_tool_or_2d
+        ):
+            profile["USE_AFMF"] = "1"
         if game_class == "competitive-anticheat":
             profile["USE_NET_OPT"] = "1"
         if is_hunt:
@@ -1863,6 +1973,7 @@ class ProfilerBackend:
             file_keys.add(key)
         if profile.get("USE_CONSERVATIVE") == "1" or profile.get("CONSERVATIVE") == "1":
             for exp_key in (
+                "USE_AFMF",
                 "USE_OPTISCALER",
                 "USE_BLEEDING_EDGE",
                 "USE_TRANSFER_QUEUE",
@@ -2005,6 +2116,7 @@ class ProfilerBackend:
         profile = self.load_profile(appid)
         profile["USE_XWAYLAND"] = "1"
         profile["USE_SAFEDX12"] = "1"
+        profile["USE_AFMF"] = "0"
         profile["USE_OPTISCALER"] = "0"
         profile["USE_BLEEDING_EDGE"] = "0"
         profile["USE_TRANSFER_QUEUE"] = "0"
@@ -2392,6 +2504,7 @@ def run_self_check(backend: ProfilerBackend, lang: str = "en") -> int:
             "USE_FSR4": "1",
             "USE_SHARPEN": "1",
             "USE_MLFG": "1",
+            "USE_AFMF": "1",
             "USE_REFLEX_LAYER": "1",
             "USE_TRANSFER_QUEUE": "1",
             "USE_NATIVE_ANTILAG": "1",
@@ -2401,21 +2514,28 @@ def run_self_check(backend: ProfilerBackend, lang: str = "en") -> int:
         "standard",
     )
     assert norm["USE_SHARPEN"] == "0"
+    assert norm["USE_AFMF"] == "0"
     assert norm["USE_REFLEX_LAYER"] == "0"
     assert norm["USE_TRANSFER_QUEUE"] == "1"
     assert norm["USE_NATIVE_ANTILAG"] == "1"
     assert norm["VRR_CAP"] == ""
     assert norm["AUTO_HDR_SWITCH"] == "1"
-    assert len(warns) >= 3
+    assert len(warns) >= 4
 
     ac_norm, ac_warns = validate_profile(
-        {"USE_REFLEX_LAYER": "1", "USE_NATIVE_ANTILAG": "1", "USE_BLEEDING_EDGE": "1"},
+        {"USE_REFLEX_LAYER": "1", "USE_NATIVE_ANTILAG": "1", "USE_BLEEDING_EDGE": "1", "USE_AFMF": "1"},
         "competitive-anticheat",
     )
     assert ac_norm["USE_REFLEX_LAYER"] == "0"
     assert ac_norm["USE_BLEEDING_EDGE"] == "0"
+    assert ac_norm["USE_AFMF"] == "0"
     assert ac_norm["USE_NATIVE_ANTILAG"] == "1"
-    assert len(ac_warns) >= 2
+    assert len(ac_warns) >= 3
+
+    vr_norm, vr_warns = validate_profile({"USE_AFMF": "1", "USE_MLFG": "1"}, "vr")
+    assert vr_norm["USE_AFMF"] == "0"
+    assert vr_norm["USE_MLFG"] == "0"
+    assert len(vr_warns) >= 2
 
     be_norm, be_warns = validate_profile(
         {"USE_BLEEDING_EDGE": "1", "USE_FSR4": "0", "USE_SHARPEN": "1", "USE_STEAM_CONTROLLER": "wayland-hdr"},
@@ -2635,12 +2755,30 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
         prof["VRR_CAP"] = vrr_edit.text().strip()
         return prof
 
+    def is_afmf_locked(game: dict[str, Any]) -> bool:
+        if not game:
+            return False
+        g_cls = str(game.get("class", "standard"))
+        return g_cls in ("competitive-anticheat", "vr") or bool(game.get("is_vr")) or str(game.get("appid", "")) == "594650"
+
+    def update_afmf_lock_state() -> None:
+        afmf_cb = checkboxes.get("USE_AFMF")
+        if afmf_cb is None:
+            return
+        if is_afmf_locked(current_game):
+            afmf_cb.setEnabled(False)
+            afmf_cb.setToolTip(t("tip_afmf_locked"))
+        else:
+            afmf_cb.setEnabled(True)
+            afmf_cb.setToolTip("")
+
     def apply_editor_profile(prof: dict[str, str], warns: list[str]) -> None:
         nonlocal updating_ui
         updating_ui = True
         try:
             for key, cb in checkboxes.items():
                 cb.setChecked(prof.get(key, "0") == "1")
+            update_afmf_lock_state()
             if sc_combo is not None:
                 sc_val = prof.get("USE_STEAM_CONTROLLER", "auto")
                 sc_idx = sc_combo.findData(sc_val)
@@ -2650,11 +2788,16 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
         finally:
             updating_ui = False
 
-    def on_toggle_changed() -> None:
+    def on_toggle_changed(changed_key: str | None = None) -> None:
         if updating_ui or not current_game:
             return
+        prof = collect_editor_profile()
+        if changed_key == "USE_AFMF" and prof.get("USE_AFMF") == "1" and prof.get("USE_MLFG") == "1":
+            prof["USE_MLFG"] = "0"
+        elif changed_key == "USE_MLFG" and prof.get("USE_MLFG") == "1" and prof.get("USE_AFMF") == "1":
+            prof["USE_AFMF"] = "0"
         norm, warns = validate_profile(
-            collect_editor_profile(),
+            prof,
             current_game.get("class", "standard"),
             appid=current_game.get("appid", ""),
         )
@@ -2664,8 +2807,8 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
                 warns = [hunt_warn, *warns]
         apply_editor_profile(norm, warns)
 
-    for cb in checkboxes.values():
-        cb.stateChanged.connect(lambda _state: on_toggle_changed())
+    for key, cb in checkboxes.items():
+        cb.stateChanged.connect(lambda _state, k=key: on_toggle_changed(k))
     if sc_combo is not None:
         sc_combo.currentIndexChanged.connect(lambda _idx: on_toggle_changed())
     vrr_edit.editingFinished.connect(on_toggle_changed)
@@ -3113,6 +3256,7 @@ def run_qt_gui(backend: ProfilerBackend, lang: str = "en") -> int:
             selected_label.setText(t("select_game_prompt"))
         for key, cb in checkboxes.items():
             cb.setText(t(f"toggle_{key}"))
+        update_afmf_lock_state()
         if sc_label is not None and sc_combo is not None:
             sc_label.setText(t("toggle_USE_STEAM_CONTROLLER"))
             sc_combo.setItemText(0, t("sc_mode_auto"))
@@ -3329,7 +3473,7 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         f"SDK: {cur.get('upscaler_info', 'None detected')}",
                         max_x - split_x - 1,
                     )
-                    hotkeys = ("x", "f", "m", "b", "d", "n", "l", "o", "u", "h", "t", "a", "r", "V", "e", "c")
+                    hotkeys = ("x", "f", "m", "g", "b", "d", "n", "l", "o", "u", "h", "t", "a", "r", "V", "e", "c")
                     for i, ((k, _label), hk) in enumerate(zip(PROFILE_TOGGLES, hotkeys)):
                         if 4 + i >= max_y - 2:
                             break
@@ -3444,6 +3588,7 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                         ord("x"): "USE_XWAYLAND",
                         ord("f"): "USE_FSR4",
                         ord("m"): "USE_MLFG",
+                        ord("g"): "USE_AFMF",
                         ord("b"): "USE_SHARPEN",
                         ord("d"): "USE_SAFEDX12",
                         ord("n"): "USE_NET_OPT",
@@ -3472,7 +3617,12 @@ def run_curses_tui(backend: ProfilerBackend, lang: str = "en") -> int:
                             }.get(cur_sc, "auto")
                             profile_cache[k] = next_sc
                         else:
-                            profile_cache[k] = "0" if profile_cache.get(k, "0") == "1" else "1"
+                            new_val = "0" if profile_cache.get(k, "0") == "1" else "1"
+                            profile_cache[k] = new_val
+                            if k == "USE_AFMF" and new_val == "1":
+                                profile_cache["USE_MLFG"] = "0"
+                            elif k == "USE_MLFG" and new_val == "1":
+                                profile_cache["USE_AFMF"] = "0"
                         profile_cache, warns = validate_profile(profile_cache, cur["class"], appid=cur["appid"])
                         status_msg = warns[0] if warns else f"Toggled {k}={profile_cache[k]}"
                     elif ch == ord("v"):

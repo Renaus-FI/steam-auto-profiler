@@ -430,6 +430,30 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(prof_opt0.get("USE_REFLEX_LAYER"), "0")
         self.assertEqual(prof_opt0.get("USE_VK_VIDEO_DECODE"), "0")
 
+        # v2.4.0 AFMF flags migrate cleanly and --report includes AFMF column
+        rep_afmf, prof_afmf = module.sanitize_launch_option(
+            "361423",
+            "AFMF_ENABLE=1 AFMF_PACING=1 AFMF_PRESENT_MODE=auto %command%",
+            profile_dir,
+            dry_run=True,
+        )
+        self.assertEqual(rep_afmf, "steam-auto-run %command%")
+        self.assertEqual(prof_afmf.get("USE_AFMF"), "1")
+
+        rep_noafmf, prof_noafmf = module.sanitize_launch_option(
+            "361424",
+            "DISABLE_AFMF=1 %command%",
+            profile_dir,
+            dry_run=True,
+        )
+        self.assertEqual(rep_noafmf, "steam-auto-run %command%")
+        self.assertEqual(prof_noafmf.get("USE_AFMF"), "0")
+
+        report_res = self.run_sync("--report")
+        self.assertEqual(report_res.returncode, 0, report_res.stderr)
+        self.assertIn("AFMF", report_res.stdout)
+        self.assertIn("Locked", report_res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,11 @@ class ReleaseHardeningTests(unittest.TestCase):
             "XWAYLAND",
             "MLFG",
             "USE_MLFG",
+            "AFMF",
+            "USE_AFMF",
+            "AFMF_ENABLE",
+            "DISABLE_AFMF",
+            "RADV_EXPERIMENTAL",
             "VRR_MINUS_MARGIN",
         ):
             env.pop(key, None)
@@ -383,6 +388,64 @@ class ReleaseHardeningTests(unittest.TestCase):
             self.assertFalse(pending_flag.exists())
             self.assertTrue(prism_pack.exists(), "PrismLauncher shaderpacks must be preserved")
             self.assertTrue(prism_in_steam.exists(), "PrismLauncher inside Steam dir must be preserved")
+
+    def test_v24_afmf_conservative_opt_out_and_doctor_no_warn_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            layer_dir = tmp_path / "vk-layers"
+            layer_dir.mkdir()
+            fake_so = tmp_path / "libafmf-linux.so"
+            fake_so.write_bytes(b"\x7fELF")
+            (layer_dir / "afmf-linux.json").write_text(
+                json.dumps({
+                    "file_format_version": "1.0.0",
+                    "layer": {
+                        "name": "VK_LAYER_AFMF",
+                        "type": "GLOBAL",
+                        "library_path": str(fake_so),
+                        "enable_environment": {"AFMF_ENABLE": "1"},
+                        "disable_environment": {"DISABLE_AFMF": "1"},
+                    },
+                }),
+                encoding="utf-8",
+            )
+            empty_dir = tmp_path / "vk-empty"
+            empty_dir.mkdir()
+
+            env = self._base_env(tmp_path)
+            env["SAP_AFMF_LAYER_DIRS"] = str(layer_dir)
+
+            # Standard title with AFMF installed auto-enables AFMF_ENABLE=1, and CONSERVATIVE=1 disables it
+            res_on = subprocess.run(
+                [str(BIN_DIR / "steam-auto-run"), "--dry-run", "999010"],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(res_on.returncode, 0, res_on.stderr)
+            self.assertIn("AFMF_ENABLE=1", res_on.stdout)
+
+            res_cons = subprocess.run(
+                [str(BIN_DIR / "steam-auto-run"), "--dry-run", "999010"],
+                capture_output=True, text=True, env={**env, "CONSERVATIVE": "1"},
+            )
+            self.assertEqual(res_cons.returncode, 0, res_cons.stderr)
+            self.assertNotIn("AFMF_ENABLE=1", res_cons.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_cons.stdout)
+
+            # --doctor emits [OK] when installed+gated and [INFO] (never [WARN]) when absent
+            res_doc_on = subprocess.run(
+                [str(BIN_DIR / "steam-auto-run"), "--doctor"],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(res_doc_on.returncode, 0, res_doc_on.stderr)
+            self.assertIn("[OK] afmf-linux (VK_LAYER_AFMF)", res_doc_on.stdout)
+
+            res_doc_off = subprocess.run(
+                [str(BIN_DIR / "steam-auto-run"), "--doctor"],
+                capture_output=True, text=True, env={**env, "SAP_AFMF_LAYER_DIRS": str(empty_dir)},
+            )
+            self.assertEqual(res_doc_off.returncode, 0, res_doc_off.stderr)
+            self.assertIn("[INFO] afmf-linux (VK_LAYER_AFMF) not installed", res_doc_off.stdout)
+            self.assertNotIn("[WARN] afmf-linux", res_doc_off.stdout)
 
 
 if __name__ == "__main__":

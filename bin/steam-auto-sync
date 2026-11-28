@@ -104,6 +104,8 @@ MANAGED_ENV_PREFIXES = (
     "BLEEDING_EDGE=", "USE_BLEEDING_EDGE=",
     "CONSERVATIVE=", "USE_CONSERVATIVE=",
     "STEAM_CONTROLLER=", "USE_STEAM_CONTROLLER=",
+    "AFMF=", "USE_AFMF=", "AFMF_ENABLE=", "DISABLE_AFMF=",
+    "AFMF_GAMESCOPE=", "AFMF_PACING=", "AFMF_PRESENT_MODE=",
 )
 RETIRED_PROTON_VARS = {
     "PROTON_ENABLE_HDR",
@@ -388,6 +390,14 @@ def sanitize_launch_option(appid, launch_options, profile_dir, dry_run=False, wr
                 profile["USE_CONSERVATIVE"] = "1"
             elif value in ("0", "false", "FALSE"):
                 profile["USE_CONSERVATIVE"] = "0"
+        elif key in ("AFMF", "USE_AFMF", "AFMF_ENABLE"):
+            if value in ("1", "true", "TRUE"):
+                profile["USE_AFMF"] = "1"
+            elif value in ("0", "false", "FALSE"):
+                profile["USE_AFMF"] = "0"
+        elif key == "DISABLE_AFMF":
+            if value in ("1", "true", "TRUE"):
+                profile["USE_AFMF"] = "0"
         elif key in ("STEAM_CONTROLLER", "USE_STEAM_CONTROLLER"):
             low_val = value.strip().lower()
             if low_val in ("auto", ""):
@@ -757,33 +767,46 @@ def main():
                         synced_label = "Yes"
                     else:
                         synced_label = "No"
+                    game_cls = report.get("class", "standard")
+                    if game_cls in ("competitive-anticheat", "vr") or appid == "594650":
+                        afmf_label = "Locked"
+                    elif report.get("afmf"):
+                        afmf_label = "On" if profile_file.is_file() else "Auto"
+                    elif report.get("has_native_fg"):
+                        afmf_label = "Native FG"
+                    elif report.get("is_tool_or_2d"):
+                        afmf_label = "2D/Tool"
+                    else:
+                        afmf_label = "Off"
                     rows.append({
                         "appid": appid,
                         "name": name,
                         "source": source,
-                        "class": report.get("class", "standard"),
+                        "class": game_cls,
+                        "afmf": afmf_label,
                         "compat": report.get("proton_add_config", "-") or "-",
                         "profile": "Saved" if profile_file.is_file() else "Auto",
                         "synced": synced_label,
                     })
 
-                headers = ("AppID", "Game Name", "Source", "Class", "Compat Tokens", "Profile", "Synced")
+                headers = ("AppID", "Game Name", "Source", "Class", "AFMF", "Compat Tokens", "Profile", "Synced")
                 if rows:
                     widths = [
                         max(len(headers[0]), *(len(row["appid"]) for row in rows)),
                         max(len(headers[1]), *(len(row["name"]) for row in rows)),
                         max(len(headers[2]), *(len(row["source"]) for row in rows)),
                         max(len(headers[3]), *(len(row["class"]) for row in rows)),
-                        max(len(headers[4]), *(len(row["compat"]) for row in rows)),
-                        max(len(headers[5]), *(len(row["profile"]) for row in rows)),
-                        max(len(headers[6]), *(len(row["synced"]) for row in rows)),
+                        max(len(headers[4]), *(len(row["afmf"]) for row in rows)),
+                        max(len(headers[5]), *(len(row["compat"]) for row in rows)),
+                        max(len(headers[6]), *(len(row["profile"]) for row in rows)),
+                        max(len(headers[7]), *(len(row["synced"]) for row in rows)),
                     ]
                     print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
                     print("-+-".join("-" * width for width in widths))
                     for row in rows:
                         values = (
                             row["appid"], row["name"], row["source"], row["class"],
-                            row["compat"], row["profile"], row["synced"],
+                            row["afmf"], row["compat"], row["profile"], row["synced"],
                         )
                         print(" | ".join(value.ljust(width) for value, width in zip(values, widths)))
                 else:

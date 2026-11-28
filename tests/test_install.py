@@ -42,6 +42,7 @@ class InstallTests(unittest.TestCase):
                 "STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR": str(tmp_path / "sys-bin"),
                 "STEAM_AUTO_PROFILER_SUDOERS_DIR": str(tmp_path / "sudoers.d"),
                 "STEAM_AUTO_PROFILER_UDEV_DIR": str(tmp_path / "udev.d"),
+                "STEAM_AUTO_PROFILER_PACMAN_HOOKS_DIR": str(tmp_path / "pacman-hooks"),
             }
             res_install = subprocess.run(
                 [str(ROOT / "install.sh")],
@@ -88,6 +89,7 @@ class InstallTests(unittest.TestCase):
                 "STEAM_AUTO_PROFILER_SYSTEM_BIN_DIR": str(tmp_path / "sys-bin"),
                 "STEAM_AUTO_PROFILER_SUDOERS_DIR": str(tmp_path / "sudoers.d"),
                 "STEAM_AUTO_PROFILER_UDEV_DIR": str(udev_dir),
+                "STEAM_AUTO_PROFILER_PACMAN_HOOKS_DIR": str(tmp_path / "pacman-hooks"),
             }
             res_help = subprocess.run([str(ROOT / "install.sh"), "--help"], env=env, text=True, capture_output=True)
             self.assertEqual(res_help.returncode, 0)

@@ -69,6 +69,10 @@ class VrRunTests(unittest.TestCase):
                 "ENABLE_VKBASALT": "1",
                 "PROTON_MLFG_UPGRADE": "1",
                 "MLFG_UPGRADE": "1",
+                "AFMF_ENABLE": "1",
+                "AFMF_GAMESCOPE": "1",
+                "AFMF_PACING": "1",
+                "AFMF_PRESENT_MODE": "auto",
             }
             env.update(scrubbed)
 
@@ -81,6 +85,7 @@ class VrRunTests(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 0, res.stderr)
             self.assertIn("Steam Auto-Profiler VR dry run", res.stdout)
+            self.assertIn("DISABLE_AFMF=1", res.stdout)
             for var in scrubbed:
                 self.assertNotIn(f"{var}=", res.stdout)
 
@@ -93,6 +98,7 @@ class VrRunTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(res_exec.returncode, 0, res_exec.stderr)
+            self.assertIn("DISABLE_AFMF=1", res_exec.stdout)
             for var in scrubbed:
                 self.assertNotIn(f"{var}=", res_exec.stdout)
 

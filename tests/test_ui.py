@@ -163,6 +163,92 @@ class UiTests(unittest.TestCase):
         self.assertEqual(hunt_norm["USE_NET_OPT"], "1")
         self.assertTrue(any("594650" in w for w in hunt_warns))
 
+        # v2.4.0: AFMF mutual exclusion with MLFG and hard locks on competitive-anticheat, 594650, and VR
+        afmf_mlfg, afmf_mlfg_warns = ui.validate_profile({"USE_MLFG": "1", "USE_AFMF": "1"}, "standard")
+        self.assertEqual(afmf_mlfg["USE_MLFG"], "1")
+        self.assertEqual(afmf_mlfg["USE_AFMF"], "0")
+        self.assertTrue(any("AFMF" in w for w in afmf_mlfg_warns))
+
+        afmf_ac, afmf_ac_warns = ui.validate_profile({"USE_AFMF": "1"}, "competitive-anticheat")
+        self.assertEqual(afmf_ac["USE_AFMF"], "0")
+        self.assertTrue(any("AFMF" in w for w in afmf_ac_warns))
+
+        afmf_hunt, _ = ui.validate_profile({"USE_AFMF": "1"}, "standard", appid="594650")
+        self.assertEqual(afmf_hunt["USE_AFMF"], "0")
+
+        afmf_vr, afmf_vr_warns = ui.validate_profile({"USE_AFMF": "1", "USE_MLFG": "1"}, "vr")
+        self.assertEqual(afmf_vr["USE_AFMF"], "0")
+        self.assertEqual(afmf_vr["USE_MLFG"], "0")
+        self.assertGreaterEqual(len(afmf_vr_warns), 2)
+
+    def test_v24_afmf_smart_defaults_reset_and_safe_mode_in_ui_backend(self):
+        ui = _load_ui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            layer_dir = home / "vk-layers"
+            layer_dir.mkdir()
+            fake_so = home / "libafmf-linux.so"
+            fake_so.write_bytes(b"\x7fELF")
+            (layer_dir / "afmf-linux.json").write_text(
+                json.dumps({
+                    "file_format_version": "1.0.0",
+                    "layer": {
+                        "name": "VK_LAYER_AFMF",
+                        "type": "GLOBAL",
+                        "library_path": str(fake_so),
+                        "enable_environment": {"AFMF_ENABLE": "1"},
+                    },
+                }),
+                encoding="utf-8",
+            )
+            empty_dir = home / "vk-empty"
+            empty_dir.mkdir()
+
+            steamapps = home / ".local/share/Steam/steamapps"
+            gdir = steamapps / "common/AFMF_Test_Game"
+            gdir.mkdir(parents=True)
+            (gdir / "game.exe").touch()
+            (gdir / "d3d12.dll").touch()
+            (steamapps / "appmanifest_991001.acf").write_text(
+                '"AppState"\n{\n\t"appid"\t\t"991001"\n\t"installdir"\t\t"AFMF_Test_Game"\n\t"name"\t\t"AFMF Test Game"\n}\n',
+                encoding="utf-8",
+            )
+
+            orig_env = {k: os.environ.get(k) for k in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "SAP_AFMF_LAYER_DIRS")}
+            os.environ["XDG_CONFIG_HOME"] = str(home / ".config")
+            os.environ["XDG_STATE_HOME"] = str(home / ".local" / "state")
+            os.environ["SAP_AFMF_LAYER_DIRS"] = str(layer_dir)
+            try:
+                backend = ui.ProfilerBackend(home=home)
+                # Installed afmf-linux -> USE_AFMF=1 on standard 3D title
+                prof_on = backend.load_profile("991001")
+                self.assertEqual(prof_on["USE_AFMF"], "1")
+
+                # Explicit save USE_AFMF=0 wins, and Reset Profile restores USE_AFMF=1
+                backend.save_profile("991001", {"USE_AFMF": "0"}, "standard")
+                self.assertEqual(backend.load_profile("991001")["USE_AFMF"], "0")
+                backend.reset_profile("991001")
+                self.assertEqual(backend.load_profile("991001")["USE_AFMF"], "1")
+
+                # Safe mode disables USE_AFMF
+                backend.apply_safe_mode("991001")
+                self.assertEqual(backend.load_profile("991001")["USE_AFMF"], "0")
+
+                # Anti-cheat (594650 / 2357570) stays USE_AFMF=0
+                self.assertEqual(backend.load_profile("594650")["USE_AFMF"], "0")
+                self.assertEqual(backend.load_profile("2357570")["USE_AFMF"], "0")
+
+                # Absent afmf-linux -> USE_AFMF=0 on reset
+                backend.reset_profile("991001")
+                os.environ["SAP_AFMF_LAYER_DIRS"] = str(empty_dir)
+                self.assertEqual(backend.load_profile("991001")["USE_AFMF"], "0")
+            finally:
+                for k, v in orig_env.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
     def test_hunt_compat_tool_diagnostic_in_ui_backend(self):
         ui = _load_ui_module()
         with tempfile.TemporaryDirectory() as tmp:
@@ -784,6 +870,10 @@ class UiTests(unittest.TestCase):
                 self.assertTrue(isinstance(val, str) and val.strip(), f"Empty translation {code}.{k}")
             # Verify fallback for unknown key gracefully returns key itself
             self.assertEqual(ui.tr(code, "__nonexistent_key__"), "__nonexistent_key__")
+            # v2.4.0: Verify AFMF toggle and locked tooltip exist in all 27 languages
+            for afmf_key in ("toggle_USE_AFMF", "tip_afmf_locked"):
+                self.assertNotEqual(ui.tr(code, afmf_key), afmf_key)
+                self.assertTrue(ui.tr(code, afmf_key).strip())
 
         # Locale normalization & env precedence
         self.assertEqual(ui.normalize_lang("zh_CN.UTF-8"), "zh-CN")

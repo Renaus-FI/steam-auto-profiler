@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -530,6 +531,7 @@ class RunTests(unittest.TestCase):
             for key in (
                 "SAFEDX12", "XWAYLAND", "NO_GUI", "FORCE_GUI", "CONSERVATIVE",
                 "BLEEDING_EDGE", "TRANSFER_QUEUE", "REFLEX_LAYER", "VK_VIDEO_DECODE", "OPTISCALER",
+                "RADV_EXPERIMENTAL", "AFMF", "USE_AFMF", "AFMF_ENABLE", "DISABLE_AFMF",
             ):
                 env.pop(key, None)
             env.update({
@@ -556,6 +558,7 @@ class RunTests(unittest.TestCase):
             self.assertIn("Stage 1", notify_log.read_text(encoding="utf-8"))
 
             saved1 = (profile_dir / "361420.env").read_text(encoding="utf-8")
+            self.assertIn("USE_AFMF=0", saved1)
             self.assertIn("USE_OPTISCALER=0", saved1)
             self.assertIn("USE_BLEEDING_EDGE=0", saved1)
             self.assertIn("USE_REFLEX_LAYER=0", saved1)
@@ -1960,6 +1963,198 @@ class RunTests(unittest.TestCase):
             self.assertEqual(res_ok.returncode, 0, res_ok.stderr)
             self.assertIn("[OK] Automatic Mesa shader-cleanup pacman hook installed", res_ok.stdout)
             self.assertIn("[WARN] Pending Steam shader cache cleanup", res_ok.stdout)
+
+    def test_v24_smart_auto_afmf_vrr_pacing_guards_and_crash_recovery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            steamapps = home / ".local/share/Steam/steamapps"
+            common = steamapps / "common"
+
+            def add_game(appid: str, name: str, files: tuple[str, ...]) -> None:
+                gdir = common / name.replace(" ", "_")
+                gdir.mkdir(parents=True, exist_ok=True)
+                for rel in files:
+                    p = gdir / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.touch()
+                (steamapps / f"appmanifest_{appid}.acf").write_text(
+                    f'"AppState"\n{{\n\t"appid"\t\t"{appid}"\n\t"installdir"\t\t"{gdir.name}"\n\t"name"\t\t"{name}"\n}}\n',
+                    encoding="utf-8",
+                )
+
+            add_game("7101", "Cyber 3D Title", ("game.exe", "d3d12.dll"))
+            add_game("7102", "Native FG Title", ("game.exe", "nvngx_dlssg.dll"))
+            add_game("7103", "AC Protected", ("game.exe", "EasyAntiCheat/EasyAntiCheat.exe"))
+            add_game("7104", "VR Title", ("game.exe", "openvr_api.dll"))
+            add_game("594650", "Hunt Showdown 1896", ("hunt.exe",))
+
+            layer_dir = home / "vk-layers"
+            layer_dir.mkdir()
+            fake_so = home / "libafmf-linux.so"
+            fake_so.write_bytes(b"\x7fELF")
+            (layer_dir / "afmf-linux.json").write_text(
+                json.dumps({
+                    "file_format_version": "1.0.0",
+                    "layer": {
+                        "name": "VK_LAYER_AFMF",
+                        "type": "GLOBAL",
+                        "library_path": str(fake_so),
+                        "enable_environment": {"AFMF_ENABLE": "1"},
+                        "disable_environment": {"DISABLE_AFMF": "1"},
+                    },
+                }),
+                encoding="utf-8",
+            )
+            empty_layer_dir = home / "vk-layers-empty"
+            empty_layer_dir.mkdir()
+
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            ks = mock_bin / "kscreen-doctor"
+            ks.write_text(
+                "#!/bin/sh\n"
+                'printf "Output: 1 DP-1 uuid-1\\n\\tenabled\\n\\tModes: 1:3440x1440@239.98*\\n"\n',
+                encoding="utf-8",
+            )
+            ks.chmod(0o755)
+
+            env = os.environ.copy()
+            for k in (
+                "AFMF", "USE_AFMF", "AFMF_ENABLE", "DISABLE_AFMF", "AFMF_GAMESCOPE",
+                "MLFG", "USE_MLFG", "CONSERVATIVE", "USE_CONSERVATIVE",
+                "VRR_CAP", "VRR_MINUS_MARGIN", "DXVK_FRAME_RATE", "VKD3D_FRAME_RATE",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "RADV_EXPERIMENTAL",
+                "NO_GUI", "FORCE_GUI",
+            ):
+                env.pop(k, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_AFMF_LAYER_DIRS": str(layer_dir),
+                "WAYLAND_DISPLAY": "wayland-0",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+
+            # 1) Zero-touch AFMF auto-activates with VRR half-cap (240 -> 120), native low-latency, MLFG=0
+            res_auto = subprocess.run([str(RUN), "--dry-run", "7101"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_auto.returncode, 0, res_auto.stderr)
+            self.assertIn("AFMF: enabled (afmf-linux; VRR half-cap=120)", res_auto.stdout)
+            self.assertIn("AFMF_ENABLE=1", res_auto.stdout)
+            self.assertIn("AFMF_PACING=1", res_auto.stdout)
+            self.assertIn("AFMF_PRESENT_MODE=auto", res_auto.stdout)
+            self.assertNotIn("DISABLE_AFMF=1", res_auto.stdout)
+            self.assertIn("DXVK_FRAME_RATE=120", res_auto.stdout)
+            self.assertIn("VKD3D_FRAME_RATE=120", res_auto.stdout)
+            self.assertIn("PROTON_MLFG_UPGRADE=0", res_auto.stdout)
+            self.assertIn("MLFG_UPGRADE=0", res_auto.stdout)
+            self.assertIn("ENABLE_LAYER_MESA_ANTI_LAG=0", res_auto.stdout)
+            self.assertIn("PROTON_DXVK_LOWLATENCY=1", res_auto.stdout)
+            self.assertIn("PROTON_VKD3D_LOWLATENCY=1", res_auto.stdout)
+
+            # With VRR_MINUS_MARGIN=1 (225 -> half-cap 112)
+            res_margin = subprocess.run(
+                [str(RUN), "--dry-run", "7101"], env={**env, "VRR_MINUS_MARGIN": "1"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_margin.returncode, 0, res_margin.stderr)
+            self.assertIn("DXVK_FRAME_RATE=112", res_margin.stdout)
+            self.assertIn("VKD3D_FRAME_RATE=112", res_margin.stdout)
+
+            # Gamescope exports AFMF_GAMESCOPE=1 and omits caps unless VRR_CAP explicit
+            res_gs = subprocess.run(
+                [str(RUN), "--dry-run", "7101"], env={**env, "GAMESCOPE_WAYLAND_DISPLAY": "gamescope-0"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_gs.returncode, 0, res_gs.stderr)
+            self.assertIn("AFMF_ENABLE=1", res_gs.stdout)
+            self.assertIn("AFMF_GAMESCOPE=1", res_gs.stdout)
+            self.assertNotIn("DXVK_FRAME_RATE=", res_gs.stdout)
+
+            # 2) AFMF=0, USE_AFMF=0, and CONSERVATIVE=1 opt out cleanly and restore 240 Hz cap
+            for opt_out in ({"AFMF": "0"}, {"USE_AFMF": "0"}, {"CONSERVATIVE": "1"}):
+                res_off = subprocess.run(
+                    [str(RUN), "--dry-run", "7101"], env={**env, **opt_out},
+                    text=True, capture_output=True, check=False,
+                )
+                self.assertEqual(res_off.returncode, 0, res_off.stderr)
+                self.assertNotIn("AFMF_ENABLE=1", res_off.stdout)
+                self.assertIn("DISABLE_AFMF=1", res_off.stdout)
+                self.assertIn("DXVK_FRAME_RATE=240", res_off.stdout)
+
+            # 3) MLFG=1 mutually excludes AFMF
+            res_mlfg = subprocess.run(
+                [str(RUN), "--dry-run", "7101"], env={**env, "MLFG": "1"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_mlfg.returncode, 0, res_mlfg.stderr)
+            self.assertNotIn("AFMF_ENABLE=1", res_mlfg.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_mlfg.stdout)
+            self.assertIn("PROTON_MLFG_UPGRADE=1", res_mlfg.stdout)
+            self.assertIn("MLFG_UPGRADE=1", res_mlfg.stdout)
+
+            # 4) Native FG title disables AFMF by default, but allows explicit AFMF=1 override
+            res_fg = subprocess.run([str(RUN), "--dry-run", "7102"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_fg.returncode, 0, res_fg.stderr)
+            self.assertNotIn("AFMF_ENABLE=1", res_fg.stdout)
+            self.assertIn("AFMF: disabled (native FG detected)", res_fg.stdout)
+
+            res_fg_force = subprocess.run(
+                [str(RUN), "--dry-run", "7102"], env={**env, "AFMF": "1"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_fg_force.returncode, 0, res_fg_force.stderr)
+            self.assertIn("AFMF_ENABLE=1", res_fg_force.stdout)
+
+            # 5) Hard locks on competitive-anticheat, AppID 594650, and VR reject AFMF=1 and scrub AFMF_ENABLE
+            for locked_id in ("7103", "594650", "7104"):
+                res_lock = subprocess.run(
+                    [str(RUN), "--dry-run", locked_id],
+                    env={**env, "AFMF": "1", "AFMF_ENABLE": "1"},
+                    text=True, capture_output=True, check=False,
+                )
+                self.assertEqual(res_lock.returncode, 0, res_lock.stderr)
+                self.assertNotIn("AFMF_ENABLE=1", res_lock.stdout, f"AFMF_ENABLE leaked on {locked_id}")
+                self.assertIn("DISABLE_AFMF=1", res_lock.stdout)
+
+            # Early SteamVR (250820) and -vr bypass also scrub inherited AFMF_ENABLE=1
+            res_svr = subprocess.run(
+                [str(RUN), "/usr/bin/env"],
+                env={**env, "SteamAppId": "250820", "AFMF_ENABLE": "1"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_svr.returncode, 0, res_svr.stderr)
+            self.assertNotIn("AFMF_ENABLE=1", res_svr.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_svr.stdout)
+
+            # 6) Stage 1 fast-crash recovery (< 20s) persists USE_AFMF=0 so next launch auto-disables AFMF
+            crash_env = {**env, "GAMEID": "7101"}
+            res_crash = subprocess.run(
+                [str(RUN), "/bin/sh", "-c", "exit 1"],
+                env=crash_env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_crash.returncode, 1)
+            prof_7101 = (home / ".config/steam-auto-profiler/profiles/7101.env").read_text(encoding="utf-8")
+            self.assertIn("USE_AFMF=0", prof_7101)
+            res_after_crash = subprocess.run([str(RUN), "--dry-run", "7101"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_after_crash.returncode, 0, res_after_crash.stderr)
+            self.assertNotIn("AFMF_ENABLE=1", res_after_crash.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_after_crash.stdout)
+
+            # 7) --doctor reports [OK] when installed & env-gated, and [INFO] (never [WARN]) when absent
+            res_doc_ok = subprocess.run([str(RUN), "--doctor"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_doc_ok.returncode, 0, res_doc_ok.stderr)
+            self.assertIn("[OK] afmf-linux (VK_LAYER_AFMF) installed with strict AFMF_ENABLE=1 env-gate", res_doc_ok.stdout)
+
+            res_doc_abs = subprocess.run(
+                [str(RUN), "--doctor"], env={**env, "SAP_AFMF_LAYER_DIRS": str(empty_layer_dir)},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_doc_abs.returncode, 0, res_doc_abs.stderr)
+            self.assertIn("[INFO] afmf-linux (VK_LAYER_AFMF) not installed", res_doc_abs.stdout)
+            self.assertNotIn("[WARN] afmf-linux", res_doc_abs.stdout)
 
 
 if __name__ == "__main__":

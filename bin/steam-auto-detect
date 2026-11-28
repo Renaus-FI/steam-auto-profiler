@@ -92,6 +92,10 @@ AUTO_NATIVE_ANTILAG=0
 AUTO_REFLEX_LAYER=0
 AUTO_VK_VIDEO_DECODE=0
 AUTO_BLEEDING_EDGE=0
+AUTO_AFMF=0
+AUTO_AFMF_INSTALLED=0
+AUTO_HAS_NATIVE_FG=0
+AUTO_IS_TOOL_OR_2D=0
 AUTO_STEAM_CONTROLLER_MODE="off"
 AUTO_NATIVE_LINUX=0
 AUTO_IS_VR=0
@@ -188,6 +192,59 @@ detect_rdna4() {
         echo 1
         return
     fi
+    echo 0
+}
+
+detect_afmf_layer() {
+    local -a search_dirs=()
+    local -A seen_dirs=()
+    local dir json_file lib_path resolved_lib
+    if [[ -n "${SAP_AFMF_LAYER_DIRS+x}" ]]; then
+        IFS=':' read -r -a search_dirs <<<"$SAP_AFMF_LAYER_DIRS"
+    else
+        local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}"
+        search_dirs=(
+            "$xdg_data/vulkan/implicit_layer.d"
+            "$HOME/.local/share/vulkan/implicit_layer.d"
+            "/usr/local/share/vulkan/implicit_layer.d"
+            "/usr/share/vulkan/implicit_layer.d"
+            "/etc/vulkan/implicit_layer.d"
+        )
+        if [[ -n "${VK_ADD_IMPLICIT_LAYER_PATH:-}" ]]; then
+            local -a extra_dirs=()
+            IFS=':' read -r -a extra_dirs <<<"$VK_ADD_IMPLICIT_LAYER_PATH"
+            search_dirs+=("${extra_dirs[@]}")
+        fi
+    fi
+
+    for dir in "${search_dirs[@]}"; do
+        [[ -n "$dir" && -d "$dir" && -z "${seen_dirs[$dir]:-}" ]] || continue
+        seen_dirs["$dir"]=1
+        for json_file in "$dir/afmf-linux.json" "$dir"/*.json; do
+            [[ -f "$json_file" && -r "$json_file" ]] || continue
+            grep -q '"VK_LAYER_AFMF"' "$json_file" 2>/dev/null || continue
+            lib_path="$(sed -n 's/.*"library_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$json_file" | head -n1)"
+            [[ -n "$lib_path" ]] || continue
+            resolved_lib=""
+            if [[ "$lib_path" == /* ]]; then
+                [[ -f "$lib_path" ]] && resolved_lib="$lib_path"
+            elif [[ "$lib_path" == */* ]]; then
+                [[ -f "$dir/$lib_path" ]] && resolved_lib="$dir/$lib_path"
+            else
+                local lib_dir
+                for lib_dir in "$dir" "$HOME/.local/lib" "/usr/local/lib" "/usr/lib" "/usr/lib64"; do
+                    if [[ -f "$lib_dir/$lib_path" ]]; then
+                        resolved_lib="$lib_dir/$lib_path"
+                        break
+                    fi
+                done
+            fi
+            if [[ -n "$resolved_lib" ]]; then
+                echo 1
+                return
+            fi
+        done
+    done
     echo 0
 }
 
@@ -377,12 +434,28 @@ PY
         UPSCALE_MATCH=""
         CEF_MATCH=""
         EXE_MATCH=""
+        HAS_ELECTRON_OR_CEF=0
+        HAS_3D_ENGINE=0
         while IFS= read -r asset; do
             base="${asset##*/}"; lower="${base,,}"
             case "$lower" in
                 openvr_api.dll|openvr_api.so|openxr_loader.dll|libopenxr_loader.so*|*.vrmanifest|*steamvr*manifest*)
                     AUTO_IS_VR=1
                     [[ -n "$VR_MATCH" ]] || VR_MATCH="$asset"
+                    ;;
+            esac
+            case "$lower" in
+                amd_fidelityfx_framegeneration*.dll|ffx_fsr3fg*.dll|ffx_frameinterpolation*.dll|nvngx_dlssg*.dll|sl.dlss_g*.dll|libxefg*.dll|xefg*.dll|optiscaler*.dll|optiscaler.ini|dlssg_to_fsr3*.dll)
+                    AUTO_HAS_NATIVE_FG=1
+                    HAS_3D_ENGINE=1
+                    ;;
+            esac
+            case "$lower" in
+                electron|electron.exe|app.asar|libcef.dll|libcef.so|chrome_elf.dll|nw.exe|nw.dll|libnw.so)
+                    HAS_ELECTRON_OR_CEF=1
+                    ;;
+                d3d11*.dll|d3d12*.dll|dxgi*.dll|d3dcompiler_*.dll|dxcompiler.dll|vulkan-1.dll|libvulkan.so*|unityplayer.dll|unityplayer.so|gameassembly.dll|physx*.dll|crysystem.dll|nvngx_*.dll|amd_fidelityfx*.dll|ffx_*.dll|libxess*.dll|sl.interposer.dll|sl.reflex.dll|*.ucas|*.utoc|*-windowsnoeditor.pak|*-windows.pak|bink2*.dll|fmod*.dll|engine.dll|tier0.dll)
+                    HAS_3D_ENGINE=1
                     ;;
             esac
             case "$lower" in
@@ -461,6 +534,21 @@ PY
         AUTO_NATIVE_LINUX=1
     fi
 
+    # Detect Steam runtimes/tools and pure 2D/text/Electron/browser apps (AUTO_IS_TOOL_OR_2D)
+    case "$APPID" in
+        480|4690330|228980|975370|1070560|1391110|1628350|1826330|858210|961940|1054830|1113280|1245040|1420170|1493710|1580130|1887720|2180100|2348590|2805730)
+            AUTO_IS_TOOL_OR_2D=1
+            ;;
+    esac
+    case "${GAME_NAME,,}" in
+        *"legacy steam runtime"*|proton*|*"steam linux runtime"*|*"steamworks"*"redistributable"*|*"geoguessr"*|*"dwarf fortress"*|*"wallpaper engine"*|*"lossless scaling"*|*"soundpad"*)
+            AUTO_IS_TOOL_OR_2D=1
+            ;;
+    esac
+    if [[ "${HAS_ELECTRON_OR_CEF:-0}" -eq 1 && "${HAS_3D_ENGINE:-0}" -eq 0 ]]; then
+        AUTO_IS_TOOL_OR_2D=1
+    fi
+
     IS_ANTICHEAT=0
     case "$APPID" in
         594650)
@@ -533,8 +621,9 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
     AUTO_RDNA3="$(detect_rdna3)"
     AUTO_RDNA4="$(detect_rdna4)"
 fi
+AUTO_AFMF_INSTALLED="$(detect_afmf_layer)"
 
-# Smart hardware- and class-aware experimental defaults (v2.2.0 / v2.3.0)
+# Smart hardware- and class-aware experimental defaults (v2.2.0 / v2.3.0 / v2.4.0)
 if [[ "$GPU_VENDOR" == "amd" ]]; then
     AUTO_NATIVE_ANTILAG=1
     AUTO_VK_VIDEO_DECODE=1
@@ -551,6 +640,15 @@ fi
 if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" ]]; then
     AUTO_BLEEDING_EDGE=1
 fi
+if [[ "$AUTO_AFMF_INSTALLED" -eq 1 &&
+      "$AUTO_CLASS" != "competitive-anticheat" &&
+      "$APPID" != "594650" &&
+      "$AUTO_CLASS" != "vr" &&
+      "$AUTO_IS_VR" -eq 0 &&
+      "$AUTO_HAS_NATIVE_FG" -eq 0 &&
+      "$AUTO_IS_TOOL_OR_2D" -eq 0 ]]; then
+    AUTO_AFMF=1
+fi
 DEFAULT_AUTO_HDR_SWITCH=0
 if [[ ( -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ) &&
       "$AUTO_XWAYLAND" -eq 0 && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" &&
@@ -565,6 +663,7 @@ DEFAULT_REFLEX_LAYER="$AUTO_REFLEX_LAYER"
 DEFAULT_VK_VIDEO_DECODE="$AUTO_VK_VIDEO_DECODE"
 DEFAULT_BLEEDING_EDGE="$AUTO_BLEEDING_EDGE"
 DEFAULT_OPTISCALER="$AUTO_OPTISCALER"
+DEFAULT_AFMF="$AUTO_AFMF"
 
 ORIG_USE_STEAM_CONTROLLER_SET=0
 ORIG_USE_STEAM_CONTROLLER=""
@@ -584,6 +683,8 @@ ORIG_USE_BLEEDING_EDGE_SET=0; ORIG_USE_BLEEDING_EDGE=""
 if [[ -n "${USE_BLEEDING_EDGE+x}" ]]; then ORIG_USE_BLEEDING_EDGE_SET=1; ORIG_USE_BLEEDING_EDGE="$USE_BLEEDING_EDGE"; fi
 ORIG_USE_OPTISCALER_SET=0; ORIG_USE_OPTISCALER=""
 if [[ -n "${USE_OPTISCALER+x}" ]]; then ORIG_USE_OPTISCALER_SET=1; ORIG_USE_OPTISCALER="$USE_OPTISCALER"; fi
+ORIG_USE_AFMF_SET=0; ORIG_USE_AFMF=""
+if [[ -n "${USE_AFMF+x}" ]]; then ORIG_USE_AFMF_SET=1; ORIG_USE_AFMF="$USE_AFMF"; fi
 ORIG_AUTO_HDR_SWITCH_SET=0; ORIG_AUTO_HDR_SWITCH=""
 if [[ -n "${AUTO_HDR_SWITCH+x}" ]]; then ORIG_AUTO_HDR_SWITCH_SET=1; ORIG_AUTO_HDR_SWITCH="$AUTO_HDR_SWITCH"; fi
 ORIG_USE_CONSERVATIVE_SET=0; ORIG_USE_CONSERVATIVE=""
@@ -605,6 +706,7 @@ USE_REFLEX_LAYER="$AUTO_REFLEX_LAYER"
 USE_VK_VIDEO_DECODE="$AUTO_VK_VIDEO_DECODE"
 USE_BLEEDING_EDGE="$AUTO_BLEEDING_EDGE"
 USE_OPTISCALER="$AUTO_OPTISCALER"
+USE_AFMF="$AUTO_AFMF"
 AUTO_HDR_SWITCH="$DEFAULT_AUTO_HDR_SWITCH"
 USE_CONSERVATIVE=0
 
@@ -628,6 +730,7 @@ if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
     USE_VK_VIDEO_DECODE=0
     USE_BLEEDING_EDGE=0
     USE_OPTISCALER=0
+    USE_AFMF=0
 fi
 
 if [[ "$ORIG_USE_TRANSFER_QUEUE_SET" -eq 1 ]]; then apply_bool_override USE_TRANSFER_QUEUE "$ORIG_USE_TRANSFER_QUEUE"; fi
@@ -642,6 +745,8 @@ if [[ "$ORIG_USE_BLEEDING_EDGE_SET" -eq 1 ]]; then apply_bool_override USE_BLEED
 if [[ -n "${BLEEDING_EDGE+x}" ]]; then apply_bool_override USE_BLEEDING_EDGE "$BLEEDING_EDGE"; fi
 if [[ "$ORIG_USE_OPTISCALER_SET" -eq 1 ]]; then apply_bool_override USE_OPTISCALER "$ORIG_USE_OPTISCALER"; fi
 if [[ -n "${OPTISCALER+x}" ]]; then apply_bool_override USE_OPTISCALER "$OPTISCALER"; fi
+if [[ "$ORIG_USE_AFMF_SET" -eq 1 ]]; then apply_bool_override USE_AFMF "$ORIG_USE_AFMF"; fi
+if [[ -n "${AFMF+x}" ]]; then apply_bool_override USE_AFMF "$AFMF"; fi
 if [[ "$ORIG_AUTO_HDR_SWITCH_SET" -eq 1 ]]; then apply_bool_override AUTO_HDR_SWITCH "$ORIG_AUTO_HDR_SWITCH"; fi
 if [[ "$ORIG_USE_MLFG_SET" -eq 1 ]]; then apply_bool_override USE_MLFG "$ORIG_USE_MLFG"; fi
 if [[ -n "${MLFG+x}" ]]; then apply_bool_override USE_MLFG "$MLFG"; fi
@@ -663,11 +768,18 @@ AUTO_REFLEX_LAYER="$USE_REFLEX_LAYER"
 AUTO_VK_VIDEO_DECODE="$USE_VK_VIDEO_DECODE"
 AUTO_BLEEDING_EDGE="$USE_BLEEDING_EDGE"
 AUTO_OPTISCALER="$USE_OPTISCALER"
+AUTO_AFMF="$USE_AFMF"
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" || "$APPID" == "594650" ]]; then
     AUTO_BLEEDING_EDGE=0
     AUTO_REFLEX_LAYER=0
     AUTO_OPTISCALER=0
+    AUTO_AFMF=0
+    USE_AFMF=0
+fi
+if [[ "$AUTO_CLASS" == "vr" || "$AUTO_IS_VR" -eq 1 ]]; then
+    AUTO_AFMF=0
+    USE_AFMF=0
 fi
 if [[ "$APPID" == "594650" ]]; then
     USE_MLFG=0
@@ -676,6 +788,7 @@ fi
 if [[ "${USE_MLFG:-0}" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$APPID" != "594650" ]]; then
     AUTO_NATIVE_ANTILAG=0
     AUTO_REFLEX_LAYER=0
+    AUTO_AFMF=0
 fi
 if [[ "$AUTO_NATIVE_LINUX" -eq 1 ]]; then
     AUTO_BLEEDING_EDGE=0
@@ -799,7 +912,8 @@ if [[ "$JSON_MODE" -eq 1 ]]; then
         "$AUTO_STEAM_CONTROLLER_MODE" "$GPU_VENDOR" "$AUTO_RDNA3" "$AUTO_RDNA4" \
         "$DEFAULT_TRANSFER_QUEUE" "$DEFAULT_NATIVE_ANTILAG" "$DEFAULT_REFLEX_LAYER" \
         "$DEFAULT_VK_VIDEO_DECODE" "$DEFAULT_BLEEDING_EDGE" "$DEFAULT_OPTISCALER" \
-        "$DEFAULT_AUTO_HDR_SWITCH" "$AUTO_HDR_SWITCH" <<'PY'
+        "$DEFAULT_AUTO_HDR_SWITCH" "$AUTO_HDR_SWITCH" \
+        "$AUTO_HAS_NATIVE_FG" "$AUTO_IS_TOOL_OR_2D" "$AUTO_AFMF_INSTALLED" "$AUTO_AFMF" "$DEFAULT_AFMF" <<'PY'
 import json
 import sys
 
@@ -811,7 +925,8 @@ import sys
     transfer_queue, native_antilag, reflex_layer, vk_video_decode,
     steam_controller_mode, gpu_vendor, rdna3, rdna4,
     def_tq, def_na, def_rl, def_vd, def_be, def_opti, def_hdr, auto_hdr,
-) = sys.argv[1:41]
+    has_native_fg, is_tool_or_2d, afmf_installed, afmf, def_afmf,
+) = sys.argv[1:46]
 
 print(json.dumps({
     "app_id": appid or None,
@@ -825,6 +940,13 @@ print(json.dumps({
     "cef_fix": cef_fix == "1",
     "sharpen_layer": sharpen == "1",
     "optiscaler": optiscaler == "1",
+    "afmf_installed": afmf_installed == "1",
+    "afmf": afmf == "1",
+    "has_native_fg": has_native_fg == "1",
+    "is_tool_or_2d": is_tool_or_2d == "1",
+    "AUTO_HAS_NATIVE_FG": int(has_native_fg == "1"),
+    "AUTO_IS_TOOL_OR_2D": int(is_tool_or_2d == "1"),
+    "AUTO_AFMF": int(afmf == "1"),
     "auto_hdr_switch": auto_hdr == "1",
     "xwayland": xwayland == "1",
     "safedx12": safedx12 == "1",
@@ -848,6 +970,7 @@ print(json.dumps({
         "USE_SAFEDX12": safedx12,
         "USE_NET_OPT": net_opt,
         "USE_OPTISCALER": def_opti,
+        "USE_AFMF": def_afmf,
         "USE_SHARPEN": "0",
         "USE_FSR4": "1",
         "USE_MLFG": "0",
@@ -881,6 +1004,10 @@ Net QoS Hook : $AUTO_NET_OPT
 CEF Fix      : $AUTO_CEF_FIX
 Sharpen Layer: $AUTO_SHARPEN
 OptiScaler   : $AUTO_OPTISCALER
+AFMF Layer   : $([[ "$AUTO_AFMF_INSTALLED" -eq 1 ]] && echo "Installed (VK_LAYER_AFMF)" || echo "Not installed")
+Auto AFMF    : $AUTO_AFMF
+Native FG DLL: $AUTO_HAS_NATIVE_FG
+Tool / 2D App: $AUTO_IS_TOOL_OR_2D
 Auto HDR Sw  : $AUTO_HDR_SWITCH
 Transfer Q   : $AUTO_TRANSFER_QUEUE
 Native AntiL : $AUTO_NATIVE_ANTILAG
@@ -901,6 +1028,10 @@ else
     printf 'AUTO_CLASS=%q\n' "$AUTO_CLASS"
     printf 'AUTO_PRESET=%q\n' "$AUTO_PRESET"
     printf 'AUTO_OPTISCALER=%q\n' "$AUTO_OPTISCALER"
+    printf 'AUTO_AFMF=%q\n' "$AUTO_AFMF"
+    printf 'AUTO_AFMF_INSTALLED=%q\n' "$AUTO_AFMF_INSTALLED"
+    printf 'AUTO_HAS_NATIVE_FG=%q\n' "$AUTO_HAS_NATIVE_FG"
+    printf 'AUTO_IS_TOOL_OR_2D=%q\n' "$AUTO_IS_TOOL_OR_2D"
     printf 'AUTO_SHARPEN=%q\n' "$AUTO_SHARPEN"
     printf 'AUTO_NET_OPT=%q\n' "$AUTO_NET_OPT"
     printf 'AUTO_CEF_FIX=%q\n' "$AUTO_CEF_FIX"

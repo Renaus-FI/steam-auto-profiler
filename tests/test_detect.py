@@ -421,6 +421,126 @@ class DetectTests(unittest.TestCase):
             self.assertFalse(rep["optiscaler"], f"Expected optiscaler=False for {aid} ({rep['class']})")
             self.assertEqual(rep["smart_defaults"]["USE_OPTISCALER"], "0")
 
+    def test_v24_smart_auto_afmf_heuristics_and_guards(self):
+        layer_dir = self.home / "vk-layers"
+        layer_dir.mkdir()
+        fake_so = self.home / "libafmf-linux.so"
+        fake_so.write_bytes(b"\x7fELF")
+        (layer_dir / "afmf-linux.json").write_text(
+            json.dumps({
+                "file_format_version": "1.0.0",
+                "layer": {
+                    "name": "VK_LAYER_AFMF",
+                    "type": "GLOBAL",
+                    "library_path": str(fake_so),
+                    "enable_environment": {"AFMF_ENABLE": "1"},
+                    "disable_environment": {"DISABLE_AFMF": "1"},
+                },
+            }),
+            encoding="utf-8",
+        )
+        empty_layer_dir = self.home / "vk-layers-empty"
+        empty_layer_dir.mkdir()
+
+        base_env = os.environ.copy()
+        for k in ("AFMF", "USE_AFMF", "MLFG", "USE_MLFG", "CONSERVATIVE", "USE_CONSERVATIVE"):
+            base_env.pop(k, None)
+        base_env["HOME"] = str(self.home)
+        base_env["SAP_AFMF_LAYER_DIRS"] = str(layer_dir)
+
+        def run_json(appid, extra_env=None):
+            env = {**base_env, **(extra_env or {})}
+            out = subprocess.run(
+                [str(DETECT), "--inspect", "--json", str(appid)],
+                env=env, text=True, capture_output=True, check=True,
+            ).stdout
+            return json.loads(out)
+
+        # 1) Standard 3D game gets AUTO_AFMF=1 when afmf-linux is installed, 0 when absent
+        self.create_game("6101", "Standard 3D Game", files=("game.exe", "d3d12.dll"))
+        rep_on = run_json("6101")
+        self.assertTrue(rep_on["afmf_installed"])
+        self.assertTrue(rep_on["afmf"])
+        self.assertEqual(rep_on["AUTO_AFMF"], 1)
+        self.assertEqual(rep_on["AUTO_HAS_NATIVE_FG"], 0)
+        self.assertEqual(rep_on["AUTO_IS_TOOL_OR_2D"], 0)
+        self.assertEqual(rep_on["smart_defaults"]["USE_AFMF"], "1")
+
+        # Verify default shell eval output exposes AUTO_HAS_NATIVE_FG, AUTO_IS_TOOL_OR_2D, AUTO_AFMF
+        raw_eval = subprocess.run(
+            [str(DETECT), "6101"], env=base_env, text=True, capture_output=True, check=True
+        ).stdout
+        self.assertIn("AUTO_AFMF=1", raw_eval)
+        self.assertIn("AUTO_HAS_NATIVE_FG=0", raw_eval)
+        self.assertIn("AUTO_IS_TOOL_OR_2D=0", raw_eval)
+
+        rep_absent = run_json("6101", {"SAP_AFMF_LAYER_DIRS": str(empty_layer_dir)})
+        self.assertFalse(rep_absent["afmf_installed"])
+        self.assertFalse(rep_absent["afmf"])
+        self.assertEqual(rep_absent["AUTO_AFMF"], 0)
+        self.assertEqual(rep_absent["smart_defaults"]["USE_AFMF"], "0")
+
+        # 2) Native FG libraries set AUTO_HAS_NATIVE_FG=1 and AUTO_AFMF=0
+        fg_cases = (
+            ("6110", "FSR31 FG Game", ("game.exe", "amd_fidelityfx_framegeneration_dx12.dll")),
+            ("6111", "FSR3 FG Game", ("game.exe", "ffx_fsr3fg_x64.dll")),
+            ("6112", "FFX Interp Game", ("game.exe", "ffx_frameinterpolation_x64.dll")),
+            ("6113", "DLSSG Game", ("game.exe", "nvngx_dlssg.dll")),
+            ("6114", "Streamline DLSSG", ("game.exe", "sl.dlss_g.dll")),
+            ("6115", "XeFG Lib Game", ("game.exe", "libxefg.dll")),
+            ("6116", "XeFG Game", ("game.exe", "xefg.dll")),
+            ("6117", "OptiScaler FG Game", ("game.exe", "OptiScaler.ini")),
+        )
+        for aid, gname, files in fg_cases:
+            with self.subTest(fg_game=gname):
+                self.create_game(aid, gname, files=files)
+                rep = run_json(aid)
+                self.assertTrue(rep["has_native_fg"])
+                self.assertEqual(rep["AUTO_HAS_NATIVE_FG"], 1)
+                self.assertFalse(rep["afmf"])
+                self.assertEqual(rep["AUTO_AFMF"], 0)
+
+        # 3) Steam tools/runtimes, pure 2D/text, and Electron/CEF-only apps set AUTO_IS_TOOL_OR_2D=1 and AUTO_AFMF=0
+        tool_2d_cases = (
+            ("480", "Spacewar", ("spacewar.exe",)),
+            ("4690330", "Steam Tool App", ("tool.exe",)),
+            ("6120", "Legacy Steam Runtime", ("run.sh",)),
+            ("6121", "Proton 11.0", ("proton",)),
+            ("6122", "Steamworks Common Redistributables", ("vcredist.exe",)),
+            ("6123", "GeoGuessr", ("GeoGuessr.exe",)),
+            ("6124", "Dwarf Fortress", ("Dwarf Fortress.exe",)),
+            ("6125", "Electron Only App", ("electron.exe", "resources/app.asar", "chrome_elf.dll")),
+        )
+        for aid, gname, files in tool_2d_cases:
+            with self.subTest(tool_or_2d=gname):
+                self.create_game(aid, gname, files=files)
+                rep = run_json(aid)
+                self.assertTrue(rep["is_tool_or_2d"])
+                self.assertEqual(rep["AUTO_IS_TOOL_OR_2D"], 1)
+                self.assertFalse(rep["afmf"])
+                self.assertEqual(rep["AUTO_AFMF"], 0)
+
+        # 3D game with embedded CEF + DX12 DLL is NOT classified as Electron/CEF-only 2D
+        self.create_game("6126", "3D Game With CEF", files=("game.exe", "libcef.dll", "d3d12.dll"))
+        rep_cef_3d = run_json("6126")
+        self.assertFalse(rep_cef_3d["is_tool_or_2d"])
+        self.assertTrue(rep_cef_3d["afmf"])
+
+        # 4) Hard locks on competitive-anticheat, AppID 594650, and VR ignore AFMF=1
+        self.create_game("6130", "AC Locked", files=("game.exe", "EasyAntiCheat/EasyAntiCheat.exe"))
+        self.create_game("594650", "Hunt Showdown 1896", files=("hunt.exe",))
+        self.create_game("6131", "VR Locked", files=("game.exe", "openvr_api.dll"))
+        for locked_id in ("6130", "594650", "6131"):
+            rep_lock = run_json(locked_id, {"AFMF": "1"})
+            self.assertFalse(rep_lock["afmf"], f"AFMF must remain locked off for {locked_id}")
+            self.assertEqual(rep_lock["AUTO_AFMF"], 0)
+
+        # 5) AFMF=0, CONSERVATIVE=1, and MLFG=1 opt out cleanly; explicit AFMF=1 works on non-locked native-FG title
+        self.assertFalse(run_json("6101", {"AFMF": "0"})["afmf"])
+        self.assertFalse(run_json("6101", {"CONSERVATIVE": "1"})["afmf"])
+        self.assertFalse(run_json("6101", {"MLFG": "1"})["afmf"])
+        self.assertTrue(run_json("6113", {"AFMF": "1"})["afmf"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,12 +30,16 @@ if [[ $# -gt 0 ]]; then
             -h|--help|--inspect|-i|--doctor|--check-system|--reset|--list-profiles|--last-log|--configure|--dry-run|--ui|--reapply-input)
                 ;;
             *)
+                unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+                export DISABLE_AFMF=1
                 exec "$@"
                 ;;
         esac
     fi
     for _arg in "$@"; do
         if [[ "$_arg" == "-vr" || "$_arg" == "--vr" ]]; then
+            unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+            export DISABLE_AFMF=1
             exec "$@"
         fi
     done
@@ -101,7 +105,8 @@ Environment overrides:
   VRR_MINUS_MARGIN=1 Enable optional 6% VRR safety margin (e.g. 225 FPS on 240 Hz)
   XWAYLAND=1        Force XWayland instead of native Wayland
   WAYLANDDRV_SHORTCUT_INHIBIT=1 Allow shortcut inhibition under Wine Wayland
-  MLFG=1            Enable frame generation (disables Anti-Lag and VRR caps)
+  MLFG=1            Enable frame generation (disables Anti-Lag, AFMF, and VRR caps)
+  AFMF=0|1          User-space afmf-linux frame generation (auto 1 when VK_LAYER_AFMF installed on non-AC/non-VR 3D titles without native FG; 0 opts out)
   OPTISCALER=0|1    OptiScaler bridge (auto 1 on AMD RDNA 3/4 legacy-upscaler titles; guarded off for anti-cheat)
   SHARPEN=1         Enable vkBasalt sharpening (disabled when FSR4/OptiScaler active)
   SAFEDX12=1        Omit experimental VKD3D_CONFIG flags and vkd3dbindlesstb token
@@ -123,7 +128,7 @@ Environment overrides:
   REFLEX_LAYER=0|1    Reflex -> Anti-Lag 2 layer (auto 1 on AMD non-anticheat with Reflex/DLSS DLLs; off in anti-cheat/MLFG)
   VK_VIDEO_DECODE=0|1 Mesa 27.0 Vulkan video decode RADV_EXPERIMENTAL=video_decode (default 1 on AMD; 0 opts out)
   BLEEDING_EDGE=0|1   Ultra Bleeding-Edge Mesa 27 / VKD3D 12_2 / SM 6_8 / Proton 11 stack (default 1 on non-anticheat Proton; 0 opts out)
-  CONSERVATIVE=1      Master opt-out disabling all experimental defaults (OPTISCALER, BLEEDING_EDGE, TRANSFER_QUEUE, NATIVE_ANTILAG, REFLEX_LAYER, VK_VIDEO_DECODE)
+  CONSERVATIVE=1      Master opt-out disabling all experimental defaults (AFMF, OPTISCALER, BLEEDING_EDGE, TRANSFER_QUEUE, NATIVE_ANTILAG, REFLEX_LAYER, VK_VIDEO_DECODE)
   USE_STEAM_CONTROLLER=auto|wayland-hdr|xwayland|off
                     Route Steam Controller 2026 / Puck (28de:{1302,1304,1005,1007}) via native Wayland+HDR + forceinputappid (default on Wayland), XWayland fallback, or off (legacy 1/0 supported)
 EOF
@@ -616,6 +621,68 @@ PY
     if [[ -f "$pending_shader_flag" ]]; then
         echo "[WARN] Pending Steam shader cache cleanup flagged from a Mesa upgrade while Steam was running; close Steam and run 'steam-auto-clean-shaders'"
     fi
+
+    local -a afmf_dirs=()
+    local -A afmf_seen=()
+    local afmf_dir="" afmf_json="" afmf_found_manifest="" afmf_found_lib="" afmf_raw_lib="" afmf_env_gated=0
+    if [[ -n "${SAP_AFMF_LAYER_DIRS+x}" ]]; then
+        IFS=':' read -r -a afmf_dirs <<<"$SAP_AFMF_LAYER_DIRS"
+    else
+        local xdg_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+        afmf_dirs=(
+            "$xdg_data_dir/vulkan/implicit_layer.d"
+            "$HOME/.local/share/vulkan/implicit_layer.d"
+            "/usr/local/share/vulkan/implicit_layer.d"
+            "/usr/share/vulkan/implicit_layer.d"
+            "/etc/vulkan/implicit_layer.d"
+        )
+        if [[ -n "${VK_ADD_IMPLICIT_LAYER_PATH:-}" ]]; then
+            local -a afmf_extra=()
+            IFS=':' read -r -a afmf_extra <<<"$VK_ADD_IMPLICIT_LAYER_PATH"
+            afmf_dirs+=("${afmf_extra[@]}")
+        fi
+    fi
+    for afmf_dir in "${afmf_dirs[@]}"; do
+        [[ -n "$afmf_dir" && -d "$afmf_dir" && -z "${afmf_seen[$afmf_dir]:-}" ]] || continue
+        afmf_seen["$afmf_dir"]=1
+        for afmf_json in "$afmf_dir/afmf-linux.json" "$afmf_dir"/*.json; do
+            [[ -f "$afmf_json" && -r "$afmf_json" ]] || continue
+            grep -q '"VK_LAYER_AFMF"' "$afmf_json" 2>/dev/null || continue
+            afmf_found_manifest="$afmf_json"
+            afmf_raw_lib="$(sed -n 's/.*"library_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$afmf_json" | head -n1)"
+            if grep -q '"enable_environment"' "$afmf_json" 2>/dev/null &&
+               grep -q '"AFMF_ENABLE"' "$afmf_json" 2>/dev/null; then
+                afmf_env_gated=1
+            fi
+            if [[ -n "$afmf_raw_lib" ]]; then
+                if [[ "$afmf_raw_lib" == /* ]]; then
+                    [[ -f "$afmf_raw_lib" ]] && afmf_found_lib="$afmf_raw_lib"
+                elif [[ "$afmf_raw_lib" == */* ]]; then
+                    [[ -f "$afmf_dir/$afmf_raw_lib" ]] && afmf_found_lib="$afmf_dir/$afmf_raw_lib"
+                else
+                    local afmf_ldir=""
+                    for afmf_ldir in "$afmf_dir" "$HOME/.local/lib" "/usr/local/lib" "/usr/lib" "/usr/lib64"; do
+                        if [[ -f "$afmf_ldir/$afmf_raw_lib" ]]; then
+                            afmf_found_lib="$afmf_ldir/$afmf_raw_lib"
+                            break
+                        fi
+                    done
+                fi
+            fi
+            break 2
+        done
+    done
+    if [[ -n "$afmf_found_manifest" && -n "$afmf_found_lib" ]]; then
+        if [[ "$afmf_env_gated" -eq 1 ]]; then
+            echo "[OK] afmf-linux (VK_LAYER_AFMF) installed with strict AFMF_ENABLE=1 env-gate: $afmf_found_manifest -> $afmf_found_lib"
+        else
+            echo "[INFO] afmf-linux (VK_LAYER_AFMF) installed at $afmf_found_manifest -> $afmf_found_lib (verify enable_environment AFMF_ENABLE=1 gate)"
+        fi
+    elif [[ -n "$afmf_found_manifest" ]]; then
+        echo "[INFO] afmf-linux (VK_LAYER_AFMF) manifest found ($afmf_found_manifest) but library missing (${afmf_raw_lib:-unspecified})"
+    else
+        echo "[INFO] afmf-linux (VK_LAYER_AFMF) not installed (optional user-space frame generation layer)"
+    fi
 }
 
 ORIG_NO_GUI_SET=0
@@ -1053,6 +1120,8 @@ ORIG_USE_XWAYLAND_SET=0; ORIG_USE_XWAYLAND=""
 if [[ -n "${USE_XWAYLAND+x}" ]]; then ORIG_USE_XWAYLAND_SET=1; ORIG_USE_XWAYLAND="$USE_XWAYLAND"; fi
 ORIG_USE_MLFG_SET=0; ORIG_USE_MLFG=""
 if [[ -n "${USE_MLFG+x}" ]]; then ORIG_USE_MLFG_SET=1; ORIG_USE_MLFG="$USE_MLFG"; fi
+ORIG_USE_AFMF_SET=0; ORIG_USE_AFMF=""
+if [[ -n "${USE_AFMF+x}" ]]; then ORIG_USE_AFMF_SET=1; ORIG_USE_AFMF="$USE_AFMF"; fi
 ORIG_USE_OPTISCALER_SET=0; ORIG_USE_OPTISCALER=""
 if [[ -n "${USE_OPTISCALER+x}" ]]; then ORIG_USE_OPTISCALER_SET=1; ORIG_USE_OPTISCALER="$USE_OPTISCALER"; fi
 ORIG_USE_SHARPEN_SET=0; ORIG_USE_SHARPEN=""
@@ -1080,6 +1149,7 @@ if [[ -n "${USE_FSR4+x}" ]]; then ORIG_USE_FSR4_SET=1; ORIG_USE_FSR4="$USE_FSR4"
 
 USE_XWAYLAND=0
 USE_MLFG=0
+USE_AFMF=0
 USE_OPTISCALER=0
 USE_SHARPEN=0
 USE_NET_OPT=0
@@ -1108,6 +1178,12 @@ VRR_MINUS_MARGIN="${VRR_MINUS_MARGIN:-0}"
 AUTO_CLASS="standard"
 AUTO_PRESET="standard"
 AUTO_OPTISCALER=0
+AUTO_AFMF=0
+AUTO_AFMF_INSTALLED=0
+AUTO_HAS_NATIVE_FG=0
+AUTO_IS_TOOL_OR_2D=0
+AUTO_IS_VR=0
+AFMF_VRR_CAP=0
 AUTO_SHARPEN=0
 AUTO_NET_OPT=0
 AUTO_CEF_FIX=0
@@ -1137,6 +1213,7 @@ fi
 # Seed all optional profile keys from detector smart defaults before a profile is loaded.
 # Legacy/minimal .env files missing v2.2 keys inherit smart defaults instead of forcing 0.
 USE_OPTISCALER="${AUTO_OPTISCALER:-0}"
+USE_AFMF="${AUTO_AFMF:-0}"
 USE_SHARPEN="${AUTO_SHARPEN:-0}"
 USE_NET_OPT="${AUTO_NET_OPT:-0}"
 USE_CEF_FIX="${AUTO_CEF_FIX:-0}"
@@ -1229,7 +1306,8 @@ if [[ "$SKIP_GUI" -eq 0 &&
                 kdialog --title "Steam Auto-Profiler (AppID: ${APPID:-Local})" \
                 --separate-output --checklist "$DIALOG_TEXT" \
                 xwayland "Use XWayland instead of native Wayland" "$(flag_kd "$USE_XWAYLAND")" \
-                mlfg "Enable frame generation" "$(flag_kd "$USE_MLFG")" \
+                mlfg "Enable frame generation (MLFG)" "$(flag_kd "$USE_MLFG")" \
+                afmf "Enable AFMF frame generation (afmf-linux)" "$(flag_kd "$USE_AFMF")" \
                 optiscaler "Optional upscaler bridge" "$(flag_kd "$USE_OPTISCALER")" \
                 sharpen "Post-process sharpening" "$(flag_kd "$USE_SHARPEN")" \
                 netopt "Session network QoS" "$(flag_kd "$USE_NET_OPT")" \
@@ -1248,7 +1326,8 @@ if [[ "$SKIP_GUI" -eq 0 &&
                 --text="$DIALOG_TEXT" --column="" --column="Code" --column="Setting" \
                 --hide-column=2 --separator=$'\n' \
                 "$(flag_zn "$USE_XWAYLAND")" xwayland "Use XWayland instead of native Wayland" \
-                "$(flag_zn "$USE_MLFG")" mlfg "Enable frame generation" \
+                "$(flag_zn "$USE_MLFG")" mlfg "Enable frame generation (MLFG)" \
+                "$(flag_zn "$USE_AFMF")" afmf "Enable AFMF frame generation (afmf-linux)" \
                 "$(flag_zn "$USE_OPTISCALER")" optiscaler "Optional upscaler bridge" \
                 "$(flag_zn "$USE_SHARPEN")" sharpen "Post-process sharpening" \
                 "$(flag_zn "$USE_NET_OPT")" netopt "Session network QoS" \
@@ -1265,6 +1344,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
     if [[ "$EXIT_CODE" -eq 0 ]]; then
         USE_XWAYLAND=0
         USE_MLFG=0
+        USE_AFMF=0
         USE_OPTISCALER=0
         USE_SHARPEN=0
         USE_NET_OPT=0
@@ -1279,6 +1359,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
             case "$choice" in
                 xwayland) USE_XWAYLAND=1 ;;
                 mlfg) USE_MLFG=1 ;;
+                afmf) USE_AFMF=1 ;;
                 optiscaler) USE_OPTISCALER=1 ;;
                 sharpen) USE_SHARPEN=1 ;;
                 netopt) USE_NET_OPT=1 ;;
@@ -1296,6 +1377,7 @@ if [[ "$SKIP_GUI" -eq 0 &&
             cat >"$PROFILE_FILE" <<EOF
 USE_XWAYLAND=$USE_XWAYLAND
 USE_MLFG=$USE_MLFG
+USE_AFMF=$USE_AFMF
 USE_OPTISCALER=$USE_OPTISCALER
 USE_SHARPEN=$USE_SHARPEN
 USE_NET_OPT=$USE_NET_OPT
@@ -1317,6 +1399,7 @@ if [[ "$CONFIGURE_ONLY" -eq 1 && "$#" -eq 0 ]]; then
         cat >"$PROFILE_FILE" <<EOF
 USE_XWAYLAND=$USE_XWAYLAND
 USE_MLFG=$USE_MLFG
+USE_AFMF=$USE_AFMF
 USE_OPTISCALER=$USE_OPTISCALER
 USE_SHARPEN=$USE_SHARPEN
 USE_NET_OPT=$USE_NET_OPT
@@ -1348,6 +1431,7 @@ if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
     USE_REFLEX_LAYER=0
     USE_VK_VIDEO_DECODE=0
     USE_OPTISCALER=0
+    USE_AFMF=0
 fi
 
 # Caller-level USE_* and shorthand environment overrides (supporting both explicit =0 and =1)
@@ -1355,6 +1439,8 @@ fi
 [[ -n "${XWAYLAND+x}" ]] && apply_bool_override USE_XWAYLAND "$XWAYLAND"
 [[ "$ORIG_USE_MLFG_SET" -eq 1 ]] && apply_bool_override USE_MLFG "$ORIG_USE_MLFG"
 [[ -n "${MLFG+x}" ]] && apply_bool_override USE_MLFG "$MLFG"
+[[ "$ORIG_USE_AFMF_SET" -eq 1 ]] && apply_bool_override USE_AFMF "$ORIG_USE_AFMF"
+[[ -n "${AFMF+x}" ]] && apply_bool_override USE_AFMF "$AFMF"
 [[ "$ORIG_USE_OPTISCALER_SET" -eq 1 ]] && apply_bool_override USE_OPTISCALER "$ORIG_USE_OPTISCALER"
 [[ -n "${OPTISCALER+x}" ]] && apply_bool_override USE_OPTISCALER "$OPTISCALER"
 [[ "$ORIG_USE_SHARPEN_SET" -eq 1 ]] && apply_bool_override USE_SHARPEN "$ORIG_USE_SHARPEN"
@@ -1447,6 +1533,7 @@ if [[ "$APPID" == "594650" ]]; then
     USE_XWAYLAND=1
     USE_SAFEDX12=1
     USE_MLFG=0
+    USE_AFMF=0
     USE_BLEEDING_EDGE=0
     USE_REFLEX_LAYER=0
     USE_OPTISCALER=0
@@ -1455,18 +1542,23 @@ if [[ "$APPID" == "594650" ]]; then
     export PROTON_NATIVE_AGS=0
     export LOW_LATENCY_LAYER=0
     export LOW_LATENCY_LAYER_REFLEX=0
+    unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+    export DISABLE_AFMF=1
     unset VKD3D_CONFIG VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL
 fi
 
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
     USE_MLFG=0
+    USE_AFMF=0
     USE_NO_DECORATION=0
     USE_REFLEX_LAYER=0
     USE_BLEEDING_EDGE=0
     export PROTON_USE_OPTISCALER=0
     export LOW_LATENCY_LAYER=0
     export LOW_LATENCY_LAYER_REFLEX=0
+    unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+    export DISABLE_AFMF=1
     unset PROTON_USE_WOW64 PROTON_MEDIA_FORCE_GST VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL WAYLANDDRV_RAWINPUT
     # Async shader pipelines must stay disabled for anti-cheat/multiplayer titles.
     export PROTON_DXVK_SAREK=0
@@ -1479,6 +1571,13 @@ if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     export WINE_NO_WM_DECORATION=0
     export PROTON_DXVK_LOWLATENCY=1
     export PROTON_VKD3D_LOWLATENCY=1
+fi
+
+if [[ "$AUTO_CLASS" == "vr" || "${AUTO_IS_VR:-0}" -eq 1 ]]; then
+    USE_AFMF=0
+    USE_MLFG=0
+    unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+    export DISABLE_AFMF=1
 fi
 
 if [[ "${AUTO_NATIVE_LINUX:-0}" -eq 1 ]]; then
@@ -1520,14 +1619,9 @@ else
     fi
 fi
 
-# Gamescope applies its own pacing; do not export DXVK/VKD3D caps there.
-if [[ "$GAMESCOPE_SESSION" -eq 1 ]]; then
-    if [[ -z "${VRR_CAP:-}" ]]; then
-        unset DXVK_FRAME_RATE VKD3D_FRAME_RATE
-    else
-        export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$VRR_CAP}"
-        export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$VRR_CAP}"
-    fi
+# Gamescope applies its own pacing; do not export DXVK/VKD3D caps unless VRR_CAP is explicit.
+if [[ "$GAMESCOPE_SESSION" -eq 1 && -z "${VRR_CAP:-}" ]]; then
+    unset DXVK_FRAME_RATE VKD3D_FRAME_RATE
 fi
 
 if [[ "$GPU_VENDOR" == "nvidia" ]]; then
@@ -1574,6 +1668,9 @@ fi
 
 if [[ "$USE_MLFG" -eq 1 ]]; then
     USE_REFLEX_LAYER=0
+    USE_AFMF=0
+    unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+    export DISABLE_AFMF=1
     export PROTON_MLFG_UPGRADE=1
     export MLFG_UPGRADE=1
     export ENABLE_LAYER_MESA_ANTI_LAG=0
@@ -1592,17 +1689,47 @@ else
         export ENABLE_LAYER_MESA_ANTI_LAG=0
         export LOW_LATENCY_LAYER=1
         export LOW_LATENCY_LAYER_REFLEX=1
-    elif [[ "$USE_NATIVE_ANTILAG" -eq 1 ]]; then
+    elif [[ "$USE_NATIVE_ANTILAG" -eq 1 || "$USE_AFMF" -eq 1 ]]; then
         export ENABLE_LAYER_MESA_ANTI_LAG=0
     else
         export ENABLE_LAYER_MESA_ANTI_LAG="${ENABLE_LAYER_MESA_ANTI_LAG:-1}"
     fi
     export PROTON_DXVK_LOWLATENCY="${PROTON_DXVK_LOWLATENCY:-1}"
     export PROTON_VKD3D_LOWLATENCY="${PROTON_VKD3D_LOWLATENCY:-1}"
-    if [[ "$GAMESCOPE_SESSION" -eq 0 ]] && (( AUTO_VRR_CAP > 0 )); then
-        export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
-        export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AUTO_VRR_CAP}"
-        export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AUTO_VRR_CAP}"
+    if [[ "$USE_AFMF" -eq 1 ]]; then
+        unset DISABLE_AFMF
+        export AFMF_ENABLE=1
+        export AFMF_PACING="${AFMF_PACING:-1}"
+        export AFMF_PRESENT_MODE="${AFMF_PRESENT_MODE:-auto}"
+        if [[ "$GAMESCOPE_SESSION" -eq 1 ]]; then
+            export AFMF_GAMESCOPE="${AFMF_GAMESCOPE:-1}"
+            if [[ -n "${VRR_CAP:-}" ]] && (( AUTO_VRR_CAP > 0 )); then
+                AFMF_VRR_CAP=$((AUTO_VRR_CAP / 2))
+                (( AFMF_VRR_CAP < 1 )) && AFMF_VRR_CAP=1
+                export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AFMF_VRR_CAP}"
+                export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AFMF_VRR_CAP}"
+            fi
+        else
+            unset AFMF_GAMESCOPE
+            if (( AUTO_VRR_CAP > 0 )); then
+                AFMF_VRR_CAP=$((AUTO_VRR_CAP / 2))
+                (( AFMF_VRR_CAP < 1 )) && AFMF_VRR_CAP=1
+                export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
+                export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AFMF_VRR_CAP}"
+                export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AFMF_VRR_CAP}"
+            fi
+        fi
+    else
+        unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+        export DISABLE_AFMF=1
+        if [[ "$GAMESCOPE_SESSION" -eq 0 ]] && (( AUTO_VRR_CAP > 0 )); then
+            export DXVK_FRAME_PACE="${DXVK_FRAME_PACE:-low-latency-vrr}"
+            export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AUTO_VRR_CAP}"
+            export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AUTO_VRR_CAP}"
+        elif [[ "$GAMESCOPE_SESSION" -eq 1 && -n "${VRR_CAP:-}" ]] && (( AUTO_VRR_CAP > 0 )); then
+            export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-$AUTO_VRR_CAP}"
+            export VKD3D_FRAME_RATE="${VKD3D_FRAME_RATE:-$AUTO_VRR_CAP}"
+        fi
     fi
 fi
 
@@ -1808,6 +1935,25 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     if [[ "$USE_BLEEDING_EDGE" -eq 1 ]]; then
         echo "Bleeding-edge: enabled"
     fi
+    if [[ "$USE_AFMF" -eq 1 ]]; then
+        if (( AFMF_VRR_CAP > 0 )); then
+            echo "AFMF: enabled (afmf-linux; VRR half-cap=${AFMF_VRR_CAP})"
+        else
+            echo "AFMF: enabled (afmf-linux)"
+        fi
+    elif [[ "$AUTO_CLASS" == "competitive-anticheat" || "$APPID" == "594650" || "$AUTO_CLASS" == "vr" || "${AUTO_IS_VR:-0}" -eq 1 ]]; then
+        echo "AFMF: disabled (locked: ${AUTO_CLASS})"
+    elif [[ "$USE_MLFG" -eq 1 ]]; then
+        echo "AFMF: disabled (MLFG active)"
+    elif [[ "${AUTO_HAS_NATIVE_FG:-0}" -eq 1 ]]; then
+        echo "AFMF: disabled (native FG detected)"
+    elif [[ "${AUTO_IS_TOOL_OR_2D:-0}" -eq 1 ]]; then
+        echo "AFMF: disabled (tool/2D app)"
+    elif [[ "${AUTO_AFMF_INSTALLED:-0}" -eq 0 ]]; then
+        echo "AFMF: disabled (afmf-linux not installed)"
+    else
+        echo "AFMF: disabled"
+    fi
     if [[ "$STEAM_CONTROLLER_MODE" != "off" ]]; then
         echo "Steam Controller 2026: ${STEAM_CONTROLLER_MODE} (${DETECTED_STEAM_CONTROLLER:-forced})"
         if [[ "$STEAM_CONTROLLER_MODE" == "wayland-hdr" && "$USE_XWAYLAND" -eq 0 && "$GAMESCOPE_SESSION" -eq 0 ]] &&
@@ -1823,7 +1969,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     fi
     echo "Exported launch variables:"
     env | LC_ALL=C sort | awk -F= '
-        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|MANGOHUD|LOW_LATENCY_LAYER)/ ||
+        $1 ~ /^(PROTON_|DXVK_|VKD3D_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|WINE_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|MANGOHUD|LOW_LATENCY_LAYER|AFMF_|DISABLE_AFMF)/ ||
         $1 == "STEAM_COMPAT_CONFIG" {
             print
         }'
@@ -1866,11 +2012,11 @@ save_recovery_stage1_profile() {
     mkdir -p "$(dirname "$target")"
     tmp_file="${target}.tmp.$$"
     if [[ -f "$target" ]]; then
-        grep -vE '^[[:space:]]*(USE_OPTISCALER|USE_BLEEDING_EDGE|USE_REFLEX_LAYER|USE_TRANSFER_QUEUE|USE_VK_VIDEO_DECODE)=' "$target" > "$tmp_file" || true
+        grep -vE '^[[:space:]]*(USE_AFMF|USE_OPTISCALER|USE_BLEEDING_EDGE|USE_REFLEX_LAYER|USE_TRANSFER_QUEUE|USE_VK_VIDEO_DECODE)=' "$target" > "$tmp_file" || true
     else
         : > "$tmp_file"
     fi
-    printf 'USE_OPTISCALER=0\nUSE_BLEEDING_EDGE=0\nUSE_REFLEX_LAYER=0\nUSE_TRANSFER_QUEUE=0\nUSE_VK_VIDEO_DECODE=0\n' >> "$tmp_file"
+    printf 'USE_AFMF=0\nUSE_OPTISCALER=0\nUSE_BLEEDING_EDGE=0\nUSE_REFLEX_LAYER=0\nUSE_TRANSFER_QUEUE=0\nUSE_VK_VIDEO_DECODE=0\n' >> "$tmp_file"
     mv -f "$tmp_file" "$target"
 }
 
@@ -1880,11 +2026,11 @@ save_recovery_stage2_profile() {
     mkdir -p "$(dirname "$target")"
     tmp_file="${target}.tmp.$$"
     if [[ -f "$target" ]]; then
-        grep -vE '^[[:space:]]*(USE_XWAYLAND|USE_SAFEDX12|USE_OPTISCALER|USE_BLEEDING_EDGE|USE_REFLEX_LAYER|USE_TRANSFER_QUEUE|USE_VK_VIDEO_DECODE)=' "$target" > "$tmp_file" || true
+        grep -vE '^[[:space:]]*(USE_AFMF|USE_XWAYLAND|USE_SAFEDX12|USE_OPTISCALER|USE_BLEEDING_EDGE|USE_REFLEX_LAYER|USE_TRANSFER_QUEUE|USE_VK_VIDEO_DECODE)=' "$target" > "$tmp_file" || true
     else
         : > "$tmp_file"
     fi
-    printf 'USE_OPTISCALER=0\nUSE_BLEEDING_EDGE=0\nUSE_REFLEX_LAYER=0\nUSE_TRANSFER_QUEUE=0\nUSE_VK_VIDEO_DECODE=0\nUSE_SAFEDX12=1\nUSE_XWAYLAND=1\n' >> "$tmp_file"
+    printf 'USE_AFMF=0\nUSE_OPTISCALER=0\nUSE_BLEEDING_EDGE=0\nUSE_REFLEX_LAYER=0\nUSE_TRANSFER_QUEUE=0\nUSE_VK_VIDEO_DECODE=0\nUSE_SAFEDX12=1\nUSE_XWAYLAND=1\n' >> "$tmp_file"
     mv -f "$tmp_file" "$target"
 }
 
@@ -1916,7 +2062,7 @@ write_last_log() {
         printf '\n'
         printf 'exported_variables:\n'
         env | LC_ALL=C sort | awk -F= '
-            $1 ~ /^(PROTON_|DXVK_|VKD3D_|WINE_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|LOW_LATENCY_LAYER)/ ||
+            $1 ~ /^(PROTON_|DXVK_|VKD3D_|WINE_|MESA_|ENABLE_|SDL_|WAYLANDDRV_|FSR_|MLFG_|AMD_|RADV_|VKBASALT_|LOW_LATENCY_LAYER|AFMF_|DISABLE_AFMF)/ ||
             $1 == "STEAM_COMPAT_CONFIG" { print }
         '
         printf 'exit_code=%s\n' "$exit_code"
@@ -2220,7 +2366,7 @@ elif [[ "$launch_exit" -ne 0 &&
         "${NATIVE_RUNTIME:-0}" -ne 1 &&
         "$LAUNCH_DURATION" -lt "$CRASH_THRESHOLD_SEC" ]]; then
     HAS_EXPERIMENTAL=0
-    if [[ "$USE_OPTISCALER" -eq 1 || "$USE_BLEEDING_EDGE" -eq 1 ||
+    if [[ "$USE_AFMF" -eq 1 || "$USE_OPTISCALER" -eq 1 || "$USE_BLEEDING_EDGE" -eq 1 ||
           "$USE_REFLEX_LAYER" -eq 1 || "$USE_TRANSFER_QUEUE" -eq 1 ||
           "$USE_VK_VIDEO_DECODE" -eq 1 ]]; then
         HAS_EXPERIMENTAL=1
@@ -2235,15 +2381,15 @@ elif [[ "$launch_exit" -ne 0 &&
     fi
 
     if [[ "$CURRENT_RECOVERY_STAGE" -lt 1 && "$HAS_EXPERIMENTAL" -eq 1 ]]; then
-        CRASH_HINT="fast_crash_detected stage=1 duration=${LAUNCH_DURATION}s exit_code=${launch_exit} applied=USE_OPTISCALER=0,USE_BLEEDING_EDGE=0,USE_REFLEX_LAYER=0,USE_TRANSFER_QUEUE=0,USE_VK_VIDEO_DECODE=0"
+        CRASH_HINT="fast_crash_detected stage=1 duration=${LAUNCH_DURATION}s exit_code=${launch_exit} applied=USE_AFMF=0,USE_OPTISCALER=0,USE_BLEEDING_EDGE=0,USE_REFLEX_LAYER=0,USE_TRANSFER_QUEUE=0,USE_VK_VIDEO_DECODE=0"
         if [[ -n "$PROFILE_FILE" ]]; then
             save_recovery_stage1_profile "$PROFILE_FILE"
             [[ -n "$RECOVERY_STATE_FILE" ]] && write_recovery_stage "$RECOVERY_STATE_FILE" 1
             CRASH_RECOVERY="stage1_experimental_disabled"
-            notify_recovery "AppID ${APPID}: Fast crash detected (${LAUNCH_DURATION}s). Stage 1 self-healing disabled experimental flags for the next launch."
+            notify_recovery "AppID ${APPID}: Fast crash detected (${LAUNCH_DURATION}s). Stage 1 self-healing disabled experimental flags (including AFMF) for the next launch."
         fi
     elif [[ ( "$CURRENT_RECOVERY_STAGE" -eq 1 || ( "$CURRENT_RECOVERY_STAGE" -lt 1 && "$HAS_EXPERIMENTAL" -eq 0 ) ) && "$HAS_WAYLAND_OR_DX12" -eq 1 ]]; then
-        CRASH_HINT="fast_crash_detected stage=2 duration=${LAUNCH_DURATION}s exit_code=${launch_exit} applied=USE_SAFEDX12=1,USE_XWAYLAND=1,USE_OPTISCALER=0,USE_BLEEDING_EDGE=0,USE_REFLEX_LAYER=0,USE_TRANSFER_QUEUE=0,USE_VK_VIDEO_DECODE=0"
+        CRASH_HINT="fast_crash_detected stage=2 duration=${LAUNCH_DURATION}s exit_code=${launch_exit} applied=USE_SAFEDX12=1,USE_XWAYLAND=1,USE_AFMF=0,USE_OPTISCALER=0,USE_BLEEDING_EDGE=0,USE_REFLEX_LAYER=0,USE_TRANSFER_QUEUE=0,USE_VK_VIDEO_DECODE=0"
         if [[ -n "$PROFILE_FILE" ]]; then
             save_recovery_stage2_profile "$PROFILE_FILE"
             [[ -n "$RECOVERY_STATE_FILE" ]] && write_recovery_stage "$RECOVERY_STATE_FILE" 2

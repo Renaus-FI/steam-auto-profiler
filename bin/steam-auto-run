@@ -58,7 +58,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH|CONSERVATIVE)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH|CONSERVATIVE|PROTON_ENABLE_WAYLAND|PROTON_USE_WOW64|PROTON_FSR4_UPGRADE|RADV_PERFTEST|SAFE_BASELINE)
                 ;;
             *) continue ;;
         esac
@@ -1128,6 +1128,10 @@ ORIG_USE_CONSERVATIVE_SET=0; ORIG_USE_CONSERVATIVE=""
 if [[ -n "${USE_CONSERVATIVE+x}" ]]; then ORIG_USE_CONSERVATIVE_SET=1; ORIG_USE_CONSERVATIVE="$USE_CONSERVATIVE"; fi
 ORIG_CONSERVATIVE_SET=0; ORIG_CONSERVATIVE=""
 if [[ -n "${CONSERVATIVE+x}" ]]; then ORIG_CONSERVATIVE_SET=1; ORIG_CONSERVATIVE="$CONSERVATIVE"; fi
+ORIG_USE_SAFE_BASELINE_SET=0; ORIG_USE_SAFE_BASELINE=""
+if [[ -n "${USE_SAFE_BASELINE+x}" ]]; then ORIG_USE_SAFE_BASELINE_SET=1; ORIG_USE_SAFE_BASELINE="$USE_SAFE_BASELINE"; fi
+ORIG_SAFE_BASELINE_SET=0; ORIG_SAFE_BASELINE=""
+if [[ -n "${SAFE_BASELINE+x}" ]]; then ORIG_SAFE_BASELINE_SET=1; ORIG_SAFE_BASELINE="$SAFE_BASELINE"; fi
 ORIG_USE_STEAM_CONTROLLER_SET=0; ORIG_USE_STEAM_CONTROLLER=""
 if [[ -n "${USE_STEAM_CONTROLLER+x}" ]]; then ORIG_USE_STEAM_CONTROLLER_SET=1; ORIG_USE_STEAM_CONTROLLER="$USE_STEAM_CONTROLLER"; fi
 ORIG_USE_XWAYLAND_SET=0; ORIG_USE_XWAYLAND=""
@@ -1182,6 +1186,7 @@ USE_REFLEX_LAYER=0
 USE_VK_VIDEO_DECODE=0
 USE_BLEEDING_EDGE=0
 USE_CONSERVATIVE=0
+USE_SAFE_BASELINE=0
 USE_STEAM_CONTROLLER="auto"
 AUTO_HDR_SWITCH="${AUTO_HDR_SWITCH:-0}"
 BENCH="${BENCH:-0}"
@@ -1196,6 +1201,10 @@ AUTO_AFMF=0
 AUTO_AFMF_INSTALLED=0
 AUTO_HAS_NATIVE_FG=0
 AUTO_IS_TOOL_OR_2D=0
+AUTO_ENGINE_UE=0
+AUTO_RECOVERY_STAGE=0
+AUTO_RECOVERY_MODE="none"
+AUTO_CRASH_COUNT=0
 AUTO_IS_VR=0
 AFMF_VRR_CAP=0
 AUTO_SHARPEN=0
@@ -1246,13 +1255,26 @@ USE_VIVID=0
 export USE_OPTISCALER USE_SHARPEN USE_NET_OPT USE_CEF_FIX USE_VIVID
 
 SKIP_GUI=0
+PROFILE_PROTON_USE_WOW64_ZERO=0
 if [[ -n "$PROFILE_FILE" && -f "$PROFILE_FILE" && "${FORCE_GUI:-0}" -ne 1 ]]; then
     load_profile_safe "$PROFILE_FILE"
     if [[ "${USE_RCAS:-0}" -eq 1 ]]; then
         USE_SHARPEN=1
     fi
+    if [[ "${PROTON_ENABLE_WAYLAND:-}" == "0" ]]; then
+        USE_XWAYLAND=1
+    fi
+    if [[ "${PROTON_FSR4_UPGRADE:-}" == "0" ]]; then
+        USE_FSR4=0
+    fi
+    if [[ "${PROTON_USE_WOW64:-}" == "0" ]]; then
+        PROFILE_PROTON_USE_WOW64_ZERO=1
+    fi
     if [[ "${CONSERVATIVE:-0}" -eq 1 && "$ORIG_CONSERVATIVE_SET" -eq 0 ]]; then
         USE_CONSERVATIVE=1
+    fi
+    if [[ "${SAFE_BASELINE:-0}" -eq 1 && "$ORIG_SAFE_BASELINE_SET" -eq 0 ]]; then
+        USE_SAFE_BASELINE=1
     fi
     SKIP_GUI=1
     [[ "${PARTIAL_PROFILE:-0}" -eq 1 ]] && SKIP_GUI=0
@@ -1431,12 +1453,27 @@ EOF
     exit 0
 fi
 
-# Master conservative switch disables all experimental defaults before explicit per-flag env overrides.
+# Master conservative / safe-baseline switches disable experimental defaults before explicit per-flag env overrides.
 if [[ "$ORIG_USE_CONSERVATIVE_SET" -eq 1 ]]; then
     apply_bool_override USE_CONSERVATIVE "$ORIG_USE_CONSERVATIVE"
 fi
 if [[ "$ORIG_CONSERVATIVE_SET" -eq 1 ]]; then
     apply_bool_override USE_CONSERVATIVE "$ORIG_CONSERVATIVE"
+fi
+if [[ "$ORIG_USE_SAFE_BASELINE_SET" -eq 1 ]]; then
+    apply_bool_override USE_SAFE_BASELINE "$ORIG_USE_SAFE_BASELINE"
+fi
+if [[ "$ORIG_SAFE_BASELINE_SET" -eq 1 ]]; then
+    apply_bool_override USE_SAFE_BASELINE "$ORIG_SAFE_BASELINE"
+fi
+if [[ "$USE_SAFE_BASELINE" -eq 1 ]]; then
+    USE_CONSERVATIVE=1
+    USE_SAFEDX12=1
+    USE_XWAYLAND=1
+    USE_FSR4=0
+    USE_MLFG=0
+    USE_SHARPEN=0
+    AUTO_HDR_SWITCH=0
 fi
 if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
     USE_BLEEDING_EDGE=0
@@ -1578,6 +1615,36 @@ if [[ "$APPID" == "2483190" ]]; then
     unset PROTON_USE_WOW64 PROTON_MEDIA_FORCE_GST VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL WAYLANDDRV_RAWINPUT
 fi
 
+# Built-in Per-AppID Compatibility Rule: Deep Rock Galactic (AppID 548430)
+# Prevents RDNA 4 / Mesa 27 AMDGPU compute ring (comp_1.x.x) hangs in vkd3d_queue on UE4 DX12
+# while preserving native Wayland, HDR, VRR, and safe FSR 4 defaults.
+if [[ "$APPID" == "548430" ]]; then
+    USE_BLEEDING_EDGE=0
+    USE_TRANSFER_QUEUE=0
+    USE_REFLEX_LAYER=0
+    USE_VK_VIDEO_DECODE=0
+    USE_AFMF=0
+    USE_OPTISCALER=0
+    export LOW_LATENCY_LAYER=0
+    export LOW_LATENCY_LAYER_REFLEX=0
+    export PROTON_USE_OPTISCALER=0
+    unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+    export DISABLE_AFMF=1
+    unset PROTON_USE_WOW64 PROTON_MEDIA_FORCE_GST VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL WAYLANDDRV_RAWINPUT
+fi
+
+# Mutual exclusion: never stack OptiScaler + VK_LAYER_AFMF simultaneously (swapchain/DXGI conflict)
+if [[ "$USE_OPTISCALER" -eq 1 && "$USE_AFMF" -eq 1 ]]; then
+    if [[ ( "$ORIG_USE_AFMF_SET" -eq 1 || -n "${AFMF+x}" ) && "$ORIG_USE_OPTISCALER_SET" -eq 0 && -z "${OPTISCALER+x}" ]]; then
+        USE_OPTISCALER=0
+        export PROTON_USE_OPTISCALER=0
+    else
+        USE_AFMF=0
+        unset AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+        export DISABLE_AFMF=1
+    fi
+fi
+
 if [[ "$AUTO_CLASS" == "competitive-anticheat" ]]; then
     USE_OPTISCALER=0
     USE_MLFG=0
@@ -1618,7 +1685,7 @@ if [[ "${AUTO_NATIVE_LINUX:-0}" -eq 1 ]]; then
 fi
 
 # Ultra Bleeding-Edge Experimental Mode (default on non-anticheat Proton titles; opt-out via BLEEDING_EDGE=0 or CONSERVATIVE=1)
-if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "${AUTO_NATIVE_LINUX:-0}" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
+if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "${AUTO_NATIVE_LINUX:-0}" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" && "$APPID" != "548430" ]]; then
     if [[ "$GPU_VENDOR" == "amd" ]]; then
         export PROTON_NATIVE_AGS=1
     fi
@@ -1629,6 +1696,8 @@ if [[ "$USE_BLEEDING_EDGE" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && 
     else
         unset WAYLANDDRV_RAWINPUT
     fi
+elif [[ "$PROFILE_PROTON_USE_WOW64_ZERO" -eq 1 ]]; then
+    export PROTON_USE_WOW64=0
 fi
 
 if [[ "$GAMESCOPE_SESSION" -eq 1 ]]; then
@@ -1901,6 +1970,33 @@ if [[ -n "${PROTON_ADD_CONFIG:-}" || ${#COMPAT_TOKENS[@]} -gt 0 ]]; then
     export PROTON_ADD_CONFIG STEAM_COMPAT_CONFIG
 fi
 
+# Stage 3 Safe Baseline: strip optional Proton/DXVK/VKD3D overrides down to minimal clean defaults
+if [[ "$USE_SAFE_BASELINE" -eq 1 && "${AUTO_NATIVE_LINUX:-0}" -eq 0 ]]; then
+    unset PROTON_ADD_CONFIG STEAM_COMPAT_CONFIG
+    unset PROTON_DXVK_LOWLATENCY PROTON_VKD3D_LOWLATENCY PROTON_NATIVE_AGS
+    unset PROTON_MEDIA_FORCE_GST PROTON_LOCAL_SHADER_CACHE PROTON_USE_PIPEWIRE
+    unset PROTON_DLSS_UPGRADE PROTON_XESS_UPGRADE PROTON_FFX3_UPGRADE PROTON_FFX4_UPGRADE
+    unset PROTON_USE_WAYLAND PROTON_FSR4_RDNA3_UPGRADE PROTON_MLFG_UPGRADE MLFG_UPGRADE
+    unset DXVK_HDR DXVK_FRAME_PACE DXVK_FRAME_RATE DXVK_NVAPI_VKREFLEX
+    unset VKD3D_CONFIG VKD3D_FEATURE_LEVEL VKD3D_SHADER_MODEL VKD3D_FRAME_RATE
+    unset WAYLANDDRV_RAWINPUT WAYLANDDRV_SHORTCUT_INHIBIT WINE_DISABLE_VULKAN_OPWR
+    unset RADV_EXPERIMENTAL AFMF_ENABLE AFMF_GAMESCOPE AFMF_PACING AFMF_PRESENT_MODE
+    export PROTON_ENABLE_WAYLAND=0
+    export PROTON_USE_WOW64=0
+    export PROTON_FSR4_UPGRADE=0
+    export PROTON_USE_OPTISCALER=0
+    export LOW_LATENCY_LAYER=0
+    export LOW_LATENCY_LAYER_REFLEX=0
+    export ENABLE_LAYER_MESA_ANTI_LAG=0
+    export ENABLE_VKBASALT=0
+    export DISABLE_AFMF=1
+    export SDL_VIDEODRIVER=x11
+    export SDL_VIDEO_DRIVER=x11
+    if [[ "$GPU_VENDOR" == "amd" ]]; then
+        export RADV_PERFTEST=sam
+    fi
+fi
+
 EXTRA_ARGS=()
 [[ "$USE_CEF_FIX" -eq 1 ]] && EXTRA_ARGS+=("--in-process-gpu")
 [[ "$USE_VULKAN" -eq 1 ]] && EXTRA_ARGS+=("-vulkan")
@@ -1966,6 +2062,15 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "GPU: ${GPU_VENDOR}"
     echo "VRR cap: ${AUTO_VRR_CAP}"
     echo "Compat tokens: ${PROTON_ADD_CONFIG:-none}"
+    if [[ "${AUTO_ENGINE_UE:-0}" -eq 1 ]]; then
+        echo "Unreal Engine: detected"
+    fi
+    if [[ "$USE_SAFE_BASELINE" -eq 1 ]]; then
+        echo "Safe baseline: enabled (Stage 3 recovery)"
+    fi
+    if [[ "${AUTO_RECOVERY_STAGE:-0}" -gt 0 ]]; then
+        echo "Recovery state: Stage ${AUTO_RECOVERY_STAGE} (${AUTO_RECOVERY_MODE:-none}; crashes=${AUTO_CRASH_COUNT:-0})"
+    fi
     if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
         echo "Conservative: enabled"
     fi
@@ -1984,6 +2089,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
         echo "AFMF: disabled (MLFG active)"
     elif [[ "${AUTO_HAS_NATIVE_FG:-0}" -eq 1 ]]; then
         echo "AFMF: disabled (native FG detected)"
+    elif [[ "$USE_OPTISCALER" -eq 1 ]]; then
+        echo "AFMF: disabled (OptiScaler active)"
     elif [[ "${AUTO_IS_TOOL_OR_2D:-0}" -eq 1 ]]; then
         echo "AFMF: disabled (tool/2D app)"
     elif [[ "${AUTO_AFMF_INSTALLED:-0}" -eq 0 ]]; then
@@ -2031,16 +2138,135 @@ read_recovery_stage() {
     printf '%s' "$stage"
 }
 
-write_recovery_stage() {
-    local state_file="$1" stage="$2"
+read_consecutive_crashes() {
+    local state_file="$1" count=""
+    if [[ -n "$state_file" && -f "$state_file" ]]; then
+        count="$(sed -n 's/^CONSECUTIVE_CRASHES=\([0-9][0-9]*\)$/\1/p' "$state_file" | head -n1)"
+        if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+            count="$(read_recovery_stage "$state_file")"
+        fi
+    fi
+    [[ "${count:-}" =~ ^[0-9]+$ ]] || count=0
+    printf '%s' "$count"
+}
+
+write_recovery_state() {
+    local state_file="$1" stage="$2" mode="$3" crashes="$4" reason="${5:-}"
     [[ -n "$state_file" ]] || return 0
     mkdir -p "$(dirname "$state_file")"
-    printf 'RECOVERY_STAGE=%s\n' "$stage" > "$state_file"
+    {
+        printf 'RECOVERY_STAGE=%s\n' "$stage"
+        printf 'RECOVERY_MODE=%s\n' "$mode"
+        printf 'CONSECUTIVE_CRASHES=%s\n' "$crashes"
+        [[ -n "$reason" ]] && printf 'LAST_CRASH_REASON=%s\n' "$reason"
+    } > "$state_file"
 }
 
 clear_recovery_stage() {
     local state_file="$1"
     [[ -n "$state_file" ]] && rm -f "$state_file"
+}
+
+purge_appid_shader_caches() {
+    local appid="$1"
+    local purged=0
+    [[ -n "$appid" && "$appid" =~ ^[A-Za-z0-9_-]+$ ]] || { printf '0'; return 0; }
+
+    local -a libs=()
+    local -A seen_libs=()
+    local lib extra_lib vdf cache_sub cache_path
+
+    if [[ -n "${SAP_STEAM_LIBRARIES:-}" ]]; then
+        IFS=':' read -r -a libs <<<"$SAP_STEAM_LIBRARIES"
+    else
+        local -a roots=(
+            "$HOME/.local/share/Steam"
+            "$HOME/.steam/steam"
+            "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"
+        )
+        for lib in "${roots[@]}"; do
+            [[ -d "$lib/steamapps" ]] || continue
+            if [[ -z "${seen_libs[$lib]:-}" ]]; then
+                seen_libs["$lib"]=1
+                libs+=("$lib")
+            fi
+            for vdf in "$lib/steamapps/libraryfolders.vdf" "$lib/config/libraryfolders.vdf"; do
+                [[ -f "$vdf" ]] || continue
+                while IFS= read -r extra_lib; do
+                    [[ -n "$extra_lib" && -d "$extra_lib/steamapps" && -z "${seen_libs[$extra_lib]:-}" ]] || continue
+                    seen_libs["$extra_lib"]=1
+                    libs+=("$extra_lib")
+                done < <(
+                    grep -oE '"path"[[:space:]]+"[^"]+"' "$vdf" 2>/dev/null \
+                        | sed -E 's/"path"[[:space:]]+"([^"]+)"/\1/' || true
+                )
+            done
+        done
+    fi
+
+    for lib in "${libs[@]}"; do
+        [[ -n "$lib" && -d "$lib/steamapps" ]] || continue
+        for cache_sub in mesa_shader_cache_sf VKD3D_shader_cache DXVK_state_cache radv_builtin_shaders; do
+            cache_path="$lib/steamapps/shadercache/${appid}/${cache_sub}"
+            if [[ -e "$cache_path" ]]; then
+                rm -rf -- "$cache_path" 2>/dev/null || true
+                purged=$((purged + 1))
+            fi
+        done
+        local d3d_cache="$lib/steamapps/compatdata/${appid}/pfx/drive_c/users/steamuser/AppData/Local/D3DSCache"
+        if [[ -d "$d3d_cache" ]]; then
+            rm -rf -- "$d3d_cache" 2>/dev/null || true
+            purged=$((purged + 1))
+        fi
+    done
+    printf '%s' "$purged"
+}
+
+detect_crash_signals() {
+    local start_epoch="$1" appid="$2" app_log="$3"
+    local -a signals=()
+    local journal_out="" coredump_out="" log_text=""
+
+    # 1. Kernel GPU hang / compute-ring timeout / device wedged during launch window
+    if [[ -n "${SAP_CRASH_JOURNAL_FILE:-}" && -r "$SAP_CRASH_JOURNAL_FILE" ]]; then
+        journal_out="$(cat "$SAP_CRASH_JOURNAL_FILE" 2>/dev/null || true)"
+    elif [[ "${SAP_SKIP_JOURNAL_CHECK:-0}" != "1" ]] && command -v journalctl >/dev/null 2>&1; then
+        journal_out="$(journalctl -k --since "@${start_epoch}" --no-pager 2>/dev/null || true)"
+    fi
+    if [[ -n "$journal_out" ]] &&
+       grep -qiE 'amdgpu.*(ring [^ ]+ timeout|reset compute queue|GPU reset|device wedged|AMDGPU device coredump)|vkd3d_queue|NVRM: Xid|i915.*GPU HANG|xe.*timed out' <<<"$journal_out"; then
+        signals+=("gpu_hang")
+    fi
+
+    # 2. Coredump of Wine/Proton/Unreal/game executable during launch window
+    if [[ -n "${SAP_CRASH_COREDUMP_FILE:-}" && -r "$SAP_CRASH_COREDUMP_FILE" ]]; then
+        coredump_out="$(cat "$SAP_CRASH_COREDUMP_FILE" 2>/dev/null || true)"
+    elif [[ "${SAP_SKIP_COREDUMP_CHECK:-0}" != "1" ]] && command -v coredumpctl >/dev/null 2>&1; then
+        coredump_out="$(coredumpctl list --since "@${start_epoch}" --no-pager 2>/dev/null || true)"
+    fi
+    if [[ -n "$coredump_out" ]] &&
+       grep -qiE '(SIGSEGV|SIGABRT|SIGBUS|SIGILL).*(wine|proton|shipping|fsd-win64|crashreport)|((wine|proton|shipping|fsd-win64|crashreport).*(SIGSEGV|SIGABRT|SIGBUS|SIGILL))' <<<"$coredump_out"; then
+        signals+=("coredump")
+    fi
+
+    # 3. Crash-reporter / VkResult / access-violation signatures in provided log or updated last-<appid>.log
+    if [[ -n "${SAP_CRASH_LOG_FILE:-}" && -r "$SAP_CRASH_LOG_FILE" ]]; then
+        log_text="$(cat "$SAP_CRASH_LOG_FILE" 2>/dev/null || true)"
+    elif [[ -n "$app_log" && -r "$app_log" ]]; then
+        local log_mtime=""
+        log_mtime="$(stat -c %Y "$app_log" 2>/dev/null || echo 0)"
+        if [[ "$log_mtime" =~ ^[0-9]+$ ]] && (( log_mtime >= start_epoch )); then
+            log_text="$(cat "$app_log" 2>/dev/null || true)"
+        fi
+    fi
+    if [[ -n "$log_text" ]] &&
+       grep -qiE 'CrashReportClient|VkResult|VK_ERROR_DEVICE_LOST|EXCEPTION_ACCESS_VIOLATION|Fatal error:|Unhandled exception|amdgpu.*timeout|GPU hang|device wedged' <<<"$log_text"; then
+        signals+=("log_signature")
+    fi
+
+    if (( ${#signals[@]} > 0 )); then
+        (IFS='+'; printf '%s' "${signals[*]}")
+    fi
 }
 
 save_recovery_stage1_profile() {
@@ -2063,11 +2289,62 @@ save_recovery_stage2_profile() {
     mkdir -p "$(dirname "$target")"
     tmp_file="${target}.tmp.$$"
     if [[ -f "$target" ]]; then
-        grep -vE '^[[:space:]]*(USE_AFMF|USE_XWAYLAND|USE_SAFEDX12|USE_OPTISCALER|USE_BLEEDING_EDGE|USE_REFLEX_LAYER|USE_TRANSFER_QUEUE|USE_VK_VIDEO_DECODE)=' "$target" > "$tmp_file" || true
+        grep -vE '^[[:space:]]*(CONSERVATIVE|USE_CONSERVATIVE|USE_AFMF|USE_XWAYLAND|USE_SAFEDX12|USE_OPTISCALER|USE_BLEEDING_EDGE|USE_REFLEX_LAYER|USE_TRANSFER_QUEUE|USE_VK_VIDEO_DECODE|USE_FSR4|PROTON_ENABLE_WAYLAND|PROTON_USE_WOW64|PROTON_FSR4_UPGRADE|RADV_PERFTEST)=' "$target" > "$tmp_file" || true
     else
         : > "$tmp_file"
     fi
-    printf 'USE_AFMF=0\nUSE_OPTISCALER=0\nUSE_BLEEDING_EDGE=0\nUSE_REFLEX_LAYER=0\nUSE_TRANSFER_QUEUE=0\nUSE_VK_VIDEO_DECODE=0\nUSE_SAFEDX12=1\nUSE_XWAYLAND=1\n' >> "$tmp_file"
+    cat >> "$tmp_file" <<'EOF'
+CONSERVATIVE=1
+USE_CONSERVATIVE=1
+USE_AFMF=0
+USE_OPTISCALER=0
+USE_BLEEDING_EDGE=0
+USE_REFLEX_LAYER=0
+USE_TRANSFER_QUEUE=0
+USE_VK_VIDEO_DECODE=0
+USE_SAFEDX12=1
+USE_XWAYLAND=1
+USE_FSR4=0
+PROTON_ENABLE_WAYLAND=0
+PROTON_USE_WOW64=0
+PROTON_FSR4_UPGRADE=0
+RADV_PERFTEST=sam
+EOF
+    mv -f "$tmp_file" "$target"
+}
+
+save_recovery_stage3_profile() {
+    local target="$1" tmp_file
+    [[ -n "$target" ]] || return 1
+    mkdir -p "$(dirname "$target")"
+    tmp_file="${target}.tmp.$$"
+    if [[ -f "$target" ]]; then
+        grep -vE '^[[:space:]]*(USE_SAFE_BASELINE|SAFE_BASELINE|CONSERVATIVE|USE_CONSERVATIVE|USE_AFMF|USE_XWAYLAND|USE_SAFEDX12|USE_OPTISCALER|USE_BLEEDING_EDGE|USE_REFLEX_LAYER|USE_TRANSFER_QUEUE|USE_VK_VIDEO_DECODE|USE_NATIVE_ANTILAG|USE_FSR4|USE_MLFG|USE_SHARPEN|AUTO_HDR_SWITCH|PROTON_ENABLE_WAYLAND|PROTON_USE_WOW64|PROTON_FSR4_UPGRADE|RADV_PERFTEST)=' "$target" > "$tmp_file" || true
+    else
+        : > "$tmp_file"
+    fi
+    cat >> "$tmp_file" <<'EOF'
+USE_SAFE_BASELINE=1
+CONSERVATIVE=1
+USE_CONSERVATIVE=1
+USE_AFMF=0
+USE_OPTISCALER=0
+USE_BLEEDING_EDGE=0
+USE_REFLEX_LAYER=0
+USE_TRANSFER_QUEUE=0
+USE_VK_VIDEO_DECODE=0
+USE_NATIVE_ANTILAG=0
+USE_SAFEDX12=1
+USE_XWAYLAND=1
+USE_FSR4=0
+USE_MLFG=0
+USE_SHARPEN=0
+AUTO_HDR_SWITCH=0
+PROTON_ENABLE_WAYLAND=0
+PROTON_USE_WOW64=0
+PROTON_FSR4_UPGRADE=0
+RADV_PERFTEST=sam
+EOF
     mv -f "$tmp_file" "$target"
 }
 
@@ -2396,52 +2673,77 @@ else
 fi
 
 LAUNCH_START_SEC="$SECONDS"
+LAUNCH_START_EPOCH="$(date +%s)"
 if run_with_scheduler "$@" "${EXTRA_ARGS[@]}"; then
     launch_exit=0
 else
     launch_exit=$?
 fi
-LAUNCH_DURATION=$((SECONDS - LAUNCH_START_SEC))
+LAUNCH_DURATION="${SAP_FORCE_LAUNCH_DURATION:-$((SECONDS - LAUNCH_START_SEC))}"
 
-CRASH_THRESHOLD_SEC="${SAP_CRASH_THRESHOLD_SEC:-20}"
-if [[ -n "$RECOVERY_STATE_FILE" && "$LAUNCH_DURATION" -ge "$CRASH_THRESHOLD_SEC" ]]; then
-    clear_recovery_stage "$RECOVERY_STATE_FILE"
-elif [[ "$launch_exit" -ne 0 &&
-        "${NATIVE_RUNTIME:-0}" -ne 1 &&
-        "$LAUNCH_DURATION" -lt "$CRASH_THRESHOLD_SEC" ]]; then
-    HAS_EXPERIMENTAL=0
-    if [[ "$USE_AFMF" -eq 1 || "$USE_OPTISCALER" -eq 1 || "$USE_BLEEDING_EDGE" -eq 1 ||
-          "$USE_REFLEX_LAYER" -eq 1 || "$USE_TRANSFER_QUEUE" -eq 1 ||
-          "$USE_VK_VIDEO_DECODE" -eq 1 ]]; then
-        HAS_EXPERIMENTAL=1
-    fi
-    HAS_WAYLAND_OR_DX12=0
-    if [[ "$USE_XWAYLAND" -eq 0 || "$USE_SAFEDX12" -eq 0 ]]; then
-        HAS_WAYLAND_OR_DX12=1
-    fi
-    CURRENT_RECOVERY_STAGE=0
+CRASH_THRESHOLD_SEC="${SAP_CRASH_THRESHOLD_SEC:-60}"
+if [[ -n "${SAP_HEALTHY_SESSION_SEC+x}" ]]; then
+    HEALTHY_SESSION_SEC="$SAP_HEALTHY_SESSION_SEC"
+elif [[ "${SAP_CRASH_THRESHOLD_SEC:-}" == "0" ]]; then
+    HEALTHY_SESSION_SEC=0
+else
+    HEALTHY_SESSION_SEC=120
+fi
+
+CRASH_SIG="$(detect_crash_signals "$LAUNCH_START_EPOCH" "${APPID:-}" "$LAST_LOG_DIR/last-${APPID:-launch}.log" || true)"
+CURRENT_RECOVERY_STAGE=0
+CURRENT_CRASH_COUNT=0
+if [[ -n "$RECOVERY_STATE_FILE" ]]; then
+    CURRENT_RECOVERY_STAGE="$(read_recovery_stage "$RECOVERY_STATE_FILE")"
+    CURRENT_CRASH_COUNT="$(read_consecutive_crashes "$RECOVERY_STATE_FILE")"
+fi
+
+CRASH_DETECTED=0
+CRASH_REASON=""
+if [[ -n "$CRASH_SIG" ]]; then
+    CRASH_DETECTED=1
+    CRASH_REASON="$CRASH_SIG"
+elif [[ "$launch_exit" -ne 0 && "$LAUNCH_DURATION" -lt "$CRASH_THRESHOLD_SEC" ]]; then
+    CRASH_DETECTED=1
+    CRASH_REASON="fast_exit(${launch_exit})"
+elif [[ "$launch_exit" -ne 0 && "$CURRENT_CRASH_COUNT" -ge 1 && "$LAUNCH_DURATION" -lt "$HEALTHY_SESSION_SEC" ]]; then
+    CRASH_DETECTED=1
+    CRASH_REASON="consecutive_failure(${launch_exit})"
+fi
+
+if [[ "$CRASH_DETECTED" -eq 0 && "$launch_exit" -eq 0 && "$LAUNCH_DURATION" -ge "$HEALTHY_SESSION_SEC" ]]; then
+    # Healthy session: reset consecutive crash counter while preserving working recovery profile
     if [[ -n "$RECOVERY_STATE_FILE" ]]; then
-        CURRENT_RECOVERY_STAGE="$(read_recovery_stage "$RECOVERY_STATE_FILE")"
+        clear_recovery_stage "$RECOVERY_STATE_FILE"
     fi
+elif [[ "$CRASH_DETECTED" -eq 1 && "${NATIVE_RUNTIME:-0}" -ne 1 ]]; then
+    NEXT_CRASH_COUNT=$((CURRENT_CRASH_COUNT + 1))
 
-    if [[ "$CURRENT_RECOVERY_STAGE" -lt 1 && "$HAS_EXPERIMENTAL" -eq 1 ]]; then
-        CRASH_HINT="fast_crash_detected stage=1 duration=${LAUNCH_DURATION}s exit_code=${launch_exit} applied=USE_AFMF=0,USE_OPTISCALER=0,USE_BLEEDING_EDGE=0,USE_REFLEX_LAYER=0,USE_TRANSFER_QUEUE=0,USE_VK_VIDEO_DECODE=0"
+    if [[ "$CURRENT_RECOVERY_STAGE" -lt 1 ]]; then
+        PURGED_CACHES="$(purge_appid_shader_caches "${APPID:-}")"
+        CRASH_HINT="fast_crash_detected stage=1 mode=SAFE_LAYERS duration=${LAUNCH_DURATION}s exit_code=${launch_exit} reason=${CRASH_REASON} shader_cache_purged=${PURGED_CACHES} applied=USE_AFMF=0,USE_OPTISCALER=0,USE_BLEEDING_EDGE=0,USE_REFLEX_LAYER=0,USE_TRANSFER_QUEUE=0,USE_VK_VIDEO_DECODE=0"
         if [[ -n "$PROFILE_FILE" ]]; then
             save_recovery_stage1_profile "$PROFILE_FILE"
-            [[ -n "$RECOVERY_STATE_FILE" ]] && write_recovery_stage "$RECOVERY_STATE_FILE" 1
+            [[ -n "$RECOVERY_STATE_FILE" ]] && write_recovery_state "$RECOVERY_STATE_FILE" 1 "SAFE_LAYERS" "$NEXT_CRASH_COUNT" "$CRASH_REASON"
             CRASH_RECOVERY="stage1_experimental_disabled"
-            notify_recovery "AppID ${APPID}: Fast crash detected (${LAUNCH_DURATION}s). Stage 1 self-healing disabled experimental flags (including AFMF) for the next launch."
+            notify_recovery "AppID ${APPID}: Crash detected (${LAUNCH_DURATION}s, ${CRASH_REASON}). Stage 1 (SAFE_LAYERS) disabled experimental layers and purged ${PURGED_CACHES} shader cache(s) for the next launch."
         fi
-    elif [[ ( "$CURRENT_RECOVERY_STAGE" -eq 1 || ( "$CURRENT_RECOVERY_STAGE" -lt 1 && "$HAS_EXPERIMENTAL" -eq 0 ) ) && "$HAS_WAYLAND_OR_DX12" -eq 1 ]]; then
-        CRASH_HINT="fast_crash_detected stage=2 duration=${LAUNCH_DURATION}s exit_code=${launch_exit} applied=USE_SAFEDX12=1,USE_XWAYLAND=1,USE_AFMF=0,USE_OPTISCALER=0,USE_BLEEDING_EDGE=0,USE_REFLEX_LAYER=0,USE_TRANSFER_QUEUE=0,USE_VK_VIDEO_DECODE=0"
+    elif [[ "$CURRENT_RECOVERY_STAGE" -eq 1 ]]; then
+        CRASH_HINT="fast_crash_detected stage=2 mode=CONSERVATIVE_XWAYLAND duration=${LAUNCH_DURATION}s exit_code=${launch_exit} reason=${CRASH_REASON} applied=CONSERVATIVE=1,USE_SAFEDX12=1,USE_XWAYLAND=1,PROTON_ENABLE_WAYLAND=0,PROTON_USE_WOW64=0,PROTON_FSR4_UPGRADE=0,RADV_PERFTEST=sam"
         if [[ -n "$PROFILE_FILE" ]]; then
             save_recovery_stage2_profile "$PROFILE_FILE"
-            [[ -n "$RECOVERY_STATE_FILE" ]] && write_recovery_stage "$RECOVERY_STATE_FILE" 2
+            [[ -n "$RECOVERY_STATE_FILE" ]] && write_recovery_state "$RECOVERY_STATE_FILE" 2 "CONSERVATIVE_XWAYLAND" "$NEXT_CRASH_COUNT" "$CRASH_REASON"
             CRASH_RECOVERY="stage2_safe_mode_saved"
-            notify_recovery "AppID ${APPID}: Repeated fast crash (${LAUNCH_DURATION}s). Stage 2 self-healing enabled SafeDX12 + XWayland for the next launch."
+            notify_recovery "AppID ${APPID}: Consecutive crash #${NEXT_CRASH_COUNT} (${LAUNCH_DURATION}s, ${CRASH_REASON}). Stage 2 (CONSERVATIVE_XWAYLAND) enabled XWayland + Conservative safe mode for the next launch."
         fi
-    elif [[ "$HAS_EXPERIMENTAL" -eq 1 || "$HAS_WAYLAND_OR_DX12" -eq 1 ]]; then
-        CRASH_HINT="fast_crash_detected stage=${CURRENT_RECOVERY_STAGE} duration=${LAUNCH_DURATION}s exit_code=${launch_exit}"
+    else
+        CRASH_HINT="fast_crash_detected stage=3 mode=SAFE_BASELINE duration=${LAUNCH_DURATION}s exit_code=${launch_exit} reason=${CRASH_REASON} applied=USE_SAFE_BASELINE=1,CONSERVATIVE=1,PROTON_ENABLE_WAYLAND=0,PROTON_USE_WOW64=0,PROTON_FSR4_UPGRADE=0,RADV_PERFTEST=sam"
+        if [[ -n "$PROFILE_FILE" ]]; then
+            save_recovery_stage3_profile "$PROFILE_FILE"
+            [[ -n "$RECOVERY_STATE_FILE" ]] && write_recovery_state "$RECOVERY_STATE_FILE" 3 "SAFE_BASELINE" "$NEXT_CRASH_COUNT" "$CRASH_REASON"
+            CRASH_RECOVERY="stage3_safe_baseline_saved"
+            notify_recovery "AppID ${APPID}: Consecutive crash #${NEXT_CRASH_COUNT} (${LAUNCH_DURATION}s, ${CRASH_REASON}). Stage 3 (SAFE_BASELINE) stripped optional Proton/DXVK/VKD3D overrides for minimal clean launch."
+        fi
     fi
 fi
 

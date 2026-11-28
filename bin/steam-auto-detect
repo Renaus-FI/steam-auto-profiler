@@ -23,7 +23,7 @@ load_profile_safe() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
         case "$key" in
-            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH|CONSERVATIVE)
+            USE_*|PROTON_OPTISCALER_*|NO_NTSYNC|NO_DECORATION|VRR_CAP|VRR_MINUS_MARGIN|KEEP_OVERLAY|AUTO_PRESET|PARTIAL_PROFILE|PROTON_NO_NTSYNC|WAYLANDDRV_SHORTCUT_INHIBIT|AUTO_HDR_SWITCH|CONSERVATIVE|PROTON_ENABLE_WAYLAND|PROTON_USE_WOW64|PROTON_FSR4_UPGRADE|RADV_PERFTEST|SAFE_BASELINE)
                 ;;
             *) continue ;;
         esac
@@ -98,6 +98,10 @@ AUTO_AFMF=0
 AUTO_AFMF_INSTALLED=0
 AUTO_HAS_NATIVE_FG=0
 AUTO_IS_TOOL_OR_2D=0
+AUTO_ENGINE_UE=0
+AUTO_RECOVERY_STAGE=0
+AUTO_RECOVERY_MODE="none"
+AUTO_CRASH_COUNT=0
 AUTO_STEAM_CONTROLLER_MODE="off"
 AUTO_NATIVE_LINUX=0
 AUTO_IS_VR=0
@@ -509,8 +513,33 @@ PY
         EXE_MATCH=""
         HAS_ELECTRON_OR_CEF=0
         HAS_3D_ENGINE=0
+        HAS_CRYENGINE=0
+        HAS_GENERIC_PAK=0
+        if [[ -d "$GAME_DIR/Engine/Binaries/Win64" ]]; then
+            AUTO_ENGINE_UE=1
+            HAS_3D_ENGINE=1
+        fi
         while IFS= read -r asset; do
-            base="${asset##*/}"; lower="${base,,}"
+            base="${asset##*/}"; lower="${base,,}"; lower_asset="${asset,,}"
+            case "$lower_asset" in
+                */engine/binaries/win64/*)
+                    AUTO_ENGINE_UE=1
+                    HAS_3D_ENGINE=1
+                    ;;
+            esac
+            case "$lower" in
+                *-win64-shipping.exe|*.ucas|*.utoc|*-windowsnoeditor.pak|*-windows.pak|pakchunk*.pak)
+                    AUTO_ENGINE_UE=1
+                    HAS_3D_ENGINE=1
+                    ;;
+                *.pak)
+                    HAS_GENERIC_PAK=1
+                    HAS_3D_ENGINE=1
+                    ;;
+                crysystem.dll)
+                    HAS_CRYENGINE=1
+                    ;;
+            esac
             case "$lower" in
                 openvr_api.dll|openvr_api.so|openxr_loader.dll|libopenxr_loader.so*|*.vrmanifest|*steamvr*manifest*)
                     AUTO_IS_VR=1
@@ -604,7 +633,7 @@ PY
                     -iname '*.dll' -o -iname '*.exe' -o -iname '*.so' -o -iname '*.so.*' -o -iname '*.sys' \
                     -o -iname '*.vrmanifest' -o -iname '*steamvr*manifest*' -o -iname 'optiscaler.ini' \
                     -o -iname 'electron' -o -iname 'app.asar' \
-                    -o -iname '*.ucas' -o -iname '*.utoc' -o -iname '*-windowsnoeditor.pak' -o -iname '*-windows.pak' \
+                    -o -iname '*.ucas' -o -iname '*.utoc' -o -iname '*.pak' \
                     -o -iname '*easyanticheat*' -o -iname '*battleye*' -o -iname '*beservice*' -o -iname '*randgrid*' \
                     -o -iname '*ace-base*' -o -iname '*anticheatexpert*' -o -iname '*nprotect*' -o -iname '*gameguard*' \
                     -o -iname '*xigncode*' -o -iname '*wellbia*' -o -iname '*mhyprot*' -o -iname '*hoyokprotect*' \
@@ -613,6 +642,15 @@ PY
                     -o -iname '*uplay*' -o -iname '*battle.net*' -o -iname '*rockstar-games-launcher*' \
                 \) -print </dev/null 2>/dev/null
         )
+        if [[ "$AUTO_ENGINE_UE" -eq 0 && "${HAS_GENERIC_PAK:-0}" -eq 1 && "${HAS_CRYENGINE:-0}" -eq 0 && "$APPID" != "594650" ]]; then
+            AUTO_ENGINE_UE=1
+        fi
+    fi
+
+    # Deep Rock Galactic (AppID 548430) ships an unused UE4 OpenVR DLL and launches flatscreen (-nohmd)
+    if [[ "$APPID" == "548430" ]]; then
+        AUTO_IS_VR=0
+        AUTO_ENGINE_UE=1
     fi
 
     if [[ -n "$GAME_DIR" && -z "${EXE_MATCH:-}" ]]; then
@@ -708,22 +746,27 @@ if [[ "$GPU_VENDOR" == "amd" ]]; then
 fi
 AUTO_AFMF_INSTALLED="$(detect_afmf_layer)"
 
-# Smart hardware- and class-aware experimental defaults (v2.2.0 / v2.3.0 / v2.4.0)
+# Smart hardware- and class-aware experimental defaults (v2.2.0 / v2.3.0 / v2.4.0 / v2.4.3)
 if [[ "$GPU_VENDOR" == "amd" ]]; then
     AUTO_NATIVE_ANTILAG=1
     AUTO_VK_VIDEO_DECODE=1
     if [[ "$AUTO_RDNA3" -eq 1 || "$AUTO_RDNA4" -eq 1 ]]; then
         AUTO_TRANSFER_QUEUE=1
-        if [[ "$AUTO_CLASS" == "legacy-upscaler" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
+        if [[ "$AUTO_CLASS" == "legacy-upscaler" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" && "$APPID" != "548430" ]]; then
             AUTO_OPTISCALER=1
         fi
     fi
-    if [[ "$AUTO_HAS_REFLEX" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
+    if [[ "$AUTO_HAS_REFLEX" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" && "$APPID" != "548430" ]]; then
         AUTO_REFLEX_LAYER=1
     fi
 fi
-if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" ]]; then
+if [[ "$AUTO_CLASS" != "competitive-anticheat" && "$AUTO_NATIVE_LINUX" -eq 0 && "$APPID" != "594650" && "$APPID" != "2483190" && "$APPID" != "548430" ]]; then
     AUTO_BLEEDING_EDGE=1
+fi
+# Unreal Engine 4/5 on AMD RADV: default transfer_queue=0 and bleeding_edge=0 unless explicitly requested
+if [[ "$GPU_VENDOR" == "amd" && "$AUTO_ENGINE_UE" -eq 1 ]]; then
+    AUTO_TRANSFER_QUEUE=0
+    AUTO_BLEEDING_EDGE=0
 fi
 if [[ "$APPID" == "2483190" ]]; then
     AUTO_BLEEDING_EDGE=0
@@ -734,13 +777,24 @@ if [[ "$APPID" == "2483190" ]]; then
     AUTO_OPTISCALER=0
     AUTO_REASON="Forza Horizon 6 (AppID 2483190) RDNA 4 / Mesa 27 compute-ring stability guard: Wayland + HDR + native FSR4 without bleeding-edge/transfer_queue/lowlatencylayer/video_decode"
 fi
+if [[ "$APPID" == "548430" ]]; then
+    AUTO_BLEEDING_EDGE=0
+    AUTO_TRANSFER_QUEUE=0
+    AUTO_REFLEX_LAYER=0
+    AUTO_VK_VIDEO_DECODE=0
+    AUTO_AFMF=0
+    AUTO_OPTISCALER=0
+    AUTO_REASON="Deep Rock Galactic (AppID 548430) UE4 / RDNA 4 compute-ring stability guard: Wayland + HDR + FSR4 without bleeding-edge/transfer_queue/lowlatencylayer/video_decode/OptiScaler"
+fi
 if [[ "$AUTO_AFMF_INSTALLED" -eq 1 &&
       "$AUTO_CLASS" != "competitive-anticheat" &&
       "$APPID" != "594650" &&
       "$APPID" != "2483190" &&
+      "$APPID" != "548430" &&
       "$AUTO_CLASS" != "vr" &&
       "$AUTO_IS_VR" -eq 0 &&
       "$AUTO_HAS_NATIVE_FG" -eq 0 &&
+      "$AUTO_OPTISCALER" -eq 0 &&
       "$AUTO_IS_TOOL_OR_2D" -eq 0 ]]; then
     AUTO_AFMF=1
 fi
@@ -794,6 +848,10 @@ ORIG_USE_FSR4_SET=0; ORIG_USE_FSR4=""
 if [[ -n "${USE_FSR4+x}" ]]; then ORIG_USE_FSR4_SET=1; ORIG_USE_FSR4="$USE_FSR4"; fi
 ORIG_CONSERVATIVE_SET=0; ORIG_CONSERVATIVE=""
 if [[ -n "${CONSERVATIVE+x}" ]]; then ORIG_CONSERVATIVE_SET=1; ORIG_CONSERVATIVE="$CONSERVATIVE"; fi
+ORIG_USE_SAFE_BASELINE_SET=0; ORIG_USE_SAFE_BASELINE=""
+if [[ -n "${USE_SAFE_BASELINE+x}" ]]; then ORIG_USE_SAFE_BASELINE_SET=1; ORIG_USE_SAFE_BASELINE="$USE_SAFE_BASELINE"; fi
+ORIG_SAFE_BASELINE_SET=0; ORIG_SAFE_BASELINE=""
+if [[ -n "${SAFE_BASELINE+x}" ]]; then ORIG_SAFE_BASELINE_SET=1; ORIG_SAFE_BASELINE="$SAFE_BASELINE"; fi
 
 USE_TRANSFER_QUEUE="$AUTO_TRANSFER_QUEUE"
 USE_NATIVE_ANTILAG="$AUTO_NATIVE_ANTILAG"
@@ -804,19 +862,43 @@ USE_OPTISCALER="$AUTO_OPTISCALER"
 USE_AFMF="$AUTO_AFMF"
 AUTO_HDR_SWITCH="$DEFAULT_AUTO_HDR_SWITCH"
 USE_CONSERVATIVE=0
+USE_SAFE_BASELINE=0
 
 PROFILE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/steam-auto-profiler/profiles/$APPID.env"
 if [[ -n "$APPID" && -f "$PROFILE_FILE" ]]; then
     load_profile_safe "$PROFILE_FILE"
 fi
+if [[ "${PROTON_ENABLE_WAYLAND:-}" == "0" ]]; then
+    USE_XWAYLAND=1
+fi
+if [[ "${PROTON_FSR4_UPGRADE:-}" == "0" ]]; then
+    USE_FSR4=0
+fi
 if [[ "${CONSERVATIVE:-0}" -eq 1 && "$ORIG_CONSERVATIVE_SET" -eq 0 ]]; then
     USE_CONSERVATIVE=1
+fi
+if [[ "${SAFE_BASELINE:-0}" -eq 1 && "$ORIG_SAFE_BASELINE_SET" -eq 0 ]]; then
+    USE_SAFE_BASELINE=1
 fi
 if [[ "$ORIG_USE_CONSERVATIVE_SET" -eq 1 ]]; then
     apply_bool_override USE_CONSERVATIVE "$ORIG_USE_CONSERVATIVE"
 fi
 if [[ "$ORIG_CONSERVATIVE_SET" -eq 1 ]]; then
     apply_bool_override USE_CONSERVATIVE "$ORIG_CONSERVATIVE"
+fi
+if [[ "$ORIG_USE_SAFE_BASELINE_SET" -eq 1 ]]; then
+    apply_bool_override USE_SAFE_BASELINE "$ORIG_USE_SAFE_BASELINE"
+fi
+if [[ "$ORIG_SAFE_BASELINE_SET" -eq 1 ]]; then
+    apply_bool_override USE_SAFE_BASELINE "$ORIG_SAFE_BASELINE"
+fi
+if [[ "$USE_SAFE_BASELINE" -eq 1 ]]; then
+    USE_CONSERVATIVE=1
+    USE_XWAYLAND=1
+    USE_SAFEDX12=1
+    USE_FSR4=0
+    USE_MLFG=0
+    AUTO_HDR_SWITCH=0
 fi
 if [[ "$USE_CONSERVATIVE" -eq 1 ]]; then
     USE_TRANSFER_QUEUE=0
@@ -885,6 +967,15 @@ if [[ "${USE_MLFG:-0}" -eq 1 && "$AUTO_CLASS" != "competitive-anticheat" && "$AP
     AUTO_REFLEX_LAYER=0
     AUTO_AFMF=0
 fi
+if [[ "$AUTO_OPTISCALER" -eq 1 && "$AUTO_AFMF" -eq 1 ]]; then
+    if [[ ( "$ORIG_USE_AFMF_SET" -eq 1 || -n "${AFMF+x}" ) && "$ORIG_USE_OPTISCALER_SET" -eq 0 && -z "${OPTISCALER+x}" ]]; then
+        AUTO_OPTISCALER=0
+        USE_OPTISCALER=0
+    else
+        AUTO_AFMF=0
+        USE_AFMF=0
+    fi
+fi
 if [[ "$AUTO_NATIVE_LINUX" -eq 1 ]]; then
     AUTO_BLEEDING_EDGE=0
     AUTO_REFLEX_LAYER=0
@@ -942,7 +1033,7 @@ if [[ "$APPID" == "594650" ]]; then
     AUTO_BLEEDING_EDGE=0
     AUTO_REFLEX_LAYER=0
 fi
-if [[ "$APPID" == "2483190" ]]; then
+if [[ "$APPID" == "2483190" || "$APPID" == "548430" ]]; then
     USE_BLEEDING_EDGE=0
     USE_TRANSFER_QUEUE=0
     USE_REFLEX_LAYER=0
@@ -956,7 +1047,34 @@ if [[ "$APPID" == "2483190" ]]; then
     AUTO_AFMF=0
     AUTO_OPTISCALER=0
 fi
+
+RECOVERY_STATE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/steam-auto-profiler/recovery-${APPID}.state"
+if [[ -n "$APPID" && "$APPID" =~ ^[A-Za-z0-9_-]+$ && -f "$RECOVERY_STATE_FILE" ]]; then
+    _rec_stg="$(sed -n 's/^RECOVERY_STAGE=\([0-9][0-9]*\)$/\1/p' "$RECOVERY_STATE_FILE" | head -n1)"
+    [[ "$_rec_stg" =~ ^[0-9]+$ ]] && AUTO_RECOVERY_STAGE="$_rec_stg"
+    _rec_mode="$(sed -n 's/^RECOVERY_MODE=\([A-Za-z0-9_-][A-Za-z0-9_-]*\)$/\1/p' "$RECOVERY_STATE_FILE" | head -n1)"
+    if [[ -n "$_rec_mode" ]]; then
+        AUTO_RECOVERY_MODE="$_rec_mode"
+    else
+        case "$AUTO_RECOVERY_STAGE" in
+            1) AUTO_RECOVERY_MODE="SAFE_LAYERS" ;;
+            2) AUTO_RECOVERY_MODE="CONSERVATIVE_XWAYLAND" ;;
+            3) AUTO_RECOVERY_MODE="SAFE_BASELINE" ;;
+            *) AUTO_RECOVERY_MODE="none" ;;
+        esac
+    fi
+    _rec_cnt="$(sed -n 's/^CONSECUTIVE_CRASHES=\([0-9][0-9]*\)$/\1/p' "$RECOVERY_STATE_FILE" | head -n1)"
+    if [[ "$_rec_cnt" =~ ^[0-9]+$ ]]; then
+        AUTO_CRASH_COUNT="$_rec_cnt"
+    else
+        AUTO_CRASH_COUNT="$AUTO_RECOVERY_STAGE"
+    fi
+fi
+
 COMPAT_TOKENS=()
+if [[ "$USE_SAFE_BASELINE" -eq 1 ]]; then
+    AUTO_PROTON_ADD_CONFIG=""
+else
 if [[ "$AUTO_STEAM_CONTROLLER_MODE" == "wayland-hdr" && "$APPID" != "594650" ]]; then
     USE_XWAYLAND=0
     SC_FORCE_XWAYLAND=0
@@ -984,14 +1102,15 @@ if [[ "${USE_MLFG:-0}" -eq 0 ]] || [[ "$APPID" == "594650" ]]; then
         COMPAT_TOKENS+=("lowlatencylayer")
     fi
 fi
-if [[ "${FSR4:-${USE_FSR4:-1}}" -ne 0 ]] && {
+if [[ "${FSR4:-${USE_FSR4:-1}}" -ne 0 && "${PROTON_FSR4_UPGRADE:-1}" != "0" ]] && {
     [[ "$AUTO_BLEEDING_EDGE" -eq 1 ]] ||
     [[ "$AUTO_CLASS" == "native-fsr4" || "$AUTO_CLASS" == "native-fsr" || "$AUTO_CLASS" == "legacy-upscaler" ||
+       ( "$AUTO_ENGINE_UE" -eq 1 && "$USE_CONSERVATIVE" -eq 0 ) ||
        "${FSR4:-0}" -eq 1 || "${PROTON_FSR4_UPGRADE:-0}" -eq 1 ]];
 }; then
     COMPAT_TOKENS+=("fsr4")
 fi
-if [[ "$AUTO_BLEEDING_EDGE" -eq 1 ]]; then
+if [[ "$AUTO_BLEEDING_EDGE" -eq 1 && "${PROTON_USE_WOW64:-1}" != "0" ]]; then
     COMPAT_TOKENS+=("wow64")
 fi
 if [[ "$APPID" != "594650" && "${USE_MLFG:-0}" -eq 1 ]]; then
@@ -1009,6 +1128,7 @@ if [[ "${NO_DECORATION:-0}" -eq 1 || "${USE_NO_DECORATION:-0}" -eq 1 ]]; then
 fi
 COMPAT_TOKENS+=("localshadercache" "pipewire")
 AUTO_PROTON_ADD_CONFIG=$(IFS=','; echo "${COMPAT_TOKENS[*]}")
+fi
 
 if [[ "$JSON_MODE" -eq 1 ]]; then
     python3 - "$APPID" "$GAME_NAME" "$GAME_DIR" "$AUTO_NATIVE_LINUX" \
@@ -1022,7 +1142,8 @@ if [[ "$JSON_MODE" -eq 1 ]]; then
         "$DEFAULT_TRANSFER_QUEUE" "$DEFAULT_NATIVE_ANTILAG" "$DEFAULT_REFLEX_LAYER" \
         "$DEFAULT_VK_VIDEO_DECODE" "$DEFAULT_BLEEDING_EDGE" "$DEFAULT_OPTISCALER" \
         "$DEFAULT_AUTO_HDR_SWITCH" "$AUTO_HDR_SWITCH" \
-        "$AUTO_HAS_NATIVE_FG" "$AUTO_IS_TOOL_OR_2D" "$AUTO_AFMF_INSTALLED" "$AUTO_AFMF" "$DEFAULT_AFMF" <<'PY'
+        "$AUTO_HAS_NATIVE_FG" "$AUTO_IS_TOOL_OR_2D" "$AUTO_AFMF_INSTALLED" "$AUTO_AFMF" "$DEFAULT_AFMF" \
+        "$AUTO_ENGINE_UE" "$AUTO_RECOVERY_STAGE" "$AUTO_RECOVERY_MODE" "$AUTO_CRASH_COUNT" <<'PY'
 import json
 import sys
 
@@ -1035,7 +1156,8 @@ import sys
     steam_controller_mode, gpu_vendor, rdna3, rdna4,
     def_tq, def_na, def_rl, def_vd, def_be, def_opti, def_hdr, auto_hdr,
     has_native_fg, is_tool_or_2d, afmf_installed, afmf, def_afmf,
-) = sys.argv[1:46]
+    engine_ue, recovery_stage, recovery_mode, crash_count,
+) = sys.argv[1:50]
 
 print(json.dumps({
     "app_id": appid or None,
@@ -1053,9 +1175,14 @@ print(json.dumps({
     "afmf": afmf == "1",
     "has_native_fg": has_native_fg == "1",
     "is_tool_or_2d": is_tool_or_2d == "1",
+    "engine_ue": engine_ue == "1",
     "AUTO_HAS_NATIVE_FG": int(has_native_fg == "1"),
     "AUTO_IS_TOOL_OR_2D": int(is_tool_or_2d == "1"),
     "AUTO_AFMF": int(afmf == "1"),
+    "AUTO_ENGINE_UE": int(engine_ue == "1"),
+    "recovery_stage": int(recovery_stage) if recovery_stage.isdigit() else 0,
+    "recovery_mode": recovery_mode,
+    "consecutive_crashes": int(crash_count) if crash_count.isdigit() else 0,
     "auto_hdr_switch": auto_hdr == "1",
     "xwayland": xwayland == "1",
     "safedx12": safedx12 == "1",
@@ -1117,6 +1244,8 @@ AFMF Layer   : $([[ "$AUTO_AFMF_INSTALLED" -eq 1 ]] && echo "Installed (VK_LAYER
 Auto AFMF    : $AUTO_AFMF
 Native FG DLL: $AUTO_HAS_NATIVE_FG
 Tool / 2D App: $AUTO_IS_TOOL_OR_2D
+Unreal Engine: $AUTO_ENGINE_UE
+Recovery Stg : $([[ "$AUTO_RECOVERY_STAGE" -gt 0 ]] && echo "Stage ${AUTO_RECOVERY_STAGE} (${AUTO_RECOVERY_MODE}; crashes=${AUTO_CRASH_COUNT})" || echo "None (0)")
 Auto HDR Sw  : $AUTO_HDR_SWITCH
 Transfer Q   : $AUTO_TRANSFER_QUEUE
 Native AntiL : $AUTO_NATIVE_ANTILAG
@@ -1141,6 +1270,10 @@ else
     printf 'AUTO_AFMF_INSTALLED=%q\n' "$AUTO_AFMF_INSTALLED"
     printf 'AUTO_HAS_NATIVE_FG=%q\n' "$AUTO_HAS_NATIVE_FG"
     printf 'AUTO_IS_TOOL_OR_2D=%q\n' "$AUTO_IS_TOOL_OR_2D"
+    printf 'AUTO_ENGINE_UE=%q\n' "$AUTO_ENGINE_UE"
+    printf 'AUTO_RECOVERY_STAGE=%q\n' "$AUTO_RECOVERY_STAGE"
+    printf 'AUTO_RECOVERY_MODE=%q\n' "$AUTO_RECOVERY_MODE"
+    printf 'AUTO_CRASH_COUNT=%q\n' "$AUTO_CRASH_COUNT"
     printf 'AUTO_SHARPEN=%q\n' "$AUTO_SHARPEN"
     printf 'AUTO_NET_OPT=%q\n' "$AUTO_NET_OPT"
     printf 'AUTO_CEF_FIX=%q\n' "$AUTO_CEF_FIX"

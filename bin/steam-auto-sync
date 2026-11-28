@@ -335,16 +335,19 @@ def detect_report_entry(
             "source": source,
             "class": "timeout",
             "afmf": "Off",
+            "recovery": "-",
             "compat": "-",
             "profile": "Saved" if profile_file.is_file() else "Auto",
             "synced": synced_label,
         }
 
     game_cls = report.get("class", "standard")
-    if game_cls in ("competitive-anticheat", "vr") or appid == "594650":
-        afmf_label = "Locked"
+    if game_cls in ("competitive-anticheat", "vr") or appid in ("594650", "2483190", "548430"):
+        afmf_label = "Locked" if game_cls in ("competitive-anticheat", "vr") or appid == "594650" else "Off"
     elif report.get("afmf"):
         afmf_label = "On" if profile_file.is_file() else "Auto"
+    elif report.get("optiscaler"):
+        afmf_label = "OptiScaler"
     elif report.get("has_native_fg"):
         afmf_label = "Native FG"
     elif report.get("is_tool_or_2d"):
@@ -352,12 +355,20 @@ def detect_report_entry(
     else:
         afmf_label = "Off"
 
+    rec_stage = int(report.get("recovery_stage", 0) or 0)
+    rec_mode = str(report.get("recovery_mode", "none") or "none")
+    if rec_stage > 0:
+        recovery_label = f"Stage {rec_stage} ({rec_mode})"
+    else:
+        recovery_label = "-"
+
     return {
         "appid": appid,
         "name": name,
         "source": source,
         "class": game_cls,
         "afmf": afmf_label,
+        "recovery": recovery_label,
         "compat": report.get("proton_add_config", "-") or "-",
         "profile": "Saved" if profile_file.is_file() else "Auto",
         "synced": synced_label,
@@ -889,7 +900,7 @@ def main():
                     timeout=DEFAULT_DETECT_TIMEOUT,
                 )
 
-                headers = ("AppID", "Game Name", "Source", "Class", "AFMF", "Compat Tokens", "Profile", "Synced")
+                headers = ("AppID", "Game Name", "Source", "Class", "AFMF", "Recovery", "Compat Tokens", "Profile", "Synced")
                 if rows:
                     widths = [
                         max(len(headers[0]), *(len(row["appid"]) for row in rows)),
@@ -897,16 +908,17 @@ def main():
                         max(len(headers[2]), *(len(row["source"]) for row in rows)),
                         max(len(headers[3]), *(len(row["class"]) for row in rows)),
                         max(len(headers[4]), *(len(row["afmf"]) for row in rows)),
-                        max(len(headers[5]), *(len(row["compat"]) for row in rows)),
-                        max(len(headers[6]), *(len(row["profile"]) for row in rows)),
-                        max(len(headers[7]), *(len(row["synced"]) for row in rows)),
+                        max(len(headers[5]), *(len(row["recovery"]) for row in rows)),
+                        max(len(headers[6]), *(len(row["compat"]) for row in rows)),
+                        max(len(headers[7]), *(len(row["profile"]) for row in rows)),
+                        max(len(headers[8]), *(len(row["synced"]) for row in rows)),
                     ]
                     print(" | ".join(value.ljust(width) for value, width in zip(headers, widths)))
                     print("-+-".join("-" * width for width in widths))
                     for row in rows:
                         values = (
                             row["appid"], row["name"], row["source"], row["class"],
-                            row["afmf"], row["compat"], row["profile"], row["synced"],
+                            row["afmf"], row["recovery"], row["compat"], row["profile"], row["synced"],
                         )
                         print(" | ".join(value.ljust(width) for value, width in zip(values, widths)))
                 else:

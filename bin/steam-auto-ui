@@ -1402,6 +1402,24 @@ def validate_profile(
                 "Forza Horizon 6 (AppID 2483190) disables experimental bleeding-edge, transfer_queue, Reflex layer, and RADV video_decode to prevent RDNA 4 / Mesa 27 compute-ring hangs."
             )
 
+    if str(appid).strip() == "548430":
+        drg_adjusted = False
+        for drg_key in (
+            "USE_BLEEDING_EDGE",
+            "USE_TRANSFER_QUEUE",
+            "USE_REFLEX_LAYER",
+            "USE_VK_VIDEO_DECODE",
+            "USE_AFMF",
+            "USE_OPTISCALER",
+        ):
+            if norm.get(drg_key) != "0":
+                norm[drg_key] = "0"
+                drg_adjusted = True
+        if drg_adjusted:
+            warnings.append(
+                "Deep Rock Galactic (AppID 548430) disables experimental bleeding-edge, transfer_queue, Reflex layer, RADV video_decode, OptiScaler, and AFMF to prevent UE4/RDNA 4 compute-ring hangs."
+            )
+
     if game_class == "competitive-anticheat":
         if norm["USE_MLFG"] == "1":
             norm["USE_MLFG"] = "0"
@@ -1437,6 +1455,10 @@ def validate_profile(
     if norm["USE_SHARPEN"] == "1" and (norm["USE_FSR4"] == "1" or norm["USE_OPTISCALER"] == "1"):
         norm["USE_SHARPEN"] = "0"
         warnings.append("vkBasalt disabled: mutually exclusive with FSR 4 / OptiScaler (prevents HDR10 clipping).")
+
+    if norm["USE_OPTISCALER"] == "1" and norm["USE_AFMF"] == "1":
+        norm["USE_AFMF"] = "0"
+        warnings.append("AFMF disabled: mutually exclusive with OptiScaler (prevents DXGI/Vulkan swapchain hook conflict).")
 
     if norm["USE_MLFG"] == "1":
         if norm["USE_AFMF"] == "1":
@@ -1915,13 +1937,16 @@ class ProfilerBackend:
         }
         is_hunt = aid == "594650"
         is_fh6 = aid == "2483190"
+        is_drg = aid == "548430"
+        is_guarded_rdna4 = is_fh6 or is_drg
         if game is not None:
             game_class = "competitive-anticheat" if is_hunt else str(game.get("class", "standard"))
             is_native = bool(game.get("native_linux")) or str(game.get("runtime", "proton")) == "native_linux"
             has_reflex = bool(game.get("has_reflex", False))
-            is_vr = bool(game.get("is_vr", False)) or game_class == "vr"
+            is_vr = (bool(game.get("is_vr", False)) or game_class == "vr") and not is_drg
             has_native_fg = bool(game.get("has_native_fg", False))
             is_tool_or_2d = bool(game.get("is_tool_or_2d", False))
+            is_ue = bool(game.get("engine_ue", False)) or is_drg
         else:
             game_class = "competitive-anticheat" if aid in known_anticheat else "standard"
             is_native = False
@@ -1929,26 +1954,28 @@ class ProfilerBackend:
             is_vr = False
             has_native_fg = False
             is_tool_or_2d = aid in {"480", "4690330", "228980", "975370"}
+            is_ue = is_drg
 
         gpu_vendor, is_rdna3, is_rdna4 = self._detect_gpu_caps()
         if gpu_vendor == "amd":
             profile["USE_NATIVE_ANTILAG"] = "1"
-            profile["USE_VK_VIDEO_DECODE"] = "0" if is_fh6 else "1"
+            profile["USE_VK_VIDEO_DECODE"] = "0" if is_guarded_rdna4 else "1"
             if is_rdna3 or is_rdna4:
-                profile["USE_TRANSFER_QUEUE"] = "0" if is_fh6 else "1"
-                if game_class == "legacy-upscaler" and not is_native and not is_hunt and not is_fh6:
+                profile["USE_TRANSFER_QUEUE"] = "0" if (is_guarded_rdna4 or is_ue) else "1"
+                if game_class == "legacy-upscaler" and not is_native and not is_hunt and not is_guarded_rdna4:
                     profile["USE_OPTISCALER"] = "1"
-            if has_reflex and game_class != "competitive-anticheat" and not is_native and not is_hunt and not is_fh6:
+            if has_reflex and game_class != "competitive-anticheat" and not is_native and not is_hunt and not is_guarded_rdna4:
                 profile["USE_REFLEX_LAYER"] = "1"
-        if game_class != "competitive-anticheat" and not is_native and not is_hunt and not is_fh6:
+        if game_class != "competitive-anticheat" and not is_native and not is_hunt and not is_guarded_rdna4 and not (gpu_vendor == "amd" and is_ue):
             profile["USE_BLEEDING_EDGE"] = "1"
         if (
             self._detect_afmf_installed()
             and game_class not in ("competitive-anticheat", "vr")
             and not is_hunt
-            and not is_fh6
+            and not is_guarded_rdna4
             and not is_vr
             and not has_native_fg
+            and profile.get("USE_OPTISCALER") != "1"
             and not is_tool_or_2d
         ):
             profile["USE_AFMF"] = "1"

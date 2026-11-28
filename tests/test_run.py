@@ -567,7 +567,9 @@ class RunTests(unittest.TestCase):
             self.assertIn("USE_SDL=1", saved1)
             self.assertNotIn("USE_SAFEDX12=1", saved1)
             self.assertNotIn("USE_XWAYLAND=1", saved1)
-            self.assertEqual((state_dir / "recovery-361420.state").read_text(encoding="utf-8").strip(), "RECOVERY_STAGE=1")
+            state1 = (state_dir / "recovery-361420.state").read_text(encoding="utf-8")
+            self.assertIn("RECOVERY_STAGE=1", state1)
+            self.assertIn("RECOVERY_MODE=SAFE_LAYERS", state1)
             log1 = (state_dir / "last-361420.log").read_text(encoding="utf-8")
             self.assertIn("crash_hint=fast_crash_detected stage=1", log1)
             self.assertIn("crash_recovery=stage1_experimental_disabled", log1)
@@ -605,12 +607,19 @@ class RunTests(unittest.TestCase):
             self.assertIn("USE_OPTISCALER=0", saved2)
             self.assertIn("USE_BLEEDING_EDGE=0", saved2)
             self.assertIn("USE_SDL=1", saved2)
-            self.assertEqual((state_dir / "recovery-361420.state").read_text(encoding="utf-8").strip(), "RECOVERY_STAGE=2")
+            self.assertIn("CONSERVATIVE=1", saved2)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", saved2)
+            self.assertIn("PROTON_USE_WOW64=0", saved2)
+            self.assertIn("PROTON_FSR4_UPGRADE=0", saved2)
+            self.assertIn("RADV_PERFTEST=sam", saved2)
+            state2 = (state_dir / "recovery-361420.state").read_text(encoding="utf-8")
+            self.assertIn("RECOVERY_STAGE=2", state2)
+            self.assertIn("RECOVERY_MODE=CONSERVATIVE_XWAYLAND", state2)
             log2 = (state_dir / "last-361420.log").read_text(encoding="utf-8")
             self.assertIn("crash_hint=fast_crash_detected stage=2", log2)
             self.assertIn("crash_recovery=stage2_safe_mode_saved", log2)
 
-            # Verify Stage 2 dry-run applies XWayland + SafeDX12 + both SDL x11 variables
+            # Verify Stage 2 dry-run applies XWayland + SafeDX12 + both SDL x11 variables + WOW64=0 + FSR4=0
             res_dry2 = subprocess.run(
                 [str(RUN), "--dry-run", "361420"],
                 env={**env, "SDL_VIDEO_DRIVER": "wayland"},
@@ -624,7 +633,8 @@ class RunTests(unittest.TestCase):
             self.assertIn("SDL_VIDEO_DRIVER=x11", res_dry2.stdout)
             self.assertNotIn("VKD3D_CONFIG=", res_dry2.stdout)
             self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_dry2.stdout)
-            self.assertNotIn("PROTON_USE_WOW64=", res_dry2.stdout)
+            self.assertIn("PROTON_USE_WOW64=0", res_dry2.stdout)
+            self.assertIn("PROTON_FSR4_UPGRADE=0", res_dry2.stdout)
 
             # Healthy run (>= threshold) resets the recovery state marker cleanly
             res_healthy = subprocess.run(
@@ -2307,6 +2317,281 @@ class RunTests(unittest.TestCase):
                 res_ble = subprocess.run([str(RUN), "--dry-run", "361420"], env=env, text=True, capture_output=True, check=False)
                 self.assertEqual(res_ble.returncode, 0, res_ble.stderr)
                 self.assertIn(f"Steam Controller 2026: wayland-hdr (28de:{ble_pid})", res_ble.stdout)
+
+    def test_v243_ue_rdna4_defaults_drg_548430_and_optiscaler_afmf_exclusion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4", "0x1002", "0x7550")
+            empty_usb = home / "usb-empty"
+            empty_usb.mkdir()
+            steamapps = home / ".local/share/Steam/steamapps"
+            common = steamapps / "common"
+
+            def add_game(appid: str, name: str, files: tuple[str, ...]) -> None:
+                gdir = common / name.replace(" ", "_")
+                gdir.mkdir(parents=True, exist_ok=True)
+                for rel in files:
+                    p = gdir / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.touch()
+                (steamapps / f"appmanifest_{appid}.acf").write_text(
+                    f'"AppState"\n{{\n\t"appid"\t\t"{appid}"\n\t"installdir"\t\t"{gdir.name}"\n\t"name"\t\t"{name}"\n}}\n',
+                    encoding="utf-8",
+                )
+
+            add_game("8201", "Generic UE4 Title", ("Game/Binaries/Win64/Game-Win64-Shipping.exe", "Game/Content/Paks/Game-WindowsNoEditor.pak"))
+            add_game(
+                "548430",
+                "Deep Rock Galactic",
+                (
+                    "FSD/Binaries/Win64/FSD-Win64-Shipping.exe",
+                    "FSD/Content/Paks/FSD-WindowsNoEditor.pak",
+                    "Engine/Binaries/ThirdParty/OpenVR/OpenVRv1_5_17/Win64/openvr_api.dll",
+                    "nvngx_dlss.dll",
+                    "sl.interposer.dll",
+                ),
+            )
+            add_game("8202", "Legacy DLSS Opti Title", ("game.exe", "nvngx_dlss.dll"))
+
+            layer_dir = home / "vk-layers"
+            layer_dir.mkdir()
+            fake_so = home / "libafmf-linux.so"
+            fake_so.write_bytes(b"\x7fELF")
+            (layer_dir / "afmf-linux.json").write_text(
+                json.dumps({
+                    "file_format_version": "1.0.0",
+                    "layer": {
+                        "name": "VK_LAYER_AFMF",
+                        "type": "GLOBAL",
+                        "library_path": str(fake_so),
+                        "enable_environment": {"AFMF_ENABLE": "1"},
+                        "disable_environment": {"DISABLE_AFMF": "1"},
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            env = os.environ.copy()
+            for key in (
+                "VKD3D_CONFIG", "VKD3D_FEATURE_LEVEL", "VKD3D_SHADER_MODEL",
+                "PROTON_USE_WOW64", "PROTON_MEDIA_FORCE_GST", "WAYLANDDRV_RAWINPUT",
+                "LOW_LATENCY_LAYER", "LOW_LATENCY_LAYER_REFLEX", "AFMF", "USE_AFMF",
+                "OPTISCALER", "USE_OPTISCALER", "BLEEDING_EDGE", "TRANSFER_QUEUE",
+                "REFLEX_LAYER", "VK_VIDEO_DECODE", "CONSERVATIVE",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XWAYLAND",
+            ):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "NO_GUI": "1",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_USB_DIR": str(empty_usb),
+                "SAP_AFMF_LAYER_DIRS": str(layer_dir),
+                "RADV_PERFTEST": "sam,transfer_queue",
+                "RADV_EXPERIMENTAL": "video_decode",
+            })
+
+            # 1) Generic UE4 title on RDNA 4 defaults transfer_queue=0 & bleeding_edge=0, keeping FSR4 & VKD3D_CONFIG
+            res_ue = subprocess.run([str(RUN), "--dry-run", "8201"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_ue.returncode, 0, res_ue.stderr)
+            self.assertIn("Unreal Engine: detected", res_ue.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_ue.stdout)
+            self.assertIn("PROTON_FSR4_UPGRADE=1", res_ue.stdout)
+            self.assertIn("VKD3D_CONFIG=descriptor_heap,dxr12,force_bindless_texel_buffer", res_ue.stdout)
+            self.assertNotIn("transfer_queue", res_ue.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_ue.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_ue.stdout)
+
+            # 2) Deep Rock Galactic (548430) enforces RDNA 4 / UE4 stability guard cleanly
+            res_drg = subprocess.run([str(RUN), "--dry-run", "548430"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_drg.returncode, 0, res_drg.stderr)
+            self.assertIn("Class: legacy-upscaler", res_drg.stdout)
+            self.assertIn("Unreal Engine: detected", res_drg.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=1", res_drg.stdout)
+            self.assertIn("DXVK_HDR=1", res_drg.stdout)
+            self.assertIn("PROTON_FSR4_UPGRADE=1", res_drg.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_drg.stdout)
+            self.assertIn("LOW_LATENCY_LAYER=0", res_drg.stdout)
+            self.assertIn("PROTON_USE_OPTISCALER=0", res_drg.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_drg.stdout)
+            self.assertNotIn("transfer_queue", res_drg.stdout)
+            self.assertNotIn("RADV_EXPERIMENTAL=", res_drg.stdout)
+            self.assertNotIn("VKD3D_FEATURE_LEVEL=", res_drg.stdout)
+            self.assertNotIn("PROTON_USE_WOW64=", res_drg.stdout)
+
+            # 3) Legacy-upscaler title with OptiScaler active MUST NOT stack AFMF_ENABLE=1
+            res_opti = subprocess.run([str(RUN), "--dry-run", "8202"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_opti.returncode, 0, res_opti.stderr)
+            self.assertIn("PROTON_USE_OPTISCALER=1", res_opti.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_opti.stdout)
+            self.assertIn("AFMF: disabled (OptiScaler active)", res_opti.stdout)
+            self.assertNotIn("AFMF_ENABLE=1", res_opti.stdout)
+
+            res_both = subprocess.run(
+                [str(RUN), "--dry-run", "8202"],
+                env={**env, "OPTISCALER": "1", "AFMF": "1"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_both.returncode, 0, res_both.stderr)
+            self.assertIn("PROTON_USE_OPTISCALER=1", res_both.stdout)
+            self.assertIn("DISABLE_AFMF=1", res_both.stdout)
+            self.assertNotIn("AFMF_ENABLE=1", res_both.stdout)
+
+    def test_v243_three_stage_self_healing_delayed_crash_gpu_hang_cache_purge_and_healthy_reset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            rdna4_drm = self._make_mock_drm(home / "rdna4-3stg", "0x1002", "0x7550")
+            usb_dir = home / "usb-sc"
+            dev_dir = usb_dir / "3-2"
+            (dev_dir / "power").mkdir(parents=True)
+            (dev_dir / "idVendor").write_text("28de\n", encoding="utf-8")
+            (dev_dir / "idProduct").write_text("1304\n", encoding="utf-8")
+            (dev_dir / "power" / "control").write_text("on\n", encoding="utf-8")
+
+            mock_bin = home / "mock-bin"
+            mock_bin.mkdir()
+            steam_log = home / "steam.log"
+            (mock_bin / "pgrep").write_text(
+                '#!/bin/sh\nif [ "$1" = "-x" ] && [ "$2" = "steam" ]; then exit 0; fi\nexit 1\n',
+                encoding="utf-8",
+            )
+            (mock_bin / "pgrep").chmod(0o755)
+            (mock_bin / "steam").write_text(f'#!/bin/sh\necho "$*" >> "{steam_log}"\n', encoding="utf-8")
+            (mock_bin / "steam").chmod(0o755)
+            (mock_bin / "udevadm").write_text("#!/bin/sh\nsleep 5\n", encoding="utf-8")
+            (mock_bin / "udevadm").chmod(0o755)
+
+            state_dir = home / ".local" / "state" / "steam-auto-profiler"
+            profile_dir = home / ".config" / "steam-auto-profiler" / "profiles"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+
+            # Seed Steam shader caches for AppID 8301 to verify Stage 1 automatic purge
+            steam_lib = home / ".local" / "share" / "Steam"
+            sc_root = steam_lib / "steamapps" / "shadercache" / "8301"
+            for sub in ("mesa_shader_cache_sf", "VKD3D_shader_cache", "DXVK_state_cache"):
+                (sc_root / sub).mkdir(parents=True, exist_ok=True)
+                (sc_root / sub / "stale.cache").write_text("corrupt\n", encoding="utf-8")
+
+            journal_hang = home / "journal_hang.log"
+            journal_hang.write_text(
+                "amdgpu 0000:03:00.0: ring comp_1.1.0 timeout, signaled seq=552765, emitted seq=552767\n"
+                "amdgpu 0000:03:00.0: Process FSD-Win64-Shipp pid 12824 thread vkd3d_queue pid 12952\n",
+                encoding="utf-8",
+            )
+            crash_sig_log = home / "crash_sig.log"
+            crash_sig_log.write_text(
+                "CrashReportClient.exe: EXCEPTION_ACCESS_VIOLATION VkResult=-4 VK_ERROR_DEVICE_LOST\n",
+                encoding="utf-8",
+            )
+
+            env = os.environ.copy()
+            for key in (
+                "SAFEDX12", "XWAYLAND", "NO_GUI", "FORCE_GUI", "CONSERVATIVE", "SAFE_BASELINE",
+                "USE_SAFE_BASELINE", "BLEEDING_EDGE", "TRANSFER_QUEUE", "REFLEX_LAYER",
+                "VK_VIDEO_DECODE", "OPTISCALER", "AFMF", "USE_AFMF", "RADV_EXPERIMENTAL",
+                "USE_STEAM_CONTROLLER", "STEAM_CONTROLLER",
+                "GAMESCOPE_WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP",
+            ):
+                env.pop(key, None)
+            env.update({
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "SAP_DRM_DIR": str(rdna4_drm),
+                "SAP_USB_DIR": str(usb_dir),
+                "SAP_SKIP_JOURNAL_CHECK": "1",
+                "SAP_SKIP_COREDUMP_CHECK": "1",
+                "SAP_FORCE_INPUT_DELAY1": "0",
+                "SAP_FORCE_INPUT_DELAY2": "0",
+                "SAP_FORCE_INPUT_RESET_DELAY": "0",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "GAMEID": "8301",
+                "PATH": f"{mock_bin}:{env.get('PATH', '/usr/bin:/bin')}",
+            })
+
+            # Failure 1: delayed UE4 crash (35s, > old 20s threshold, < new 60s threshold) -> Stage 1 (SAFE_LAYERS) + shader purge
+            res1 = subprocess.run(
+                [str(RUN), "/bin/false"],
+                env={**env, "SAP_FORCE_LAUNCH_DURATION": "35"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(res1.returncode, 0)
+            prof1 = (profile_dir / "8301.env").read_text(encoding="utf-8")
+            for expected in (
+                "USE_AFMF=0", "USE_OPTISCALER=0", "USE_BLEEDING_EDGE=0",
+                "USE_TRANSFER_QUEUE=0", "USE_VK_VIDEO_DECODE=0", "USE_REFLEX_LAYER=0",
+            ):
+                self.assertIn(expected, prof1)
+            state1 = (state_dir / "recovery-8301.state").read_text(encoding="utf-8")
+            self.assertIn("RECOVERY_STAGE=1", state1)
+            self.assertIn("RECOVERY_MODE=SAFE_LAYERS", state1)
+            self.assertIn("CONSECUTIVE_CRASHES=1", state1)
+            # Shader caches MUST have been automatically purged on Stage 1
+            for sub in ("mesa_shader_cache_sf", "VKD3D_shader_cache", "DXVK_state_cache"):
+                self.assertFalse((sc_root / sub).exists(), f"{sub} should be purged on Stage 1")
+            # Steam Controller 2026 Desktop layout restoration (413080 + 0) must run unconditionally on crash
+            calls = steam_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(calls[-2:], ["steam://forceinputappid/413080", "steam://forceinputappid/0"], calls)
+
+            # Failure 2: exit_code=0 (like Steam reaper/proton wrapper) BUT amdgpu GPU hang detected in journal -> Stage 2 (CONSERVATIVE_XWAYLAND)
+            res2 = subprocess.run(
+                [str(RUN), "/bin/true"],
+                env={**env, "SAP_FORCE_LAUNCH_DURATION": "52", "SAP_CRASH_JOURNAL_FILE": str(journal_hang)},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res2.returncode, 0)
+            prof2 = (profile_dir / "8301.env").read_text(encoding="utf-8")
+            for expected in (
+                "CONSERVATIVE=1", "PROTON_ENABLE_WAYLAND=0", "PROTON_USE_WOW64=0",
+                "PROTON_FSR4_UPGRADE=0", "RADV_PERFTEST=sam",
+            ):
+                self.assertIn(expected, prof2)
+            state2 = (state_dir / "recovery-8301.state").read_text(encoding="utf-8")
+            self.assertIn("RECOVERY_STAGE=2", state2)
+            self.assertIn("RECOVERY_MODE=CONSERVATIVE_XWAYLAND", state2)
+            self.assertIn("CONSECUTIVE_CRASHES=2", state2)
+
+            # Failure 3: crash signature in log (CrashReportClient / VkResult / EXCEPTION_ACCESS_VIOLATION) -> Stage 3 (SAFE_BASELINE)
+            res3 = subprocess.run(
+                [str(RUN), "/bin/true"],
+                env={**env, "SAP_FORCE_LAUNCH_DURATION": "75", "SAP_CRASH_LOG_FILE": str(crash_sig_log)},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res3.returncode, 0)
+            prof3 = (profile_dir / "8301.env").read_text(encoding="utf-8")
+            self.assertIn("USE_SAFE_BASELINE=1", prof3)
+            state3 = (state_dir / "recovery-8301.state").read_text(encoding="utf-8")
+            self.assertIn("RECOVERY_STAGE=3", state3)
+            self.assertIn("RECOVERY_MODE=SAFE_BASELINE", state3)
+            self.assertIn("CONSECUTIVE_CRASHES=3", state3)
+
+            # Verify Stage 3 dry-run strips optional Proton/DXVK/VKD3D overrides down to clean minimal baseline
+            res_dry3 = subprocess.run([str(RUN), "--dry-run", "8301"], env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(res_dry3.returncode, 0, res_dry3.stderr)
+            self.assertIn("Safe baseline: enabled (Stage 3 recovery)", res_dry3.stdout)
+            self.assertIn("Recovery state: Stage 3 (SAFE_BASELINE; crashes=3)", res_dry3.stdout)
+            self.assertIn("PROTON_ENABLE_WAYLAND=0", res_dry3.stdout)
+            self.assertIn("PROTON_USE_WOW64=0", res_dry3.stdout)
+            self.assertIn("PROTON_FSR4_UPGRADE=0", res_dry3.stdout)
+            self.assertIn("RADV_PERFTEST=sam\n", res_dry3.stdout)
+            self.assertNotIn("PROTON_ADD_CONFIG=", res_dry3.stdout)
+            self.assertNotIn("STEAM_COMPAT_CONFIG=", res_dry3.stdout)
+            self.assertNotIn("VKD3D_CONFIG=", res_dry3.stdout)
+            self.assertNotIn("DXVK_HDR=", res_dry3.stdout)
+
+            # Healthy clean session (>= 120s, exit_code=0) resets consecutive crash counter while preserving working profile
+            res_ok = subprocess.run(
+                [str(RUN), "/bin/true"],
+                env={**env, "SAP_FORCE_LAUNCH_DURATION": "125"},
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(res_ok.returncode, 0, res_ok.stderr)
+            self.assertFalse((state_dir / "recovery-8301.state").exists(), "Consecutive crash counter must reset on healthy >=120s run")
+            self.assertTrue((profile_dir / "8301.env").is_file(), "Working recovery profile must be preserved after healthy run")
+            self.assertIn("USE_SAFE_BASELINE=1", (profile_dir / "8301.env").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

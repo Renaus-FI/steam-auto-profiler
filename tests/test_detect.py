@@ -690,6 +690,158 @@ class DetectTests(unittest.TestCase):
         self.assertNotIn("wow64", tokens)
         self.assertNotIn("lowlatencylayer", tokens)
 
+    def test_v243_unreal_engine_detection_and_safe_rdna4_defaults(self):
+        drm = self.home / "drm-rdna4-ue"
+        dev = drm / "card0" / "device"
+        dev.mkdir(parents=True)
+        (dev / "vendor").write_text("0x1002\n", encoding="utf-8")
+        (dev / "device").write_text("0x7550\n", encoding="utf-8")
+        (dev / "uevent").write_text("PCI_ID=1002:7550\n", encoding="utf-8")
+
+        env = os.environ.copy()
+        for k in ("BLEEDING_EDGE", "TRANSFER_QUEUE", "REFLEX_LAYER", "VK_VIDEO_DECODE", "AFMF", "OPTISCALER", "CONSERVATIVE"):
+            env.pop(k, None)
+        env["HOME"] = str(self.home)
+        env["SAP_DRM_DIR"] = str(drm)
+        env["WAYLAND_DISPLAY"] = "wayland-0"
+
+        ue_cases = (
+            ("8101", "UE Shipping Game", ("FSD/Binaries/Win64/FSD-Win64-Shipping.exe",)),
+            ("8102", "UE Engine Dir Game", ("Engine/Binaries/Win64/UnrealCEFSubProcess.exe", "game.exe")),
+            ("8103", "UE Pak Game", ("game.exe", "Content/Paks/pakchunk0-WindowsNoEditor.pak")),
+            ("8104", "UE IoStore Game", ("game.exe", "Content/Paks/global.ucas", "Content/Paks/global.utoc")),
+        )
+        for aid, name, files in ue_cases:
+            with self.subTest(ue_game=name):
+                self.create_game(aid, name, files=files)
+                rep = json.loads(subprocess.run(
+                    [str(DETECT), "--json", aid], env=env, text=True, capture_output=True, check=True
+                ).stdout)
+                self.assertTrue(rep["engine_ue"])
+                self.assertEqual(rep["AUTO_ENGINE_UE"], 1)
+                # AMD RADV UE defaults disable transfer_queue & bleeding_edge while keeping safe FSR4/Wayland
+                self.assertFalse(rep["transfer_queue"])
+                self.assertFalse(rep["bleeding_edge"])
+                self.assertEqual(rep["smart_defaults"]["USE_TRANSFER_QUEUE"], "0")
+                self.assertEqual(rep["smart_defaults"]["USE_BLEEDING_EDGE"], "0")
+                tokens = rep["proton_add_config"].split(",")
+                self.assertIn("fsr4", tokens)
+                self.assertNotIn("wow64", tokens)
+
+        # Explicit user override still enables bleeding_edge & transfer_queue on generic UE titles
+        rep_ovr = json.loads(subprocess.run(
+            [str(DETECT), "--json", "8101"],
+            env={**env, "BLEEDING_EDGE": "1", "TRANSFER_QUEUE": "1"},
+            text=True, capture_output=True, check=True,
+        ).stdout)
+        self.assertTrue(rep_ovr["bleeding_edge"])
+        self.assertTrue(rep_ovr["transfer_queue"])
+
+        # Deep Rock Galactic (548430) with unused openvr_api.dll is UE4 flatscreen, NOT VR, with RDNA 4 stability guard
+        self.create_game(
+            "548430",
+            "Deep Rock Galactic",
+            files=(
+                "FSD/Binaries/Win64/FSD-Win64-Shipping.exe",
+                "FSD/Content/Paks/FSD-WindowsNoEditor.pak",
+                "Engine/Binaries/ThirdParty/OpenVR/OpenVRv1_5_17/Win64/openvr_api.dll",
+                "nvngx_dlss.dll",
+                "sl.interposer.dll",
+            ),
+        )
+        rep_drg = json.loads(subprocess.run(
+            [str(DETECT), "--json", "548430"], env=env, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertTrue(rep_drg["engine_ue"])
+        self.assertFalse(rep_drg["is_vr"])
+        self.assertEqual(rep_drg["class"], "legacy-upscaler")
+        self.assertFalse(rep_drg["bleeding_edge"])
+        self.assertFalse(rep_drg["transfer_queue"])
+        self.assertFalse(rep_drg["reflex_layer"])
+        self.assertFalse(rep_drg["vk_video_decode"])
+        self.assertFalse(rep_drg["optiscaler"])
+        self.assertFalse(rep_drg["afmf"])
+        self.assertIn("fsr4", rep_drg["proton_add_config"].split(","))
+        self.assertNotIn("wow64", rep_drg["proton_add_config"].split(","))
+        self.assertNotIn("lowlatencylayer", rep_drg["proton_add_config"].split(","))
+
+    def test_v243_optiscaler_afmf_mutual_exclusion_and_recovery_visibility(self):
+        drm = self.home / "drm-rdna4-excl"
+        dev = drm / "card0" / "device"
+        dev.mkdir(parents=True)
+        (dev / "vendor").write_text("0x1002\n", encoding="utf-8")
+        (dev / "device").write_text("0x7550\n", encoding="utf-8")
+        (dev / "uevent").write_text("PCI_ID=1002:7550\n", encoding="utf-8")
+
+        layer_dir = self.home / "vk-layers-excl"
+        layer_dir.mkdir()
+        fake_so = self.home / "libafmf-excl.so"
+        fake_so.write_bytes(b"\x7fELF")
+        (layer_dir / "afmf-linux.json").write_text(
+            json.dumps({
+                "file_format_version": "1.0.0",
+                "layer": {
+                    "name": "VK_LAYER_AFMF",
+                    "type": "GLOBAL",
+                    "library_path": str(fake_so),
+                    "enable_environment": {"AFMF_ENABLE": "1"},
+                    "disable_environment": {"DISABLE_AFMF": "1"},
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        self.create_game("8150", "Legacy DLSS NoFG", files=("game.exe", "nvngx_dlss.dll"))
+        env = os.environ.copy()
+        for k in ("AFMF", "USE_AFMF", "OPTISCALER", "USE_OPTISCALER", "CONSERVATIVE"):
+            env.pop(k, None)
+        env.update({
+            "HOME": str(self.home),
+            "XDG_STATE_HOME": str(self.home / ".local/state"),
+            "SAP_DRM_DIR": str(drm),
+            "SAP_AFMF_LAYER_DIRS": str(layer_dir),
+        })
+
+        # Legacy upscaler on RDNA 4 auto-enables OptiScaler and MUST suppress AUTO_AFMF
+        rep_auto = json.loads(subprocess.run(
+            [str(DETECT), "--json", "8150"], env=env, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertEqual(rep_auto["class"], "legacy-upscaler")
+        self.assertTrue(rep_auto["optiscaler"])
+        self.assertFalse(rep_auto["afmf"])
+        self.assertEqual(rep_auto["AUTO_AFMF"], 0)
+        self.assertEqual(rep_auto["smart_defaults"]["USE_OPTISCALER"], "1")
+        self.assertEqual(rep_auto["smart_defaults"]["USE_AFMF"], "0")
+
+        # Explicitly forcing both OPTISCALER=1 and AFMF=1 must never stack them
+        rep_both = json.loads(subprocess.run(
+            [str(DETECT), "--json", "8150"],
+            env={**env, "OPTISCALER": "1", "AFMF": "1"},
+            text=True, capture_output=True, check=True,
+        ).stdout)
+        self.assertTrue(rep_both["optiscaler"])
+        self.assertFalse(rep_both["afmf"])
+
+        # Recovery state is surfaced in both --json and --inspect
+        state_dir = self.home / ".local/state/steam-auto-profiler"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "recovery-8150.state").write_text(
+            "RECOVERY_STAGE=2\nRECOVERY_MODE=CONSERVATIVE_XWAYLAND\nCONSECUTIVE_CRASHES=2\n",
+            encoding="utf-8",
+        )
+        rep_rec = json.loads(subprocess.run(
+            [str(DETECT), "--json", "8150"], env=env, text=True, capture_output=True, check=True
+        ).stdout)
+        self.assertEqual(rep_rec["recovery_stage"], 2)
+        self.assertEqual(rep_rec["recovery_mode"], "CONSERVATIVE_XWAYLAND")
+        self.assertEqual(rep_rec["consecutive_crashes"], 2)
+
+        insp = subprocess.run(
+            [str(DETECT), "--inspect", "8150"], env=env, text=True, capture_output=True, check=True
+        ).stdout
+        self.assertIn("Unreal Engine:", insp)
+        self.assertIn("Stage 2 (CONSERVATIVE_XWAYLAND; crashes=2)", insp)
+
 
 if __name__ == "__main__":
     unittest.main()

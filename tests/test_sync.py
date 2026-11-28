@@ -526,6 +526,28 @@ class SyncTests(unittest.TestCase):
         self.assertLess(time.monotonic() - t_vr, 1.5)
         self.assertFalse(vr_cache["9002"])
 
+    def test_v243_report_displays_recovery_stage(self):
+        import os
+        state_dir = self.home / ".local" / "state" / "steam-auto-profiler"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "recovery-730.state").write_text(
+            "RECOVERY_STAGE=2\nRECOVERY_MODE=CONSERVATIVE_XWAYLAND\nCONSECUTIVE_CRASHES=2\n",
+            encoding="utf-8",
+        )
+        env = os.environ.copy()
+        env["HOME"] = str(self.home)
+        env["XDG_STATE_HOME"] = str(self.home / ".local" / "state")
+        res = subprocess.run(
+            [str(SYNC), "--report"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("Recovery", res.stdout)
+        self.assertIn("Stage 2 (CONSERVATIVE_XWAYLAND)", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -454,6 +454,78 @@ class SyncTests(unittest.TestCase):
         self.assertIn("AFMF", report_res.stdout)
         self.assertIn("Locked", report_res.stdout)
 
+    def test_v241_report_handles_timeout_and_parallel_deterministic_sorting(self):
+        import io
+        import time
+        from contextlib import redirect_stderr
+
+        loader = importlib.machinery.SourceFileLoader("steam_auto_sync_parallel", str(SYNC))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        mock_detector = self.home / "mock-detector"
+        mock_detector.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, sys, time\n"
+            "appid = sys.argv[-1]\n"
+            "if appid == '9002':\n"
+            "    time.sleep(5)\n"
+            "elif appid == '9001':\n"
+            "    time.sleep(0.25)\n"
+            "elif appid == '9003':\n"
+            "    time.sleep(0.05)\n"
+            "else:\n"
+            "    time.sleep(0.15)\n"
+            "print(json.dumps({'class': 'standard', 'afmf': False, 'proton_add_config': 'wayland'}))\n",
+            encoding="utf-8",
+        )
+        mock_detector.chmod(0o755)
+
+        entries = [
+            ("9004", "Zeta Game", "steam", ""),
+            ("9001", "Alpha Game", "steam", ""),
+            ("9002", "Hanging Shortcut", "shortcut", ""),
+            ("9003", "Beta Game", "steam", ""),
+        ]
+
+        stderr_buf = io.StringIO()
+        t0 = time.monotonic()
+        with redirect_stderr(stderr_buf):
+            rows = module.build_report_rows(
+                mock_detector,
+                self.home / ".config",
+                "steam-auto-run",
+                set(),
+                {"9001"},
+                entries,
+                timeout=0.4,
+                max_workers=4,
+            )
+        elapsed = time.monotonic() - t0
+
+        # Parallel execution must complete right around the 0.4s timeout, well under serial 5s+
+        self.assertLess(elapsed, 2.0, f"Parallel report took too long: {elapsed:.2f}s")
+        # Deterministic alphabetical sort despite out-of-order completion times
+        self.assertEqual(
+            [r["name"] for r in rows],
+            ["Alpha Game", "Beta Game", "Hanging Shortcut", "Zeta Game"],
+        )
+        by_id = {r["appid"]: r for r in rows}
+        self.assertEqual(by_id["9001"]["class"], "standard")
+        self.assertEqual(by_id["9001"]["synced"], "Yes")
+        self.assertEqual(by_id["9002"]["class"], "timeout")
+        self.assertEqual(by_id["9002"]["compat"], "-")
+        self.assertIn("timed out", stderr_buf.getvalue().lower())
+        self.assertIn("9002", stderr_buf.getvalue())
+
+        # is_vr_appid must also enforce timeout cleanly and never hang
+        vr_cache = {}
+        t_vr = time.monotonic()
+        self.assertFalse(module.is_vr_appid(mock_detector, "9002", vr_cache, timeout=0.3))
+        self.assertLess(time.monotonic() - t_vr, 1.5)
+        self.assertFalse(vr_cache["9002"])
+
 
 if __name__ == "__main__":
     unittest.main()

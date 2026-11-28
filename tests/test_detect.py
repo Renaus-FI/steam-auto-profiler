@@ -541,6 +541,117 @@ class DetectTests(unittest.TestCase):
         self.assertFalse(run_json("6101", {"MLFG": "1"})["afmf"])
         self.assertTrue(run_json("6113", {"AFMF": "1"})["afmf"])
 
+    def test_v241_no_hang_on_unsafe_shortcut_dirs_empty_installdir_symlinks_or_open_stdin(self):
+        import struct
+        import time
+
+        # Seed an unrelated game with anti-cheat + DLSS inside $HOME/.local/share/Steam
+        self.create_game(
+            "7101",
+            "Other AC Game",
+            files=("game.exe", "EasyAntiCheat/EasyAntiCheat.exe", "nvngx_dlss.dll"),
+        )
+
+        # 1) App manifest with empty installdir and another with non-existent installdir
+        (self.apps / "appmanifest_7102.acf").write_text(
+            '"AppState"\n{\n\t"appid"\t\t"7102"\n\t"installdir"\t\t""\n\t"name"\t\t"Empty Install Dir"\n}\n',
+            encoding="utf-8",
+        )
+        (self.apps / "appmanifest_7103.acf").write_text(
+            '"AppState"\n{\n\t"appid"\t\t"7103"\n\t"installdir"\t\t"DoesNotExist"\n\t"name"\t\t"Missing Dir"\n}\n',
+            encoding="utf-8",
+        )
+
+        # 2) Game with symlink loop back to its own directory
+        loop_dir = self.create_game("7104", "Symlink Loop Game", files=("game.exe", "nvngx_dlss.dll"))
+        (loop_dir / "self_loop").symlink_to(loop_dir)
+
+        # 3) Heroic-style non-Steam shortcuts with StartDir=$HOME and StartDir=/
+        def pack_str(k: str, v: str) -> bytes:
+            return b"\x01" + k.encode() + b"\x00" + v.encode() + b"\x00"
+
+        def pack_u32(k: str, v: int) -> bytes:
+            return b"\x02" + k.encode() + b"\x00" + struct.pack("<I", v)
+
+        vdf_bytes = (
+            b"\x00shortcuts\x00"
+            + b"\x000\x00"
+            + pack_u32("appid", 2795151330)
+            + pack_str("AppName", "MORDHAU")
+            + pack_str("Exe", '"/opt/Heroic/heroic"')
+            + pack_str("StartDir", f'"{self.home}"')
+            + pack_str("LaunchOptions", '--no-gui "heroic://launch?appName=test"')
+            + b"\x08"
+            + b"\x001\x00"
+            + pack_u32("appid", 2386697165)
+            + pack_str("AppName", "Root StartDir Game")
+            + pack_str("Exe", '"/usr/bin/flatpak"')
+            + pack_str("StartDir", '"/"')
+            + pack_str("LaunchOptions", "vr-run %command%")
+            + b"\x08"
+            + b"\x08"
+        )
+        vdf_path = self.steam / "userdata" / "100" / "config" / "shortcuts.vdf"
+        vdf_path.parent.mkdir(parents=True, exist_ok=True)
+        vdf_path.write_bytes(vdf_bytes)
+
+        env = os.environ.copy()
+        env["HOME"] = str(self.home)
+
+        for aid in ("7102", "7103", "7104", "2795151330", "2386697165"):
+            t0 = time.monotonic()
+            res = subprocess.run(
+                [str(DETECT), "--json", aid],
+                env=env,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=True,
+            )
+            self.assertLess(time.monotonic() - t0, 3.0, f"Detector too slow on {aid}")
+            rep = json.loads(res.stdout)
+            if aid in ("7102", "7103", "2795151330", "2386697165"):
+                self.assertIsNone(rep["install_dir"], f"Unsafe/missing install_dir should not be scanned for {aid}")
+            if aid == "2795151330":
+                # Must NOT falsely inherit EAC/DLSS from sibling Steam game in $HOME
+                self.assertEqual(rep["source"], "shortcut")
+                self.assertEqual(rep["game"], "MORDHAU")
+                self.assertEqual(rep["class"], "standard")
+                self.assertFalse(rep["has_dlss"])
+            if aid == "2386697165":
+                # Empty/rejected StartDir must still preserve LaunchOptions (vr-run)
+                self.assertTrue(rep["is_vr"])
+                self.assertEqual(rep["class"], "vr")
+            if aid == "7104":
+                self.assertEqual(rep["class"], "legacy-upscaler")
+                self.assertTrue(rep["has_dlss"])
+
+        # 4) Never hangs even when stdin is an open pipe that never sends EOF
+        proc = subprocess.Popen(
+            [str(DETECT), "--json", "7102"],
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            proc.wait(timeout=5)
+            self.assertEqual(proc.returncode, 0)
+            stdout_data = proc.stdout.read()
+            self.assertEqual(json.loads(stdout_data)["app_id"], "7102")
+        finally:
+            if proc.stdin:
+                proc.stdin.close()
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+
 
 if __name__ == "__main__":
     unittest.main()

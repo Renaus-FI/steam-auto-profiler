@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/Renaus-FI/steam-auto-profiler/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/Renaus-FI/steam-auto-profiler/security/code-scanning)
-[![Release](https://img.shields.io/badge/Release-v2.4.0-brightgreen.svg)](https://github.com/Renaus-FI/steam-auto-profiler/releases/tag/v2.4.0)
+[![Release](https://img.shields.io/badge/Release-v2.4.1-brightgreen.svg)](https://github.com/Renaus-FI/steam-auto-profiler/releases/tag/v2.4.1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Context-aware heuristic game classifier, VR/flatscreen pre-launch orchestrator, and unified Qt6/TUI control center for Steam on Linux.**

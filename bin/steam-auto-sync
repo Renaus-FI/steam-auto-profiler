@@ -2,6 +2,7 @@
 """Batch-inject or remove steam-auto-run in Steam localconfig.vdf."""
 
 import argparse
+import concurrent.futures
 import fcntl
 import json
 import os
@@ -235,18 +236,27 @@ def find_detector(home):
     return next((path for path in candidates if path.is_file()), None)
 
 
-def is_vr_appid(detector, appid, cache):
+DEFAULT_DETECT_TIMEOUT = 15
+
+
+def is_vr_appid(detector, appid, cache, timeout=DEFAULT_DETECT_TIMEOUT):
     if appid in cache:
         return cache[appid]
     if detector is None:
         cache[appid] = False
         return False
-    result = subprocess.run(
-        [str(detector), "--json", appid],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [str(detector), "--json", appid],
+            stdin=subprocess.DEVNULL,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        cache[appid] = False
+        return False
     if result.returncode != 0:
         cache[appid] = False
         return False
@@ -258,6 +268,135 @@ def is_vr_appid(detector, appid, cache):
     is_vr = bool(report.get("is_vr"))
     cache[appid] = is_vr
     return is_vr
+
+
+def detect_report_entry(
+    detector,
+    cfg_home,
+    wrapper,
+    vr_appids,
+    synced_appids,
+    entry,
+    timeout=DEFAULT_DETECT_TIMEOUT,
+):
+    appid, name, source, sc_opts = entry
+    profile_file = cfg_home / "steam-auto-profiler/profiles" / f"{appid}.env"
+    if source == "shortcut":
+        if uses_vr_wrapper(sc_opts):
+            synced_label = "VR"
+        elif wrapper in sc_opts:
+            synced_label = "Yes"
+        else:
+            synced_label = "Custom" if sc_opts else "No"
+    elif appid in vr_appids:
+        synced_label = "VR"
+    elif appid in synced_appids:
+        synced_label = "Yes"
+    else:
+        synced_label = "No"
+
+    timed_out = False
+    report = {}
+    try:
+        result = subprocess.run(
+            [str(detector), "--json", appid],
+            stdin=subprocess.DEVNULL,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        print(
+            f"Warning: steam-auto-detect timed out after {timeout}s for {name} (AppID {appid})",
+            file=sys.stderr,
+        )
+    except OSError as exc:
+        print(
+            f"Warning: steam-auto-detect failed for {name} (AppID {appid}): {exc}",
+            file=sys.stderr,
+        )
+        if source != "shortcut":
+            return None
+    else:
+        if result.returncode == 0:
+            try:
+                report = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                report = {}
+        elif source != "shortcut":
+            return None
+
+    if timed_out:
+        return {
+            "appid": appid,
+            "name": name,
+            "source": source,
+            "class": "timeout",
+            "afmf": "Off",
+            "compat": "-",
+            "profile": "Saved" if profile_file.is_file() else "Auto",
+            "synced": synced_label,
+        }
+
+    game_cls = report.get("class", "standard")
+    if game_cls in ("competitive-anticheat", "vr") or appid == "594650":
+        afmf_label = "Locked"
+    elif report.get("afmf"):
+        afmf_label = "On" if profile_file.is_file() else "Auto"
+    elif report.get("has_native_fg"):
+        afmf_label = "Native FG"
+    elif report.get("is_tool_or_2d"):
+        afmf_label = "2D/Tool"
+    else:
+        afmf_label = "Off"
+
+    return {
+        "appid": appid,
+        "name": name,
+        "source": source,
+        "class": game_cls,
+        "afmf": afmf_label,
+        "compat": report.get("proton_add_config", "-") or "-",
+        "profile": "Saved" if profile_file.is_file() else "Auto",
+        "synced": synced_label,
+    }
+
+
+def build_report_rows(
+    detector,
+    cfg_home,
+    wrapper,
+    vr_appids,
+    synced_appids,
+    entries,
+    timeout=DEFAULT_DETECT_TIMEOUT,
+    max_workers=None,
+):
+    sorted_entries = sorted(entries, key=lambda item: (item[1].lower(), item[0]))
+    if not sorted_entries:
+        return []
+    workers = max_workers if max_workers is not None else min(8, max(2, os.cpu_count() or 4))
+    workers = max(1, min(workers, len(sorted_entries)))
+
+    def _run(entry):
+        return detect_report_entry(
+            detector,
+            cfg_home,
+            wrapper,
+            vr_appids,
+            synced_appids,
+            entry,
+            timeout=timeout,
+        )
+
+    if workers == 1:
+        raw_rows = [_run(entry) for entry in sorted_entries]
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            raw_rows = list(executor.map(_run, sorted_entries))
+    return [row for row in raw_rows if row is not None]
 
 
 def install_systemd_units(home, library_paths=None):
@@ -639,14 +778,22 @@ def main():
             return 0
 
     if not args.dry_run and not args.report:
-        steam_running = subprocess.run(["pgrep", "-x", "steam"], capture_output=True).returncode == 0
+        steam_running = subprocess.run(
+            ["pgrep", "-x", "steam"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=5,
+        ).returncode == 0
         if steam_running and args.wait_for_steam_exit:
             deadline = time.monotonic() + max(0, args.steam_exit_timeout)
             print("Steam is running; waiting for it to exit before syncing.")
             while steam_running and time.monotonic() < deadline:
                 time.sleep(2)
                 steam_running = subprocess.run(
-                    ["pgrep", "-x", "steam"], capture_output=True
+                    ["pgrep", "-x", "steam"],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    timeout=5,
                 ).returncode == 0
             if steam_running:
                 print(
@@ -710,12 +857,7 @@ def main():
                     games[appid] = name
 
             if args.report:
-                detector_candidates = [
-                    Path(__file__).resolve().with_name("steam-auto-detect"),
-                    home / ".local/bin/steam-auto-detect",
-                    Path("/usr/local/bin/steam-auto-detect"),
-                ]
-                detector = next((path for path in detector_candidates if path.is_file()), None)
+                detector = find_detector(home)
                 if detector is None:
                     print("Error: steam-auto-detect not found.", file=sys.stderr)
                     return 1
@@ -737,57 +879,15 @@ def main():
                     if sc_id not in games:
                         all_entries.append((sc_id, sc["name"], "shortcut", sc["launch_options"]))
 
-                rows = []
-                for appid, name, source, sc_opts in sorted(all_entries, key=lambda item: item[1].lower()):
-                    profile_file = cfg_home / "steam-auto-profiler/profiles" / f"{appid}.env"
-                    result = subprocess.run(
-                        [str(detector), "--json", appid],
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                    )
-                    report = {}
-                    if result.returncode == 0:
-                        try:
-                            report = json.loads(result.stdout)
-                        except json.JSONDecodeError:
-                            report = {}
-                    elif source != "shortcut":
-                        continue
-                    if source == "shortcut":
-                        if uses_vr_wrapper(sc_opts):
-                            synced_label = "VR"
-                        elif args.wrapper in sc_opts:
-                            synced_label = "Yes"
-                        else:
-                            synced_label = "Custom" if sc_opts else "No"
-                    elif appid in vr_appids:
-                        synced_label = "VR"
-                    elif appid in synced_appids:
-                        synced_label = "Yes"
-                    else:
-                        synced_label = "No"
-                    game_cls = report.get("class", "standard")
-                    if game_cls in ("competitive-anticheat", "vr") or appid == "594650":
-                        afmf_label = "Locked"
-                    elif report.get("afmf"):
-                        afmf_label = "On" if profile_file.is_file() else "Auto"
-                    elif report.get("has_native_fg"):
-                        afmf_label = "Native FG"
-                    elif report.get("is_tool_or_2d"):
-                        afmf_label = "2D/Tool"
-                    else:
-                        afmf_label = "Off"
-                    rows.append({
-                        "appid": appid,
-                        "name": name,
-                        "source": source,
-                        "class": game_cls,
-                        "afmf": afmf_label,
-                        "compat": report.get("proton_add_config", "-") or "-",
-                        "profile": "Saved" if profile_file.is_file() else "Auto",
-                        "synced": synced_label,
-                    })
+                rows = build_report_rows(
+                    detector,
+                    cfg_home,
+                    args.wrapper,
+                    vr_appids,
+                    synced_appids,
+                    all_entries,
+                    timeout=DEFAULT_DETECT_TIMEOUT,
+                )
 
                 headers = ("AppID", "Game Name", "Source", "Class", "AFMF", "Compat Tokens", "Profile", "Synced")
                 if rows:

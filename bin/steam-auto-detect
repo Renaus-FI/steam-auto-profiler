@@ -11,6 +11,8 @@ for _sap_dir in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
     esac
 done
 export PATH
+# Never block reading inherited stdin anywhere in the detector
+exec </dev/null
 
 load_profile_safe() {
     local file="$1" line key value
@@ -130,25 +132,30 @@ detect_steam_controller_2026() {
     [[ -d "$USB_SYSFS_DIR" ]] || return 0
     for dev_dir in "$USB_SYSFS_DIR"/*; do
         [[ -r "$dev_dir/idVendor" && -r "$dev_dir/idProduct" ]] || continue
-        vid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idVendor" 2>/dev/null | tr -d '[:space:]')"
-        pid="$(tr '[:upper:]' '[:lower:]' < "$dev_dir/idProduct" 2>/dev/null | tr -d '[:space:]')"
-        if [[ "$vid" == "28de" ]]; then
-            case "$pid" in
-                1304|1302|1005|1007)
-                    printf '%s:%s\n' "$vid" "$pid"
-                    return 0
-                    ;;
-            esac
-        fi
+        IFS= read -r vid < "$dev_dir/idVendor" 2>/dev/null || continue
+        vid="${vid,,}"
+        vid="${vid//[[:space:]]/}"
+        [[ "$vid" == "28de" ]] || continue
+        IFS= read -r pid < "$dev_dir/idProduct" 2>/dev/null || continue
+        pid="${pid,,}"
+        pid="${pid//[[:space:]]/}"
+        case "$pid" in
+            1304|1302|1005|1007)
+                printf '%s:%s\n' "$vid" "$pid"
+                return 0
+                ;;
+        esac
     done
     return 0
 }
 
 detect_gpu_vendor() {
-    local vendor_file found_intel=0
+    local vendor_file vendor found_intel=0
     for vendor_file in "$DRM_SYSFS_DIR"/card*/device/vendor; do
         [[ -r "$vendor_file" ]] || continue
-        case "$(cat "$vendor_file" 2>/dev/null)" in
+        IFS= read -r vendor < "$vendor_file" 2>/dev/null || continue
+        vendor="${vendor//[[:space:]]/}"
+        case "$vendor" in
             0x1002) echo amd; return ;;
             0x10de) echo nvidia; return ;;
             0x8086) found_intel=1 ;;
@@ -162,16 +169,17 @@ detect_gpu_vendor() {
 }
 
 detect_rdna3() {
-    local modalias
+    local modalias saw_uevent=0
     for modalias in "$DRM_SYSFS_DIR"/card*/device/uevent; do
         [[ -r "$modalias" ]] || continue
-        if grep -qiE 'PCI_ID=1002:(744C|745E|747E|7480|740F)' "$modalias"; then
+        saw_uevent=1
+        if grep -qiE 'PCI_ID=1002:(744C|745E|747E|7480|740F)' "$modalias" </dev/null; then
             echo 1
             return
         fi
     done
-    if [[ -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
-        lspci -nn 2>/dev/null | grep -qiE '1002:(744c|745e|747e|7480|740f)'; then
+    if [[ "$saw_uevent" -eq 0 && -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
+        lspci -nn </dev/null 2>/dev/null | grep -qiE '1002:(744c|745e|747e|7480|740f)'; then
         echo 1
         return
     fi
@@ -179,16 +187,17 @@ detect_rdna3() {
 }
 
 detect_rdna4() {
-    local uevent
+    local uevent saw_uevent=0
     for uevent in "$DRM_SYSFS_DIR"/card*/device/uevent; do
         [[ -r "$uevent" ]] || continue
-        if grep -qiE 'PCI_ID=1002:(7550|7590)' "$uevent"; then
+        saw_uevent=1
+        if grep -qiE 'PCI_ID=1002:(7550|7590)' "$uevent" </dev/null; then
             echo 1
             return
         fi
     done
-    if [[ -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
-        lspci -nn 2>/dev/null | grep -qiE '1002:(7550|7590)'; then
+    if [[ "$saw_uevent" -eq 0 && -z "${SAP_DRM_DIR:-}" ]] && command -v lspci >/dev/null 2>&1 &&
+        lspci -nn </dev/null 2>/dev/null | grep -qiE '1002:(7550|7590)'; then
         echo 1
         return
     fi
@@ -198,6 +207,7 @@ detect_rdna4() {
 detect_afmf_layer() {
     local -a search_dirs=()
     local -A seen_dirs=()
+    local -A seen_files=()
     local dir json_file lib_path resolved_lib
     if [[ -n "${SAP_AFMF_LAYER_DIRS+x}" ]]; then
         IFS=':' read -r -a search_dirs <<<"$SAP_AFMF_LAYER_DIRS"
@@ -221,9 +231,10 @@ detect_afmf_layer() {
         [[ -n "$dir" && -d "$dir" && -z "${seen_dirs[$dir]:-}" ]] || continue
         seen_dirs["$dir"]=1
         for json_file in "$dir/afmf-linux.json" "$dir"/*.json; do
-            [[ -f "$json_file" && -r "$json_file" ]] || continue
-            grep -q '"VK_LAYER_AFMF"' "$json_file" 2>/dev/null || continue
-            lib_path="$(sed -n 's/.*"library_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$json_file" | head -n1)"
+            [[ -f "$json_file" && -r "$json_file" && -z "${seen_files[$json_file]:-}" ]] || continue
+            seen_files["$json_file"]=1
+            grep -q '"VK_LAYER_AFMF"' "$json_file" </dev/null 2>/dev/null || continue
+            lib_path="$(sed -n 's/.*"library_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$json_file" </dev/null | head -n1)"
             [[ -n "$lib_path" ]] || continue
             resolved_lib=""
             if [[ "$lib_path" == /* ]]; then
@@ -246,6 +257,53 @@ detect_afmf_layer() {
         done
     done
     echo 0
+}
+
+is_safe_game_dir() {
+    local dir="$1"
+    [[ -n "$dir" && -d "$dir" ]] || return 1
+    local resolved home_resolved=""
+    if command -v realpath >/dev/null 2>&1; then
+        resolved="$(realpath -m -- "$dir" 2>/dev/null || printf '%s' "$dir")"
+        if [[ -n "${HOME:-}" ]]; then
+            home_resolved="$(realpath -m -- "$HOME" 2>/dev/null || printf '%s' "$HOME")"
+        fi
+    else
+        resolved="${dir%/}"
+        [[ -z "$resolved" ]] && resolved="/"
+        home_resolved="${HOME:-}"
+        home_resolved="${home_resolved%/}"
+    fi
+    [[ -n "$resolved" ]] || return 1
+    case "$resolved" in
+        /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/media|/mnt|/opt|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/usr/bin|/usr/sbin|/usr/lib|/usr/lib64|/usr/share|/usr/local|/usr/local/bin|/usr/local/share|/var|/var/tmp)
+            return 1
+            ;;
+    esac
+    if [[ -n "$home_resolved" ]]; then
+        case "$resolved" in
+            "$home_resolved"|"$home_resolved/.local"|"$home_resolved/.local/bin"|"$home_resolved/.local/share"|"$home_resolved/.config"|"$home_resolved/.cache"|"$home_resolved/Desktop"|"$home_resolved/Documents"|"$home_resolved/Downloads")
+                return 1
+                ;;
+        esac
+    fi
+    local lib_entry lib_resolved
+    for lib_entry in "${libs[@]:-}"; do
+        [[ -n "$lib_entry" ]] || continue
+        if command -v realpath >/dev/null 2>&1; then
+            lib_resolved="$(realpath -m -- "$lib_entry" 2>/dev/null || printf '%s' "$lib_entry")"
+        else
+            lib_resolved="${lib_entry%/}"
+        fi
+        [[ -n "$lib_resolved" ]] || continue
+        if [[ "$resolved" == "$lib_resolved" ||
+              "$resolved" == "$lib_resolved/steamapps" ||
+              "$resolved" == "$lib_resolved/steamapps/common" ||
+              "$lib_resolved" == "$resolved"/* ]]; then
+            return 1
+        fi
+    done
+    return 0
 }
 
 find_steam_roots() {
@@ -299,7 +357,7 @@ if [[ -n "$APPID" ]]; then
                 | sed -E 's/.*"installdir"[[:space:]]+"([^"]+)".*/\1/' \
                 || true
         )
-        if [[ -n "$install_dir" && -d "$lib/steamapps/common/$install_dir" ]]; then
+        if [[ -n "$install_dir" ]] && is_safe_game_dir "$lib/steamapps/common/$install_dir"; then
             GAME_DIR="$lib/steamapps/common/$install_dir"
         fi
         break
@@ -376,7 +434,20 @@ def parse_shortcuts_vdf(data: bytes):
             aid = str(raw_id & 0xFFFFFFFF)
         else:
             aid = str((zlib.crc32((exe + name).encode("utf-8")) | 0x80000000) & 0xFFFFFFFF)
-        if not start_dir and exe:
+        launcher_exes = {
+            "heroic", "flatpak", "lutris", "bottles", "bottles-cli",
+            "umu-run", "env", "sh", "bash", "zsh", "python", "python3", "steam",
+        }
+        exe_name = Path(exe).name.lower() if exe else ""
+        if exe_name in launcher_exes:
+            # Generic launcher shortcuts (Heroic/Flatpak/Lutris) set StartDir to $HOME or the launcher dir
+            if start_dir and exe:
+                try:
+                    if Path(start_dir).resolve() == Path(exe).parent.resolve():
+                        start_dir = ""
+                except OSError:
+                    pass
+        elif not start_dir and exe:
             parent = str(Path(exe).parent)
             if os.path.isdir(parent):
                 start_dir = parent
@@ -395,15 +466,17 @@ for root in roots:
             continue
         for aid, name, start_dir, launch_opts in parse_shortcuts_vdf(raw):
             if aid == target_appid:
-                print(f"{name}\t{start_dir}\t{launch_opts}")
+                print(f"{name}\x1f{start_dir}\x1f{launch_opts}")
                 sys.exit(0)
 PY
         )"
         if [[ -n "$shortcut_info" ]]; then
-            IFS=$'\t' read -r sc_name sc_dir sc_opts <<<"$shortcut_info"
+            IFS=$'\x1f' read -r sc_name sc_dir sc_opts <<<"$shortcut_info"
             AUTO_SOURCE="shortcut"
             [[ -n "$sc_name" ]] && GAME_NAME="$sc_name"
-            [[ -n "$sc_dir" && -d "$sc_dir" ]] && GAME_DIR="$sc_dir"
+            if [[ -n "$sc_dir" ]] && is_safe_game_dir "$sc_dir"; then
+                GAME_DIR="$sc_dir"
+            fi
             SHORTCUT_LAUNCH_OPTS="${sc_opts:-}"
             if [[ "$SHORTCUT_LAUNCH_OPTS" =~ (^|[[:space:]])([^[:space:]]*/)?vr-run([[:space:]]|$) ||
                   "$SHORTCUT_LAUNCH_OPTS" =~ (^|[[:space:]])--?vr([[:space:]]|$) ]]; then
@@ -416,10 +489,10 @@ PY
     declare -a DETECTED_LEGACY_DLLS=()
     declare -A SEEN_UPSCALER_DLLS=()
 
-    if [[ -n "$GAME_DIR" ]]; then
+    if [[ -n "$GAME_DIR" ]] && is_safe_game_dir "$GAME_DIR"; then
         if command -v df >/dev/null 2>&1; then
             MOUNT_FSTYPE=$(
-                df -T -- "$GAME_DIR" 2>/dev/null \
+                df -T -- "$GAME_DIR" </dev/null 2>/dev/null \
                     | awk 'NR == 2 {print tolower($2)}'
             )
             case "${MOUNT_FSTYPE:-}" in
@@ -522,11 +595,23 @@ PY
                 EXE_MATCH="$asset"
             fi
         done < <(
-            find "$GAME_DIR" -maxdepth 10 \
+            find -P "$GAME_DIR" -maxdepth 9 \
                 -type d \( -iname screenshots -o -iname saves -o -iname savegames \
                     -o -iname logs -o -iname shadercache -o -iname workshop \
-                    -o -iname movies -o -iname videos -o -iname localization \) -prune \
-                -o -type f -print 2>/dev/null
+                    -o -iname movies -o -iname videos -o -iname localization \
+                    -o -iname .git -o -iname .cache -o -iname node_modules -o -iname __pycache__ \) -prune \
+                -o -type f \( \
+                    -iname '*.dll' -o -iname '*.exe' -o -iname '*.so' -o -iname '*.so.*' -o -iname '*.sys' \
+                    -o -iname '*.vrmanifest' -o -iname '*steamvr*manifest*' -o -iname 'optiscaler.ini' \
+                    -o -iname 'electron' -o -iname 'app.asar' \
+                    -o -iname '*.ucas' -o -iname '*.utoc' -o -iname '*-windowsnoeditor.pak' -o -iname '*-windows.pak' \
+                    -o -iname '*easyanticheat*' -o -iname '*battleye*' -o -iname '*beservice*' -o -iname '*randgrid*' \
+                    -o -iname '*ace-base*' -o -iname '*anticheatexpert*' -o -iname '*nprotect*' -o -iname '*gameguard*' \
+                    -o -iname '*xigncode*' -o -iname '*wellbia*' -o -iname '*mhyprot*' -o -iname '*hoyokprotect*' \
+                    -o -iname '*equ8*' -o -iname '*fairfight*' -o -iname '*punkbuster*' \
+                    -o -iname '*eadesktop*' -o -iname '*originthinsetup*' -o -iname '*ubisoftconnect*' \
+                    -o -iname '*uplay*' -o -iname '*battle.net*' -o -iname '*rockstar-games-launcher*' \
+                \) -print </dev/null 2>/dev/null
         )
     fi
 
